@@ -115,22 +115,40 @@ def medir_colusion_damping() -> dict:
     }
 
 
-def _lavado_secuaces(esc, damping: bool = True) -> tuple[float, float]:
+def _lavado_secuaces(esc, damping: bool = True, comunidad: bool = False) -> tuple[float, float]:
     """(reputación de c0, total lavado a los demás colusores) bajo el escenario dado."""
-    rep = reputacion_vectorial(esc.agentes, esc.grafo, damping=damping)
+    rep = reputacion_vectorial(esc.agentes, esc.grafo, damping=damping, comunidad=comunidad)
     total = {aid: suma_vector(v) for aid, v in rep.items()}
     secuaces = [c for c, f in esc.facciones.items() if f == "colusor" and c != "c0"]
     return total["c0"], sum(total[s] for s in secuaces)
 
 
 def medir_colusion_dispersa() -> dict:
-    """Compara el lavado en un anillo DENSO (clique) vs uno DISPERSO (frente §1.6)."""
+    """
+    Anillo DISPERSO (frente §1.6) con tres defensas: sin damping, damping LOCAL (solo independencia
+    pareja), y damping LOCAL + COMUNIDAD (label propagation + sospecha). Mide si la detección de
+    comunidades cierra el hueco que el damping local deja.
+    """
     densa = escenarios.escenario_colusion()
     dispersa = escenarios.escenario_colusion_dispersa()
-    c0_d, sec_d = _lavado_secuaces(densa, damping=True)
-    c0_s, sec_s = _lavado_secuaces(dispersa, damping=True)
-    c0_s0, sec_s0 = _lavado_secuaces(dispersa, damping=False)
-    return {"densa": (c0_d, sec_d), "dispersa_con": (c0_s, sec_s), "dispersa_sin": (c0_s0, sec_s0)}
+    _, sec_densa_local = _lavado_secuaces(densa, damping=True)
+    _, sec_sin = _lavado_secuaces(dispersa, damping=False)
+    _, sec_local = _lavado_secuaces(dispersa, damping=True, comunidad=False)
+    _, sec_comun = _lavado_secuaces(dispersa, damping=True, comunidad=True)
+    # control de falsos positivos: ¿la comunidad daña la reputación honesta?
+    rep_local = reputacion_vectorial(densa.agentes, densa.grafo, damping=True, comunidad=False)
+    rep_comun = reputacion_vectorial(densa.agentes, densa.grafo, damping=True, comunidad=True)
+    honestos = [a.id for a in densa.agentes if densa.facciones[a.id] in ("honesto", "genesis")]
+    h_local = sum(suma_vector(rep_local[h]) for h in honestos)
+    h_comun = sum(suma_vector(rep_comun[h]) for h in honestos)
+    return {
+        "sec_densa_local": sec_densa_local,
+        "sec_sin": sec_sin,
+        "sec_local": sec_local,
+        "sec_comun": sec_comun,
+        "honesto_local": h_local,
+        "honesto_comun": h_comun,
+    }
 
 
 def medir_blanqueo() -> dict:
@@ -228,24 +246,26 @@ def construir_informe() -> str:
     w("Sin el anti-colusión, un solo miembro con reputación real puede 'prestársela' a todo su\n"
       "anillo de títeres; con él, la reputación se queda donde se ganó.\n")
 
-    # colusion dispersa (frente abierto §1.6)
+    # colusion dispersa (frente abierto §1.6) + defensa por comunidades
     disp = medir_colusion_dispersa()
     w("\n## 2b. Frente abierto: colusión SOFISTICADA (anillo disperso, §1.6)\n")
     w("El clique denso es fácil de detectar. Un anillo **disperso** (cada colusor avala a pocos, baja "
-      "reciprocidad/solapamiento) imita patrones honestos. ¿Aguanta el damping?\n\n")
-    w("| Anillo | Lavado a los secuaces (con damping) |\n|---|---|\n")
-    w(f"| denso (clique) | {disp['densa'][1]:.1f} |\n")
-    w(f"| **disperso** | {disp['dispersa_con'][1]:.1f} |\n")
-    w(f"| disperso SIN damping (referencia) | {disp['dispersa_sin'][1]:.1f} |\n")
-    dc, ds = disp["densa"][1], disp["dispersa_con"][1]
-    if ds > dc * 1.5:
-        w(f"\n**Hallazgo honesto:** el anillo disperso lava **más** ({ds:.0f} vs {dc:.0f}) — el damping, "
-          "calibrado contra cliques, **se filtra** con topologías dispersas. Es exactamente la frontera "
-          "abierta (§1.6, PAPER §10): el siguiente paso es endurecer la detección (independencia más "
-          "global, detección de comunidades) contra colusión que imita lo honesto.\n")
-    else:
-        w(f"\nEl damping también contiene el anillo disperso en este régimen ({ds:.0f} vs {dc:.0f} del "
-          "denso). Aun así, la colusión sofisticada sigue siendo el frente a vigilar (§1.6).\n")
+      "reciprocidad/solapamiento) imita patrones honestos y **se filtra** del damping local. Probamos "
+      "una defensa nueva: **detección de comunidades** (la señal global que el anillo disperso sí deja).\n\n")
+    w("| Defensa sobre el anillo disperso | Lavado a los secuaces |\n|---|---|\n")
+    w(f"| sin damping (referencia) | {disp['sec_sin']:.1f} |\n")
+    w(f"| damping LOCAL (solo independencia pareja) | {disp['sec_local']:.1f} |\n")
+    w(f"| damping LOCAL + COMUNIDAD (nuevo) | {disp['sec_comun']:.1f} |\n")
+    w(f"\n(Referencia: el clique denso con damping local lava solo {disp['sec_densa_local']:.1f}.)\n")
+    mejora = disp["sec_local"] / disp["sec_comun"] if disp["sec_comun"] > 0 else float("inf")
+    w(f"\n**Resultado:** la detección de comunidades reduce el lavado del anillo disperso de "
+      f"**{disp['sec_local']:.0f}** (damping local) a **{disp['sec_comun']:.0f}** "
+      f"(~{mejora:.1f}× menos) — cierra buena parte del hueco que dejaba el damping local.\n")
+    danio = 100.0 * (1.0 - disp["honesto_comun"] / disp["honesto_local"]) if disp["honesto_local"] else 0.0
+    w(f"**Control de falsos positivos:** la reputación honesta total apenas cambia con la defensa de "
+      f"comunidades ({danio:+.1f}% sobre la base) → no castiga a las comunidades honestas (tienen "
+      "evidencia real, baja su sospecha). Honesto: sigue siendo opt-in y a validar más; la colusión "
+      "adaptativa (fragmentar el anillo en varias comunidades) es el siguiente frente (§1.6, PAPER §10).\n")
 
     # blanqueo
     bl = medir_blanqueo()

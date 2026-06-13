@@ -34,15 +34,18 @@ Sin el anti-colusión, un solo miembro con reputación real puede 'prestársela'
 anillo de títeres; con él, la reputación se queda donde se ganó.
 
 ## 2b. Frente abierto: colusión SOFISTICADA (anillo disperso, §1.6)
-El clique denso es fácil de detectar. Un anillo **disperso** (cada colusor avala a pocos, baja reciprocidad/solapamiento) imita patrones honestos. ¿Aguanta el damping?
+El clique denso es fácil de detectar. Un anillo **disperso** (cada colusor avala a pocos, baja reciprocidad/solapamiento) imita patrones honestos y **se filtra** del damping local. Probamos una defensa nueva: **detección de comunidades** (la señal global que el anillo disperso sí deja).
 
-| Anillo | Lavado a los secuaces (con damping) |
+| Defensa sobre el anillo disperso | Lavado a los secuaces |
 |---|---|
-| denso (clique) | 24.6 |
-| **disperso** | 148.0 |
-| disperso SIN damping (referencia) | 209.5 |
+| sin damping (referencia) | 209.5 |
+| damping LOCAL (solo independencia pareja) | 148.0 |
+| damping LOCAL + COMUNIDAD (nuevo) | 66.2 |
 
-**Hallazgo honesto:** el anillo disperso lava **más** (148 vs 25) — el damping, calibrado contra cliques, **se filtra** con topologías dispersas. Es exactamente la frontera abierta (§1.6, PAPER §10): el siguiente paso es endurecer la detección (independencia más global, detección de comunidades) contra colusión que imita lo honesto.
+(Referencia: el clique denso con damping local lava solo 24.6.)
+
+**Resultado:** la detección de comunidades reduce el lavado del anillo disperso de **148** (damping local) a **66** (~2.2× menos) — cierra buena parte del hueco que dejaba el damping local.
+**Control de falsos positivos:** la reputación honesta total apenas cambia con la defensa de comunidades (-0.1% sobre la base) → no castiga a las comunidades honestas (tienen evidencia real, baja su sospecha). Honesto: sigue siendo opt-in y a validar más; la colusión adaptativa (fragmentar el anillo en varias comunidades) es el siguiente frente (§1.6, PAPER §10).
 
 ## 3. Blanqueo de seudónimo (whitewashing, §5)
 Mismo humano, dos máscaras: una consolidada y una nueva.

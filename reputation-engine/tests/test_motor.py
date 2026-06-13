@@ -62,6 +62,24 @@ def test_damping_reduce_lavado():
     assert lavado_sin / max(lavado_con, 1e-9) > 3.0, "el damping aporta menos de 3×"
 
 
+def test_comunidad_reduce_anillo_disperso():
+    """La detección de comunidades reduce el lavado del anillo DISPERSO (frente §1.6) sin dañar a los honestos."""
+    esc = escenarios.escenario_colusion_dispersa()
+    secuaces = [c for c, f in esc.facciones.items() if f == "colusor" and c != "c0"]
+    honestos = [a.id for a in esc.agentes if esc.facciones[a.id] in ("honesto", "genesis")]
+
+    def medir(comunidad):
+        rep = reputacion_vectorial(esc.agentes, esc.grafo, damping=True, comunidad=comunidad)
+        lavado = sum(_suma(rep[s]) for s in secuaces)
+        honesto = sum(_suma(rep[h]) for h in honestos)
+        return lavado, honesto
+
+    lav_local, hon_local = medir(False)
+    lav_comun, hon_comun = medir(True)
+    assert lav_comun < lav_local * 0.8, "la defensa de comunidad debe reducir el lavado disperso"
+    assert hon_comun > hon_local * 0.9, "la defensa de comunidad NO debe castigar a los honestos"
+
+
 def test_blanqueo_pierde_todo():
     """El seudónimo nuevo (whitewashing) no hereda reputación: ~0 frente al consolidado."""
     esc = escenarios.escenario_blanqueo()

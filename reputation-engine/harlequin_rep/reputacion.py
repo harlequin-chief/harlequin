@@ -57,6 +57,7 @@ def reputacion_dimension(
     tol: float = 1e-12,
     escala: float = 1000.0,
     damping: bool = True,
+    comunidad: bool = False,
 ) -> dict[str, float]:
     """
     Reputación GANADA (puerta 2, §1.4) de cada agente en una dimensión.
@@ -67,7 +68,11 @@ def reputacion_dimension(
     """
     nodos = [a.id for a in agentes]
     p = _pretrust(agentes, dim)
-    C = grafo.matriz_local_amortiguada(dim, nodos, damping=damping)
+    # evidencia TOTAL por nodo (todas las dimensiones), para la sospecha de comunidad (§1.6)
+    evidencia_total = {a.id: sum(a.evidencia.values()) for a in agentes}
+    C = grafo.matriz_local_amortiguada(
+        dim, nodos, damping=damping, comunidad=comunidad, evidencia=evidencia_total
+    )
 
     # Suma de cada fila de C (≤ 1). El déficit (1 - suma) es la masa que NO se propaga: o bien el
     # nodo no avala a nadie (colgante, suma 0) o sus avales son endogámicos y se amortiguaron (§1.6).
