@@ -36,6 +36,7 @@ it **Woven Trust Consensus**, and the unit of attack cost **reputation-time**.
 | [`docs/woven-trust-consensus.md`](docs/woven-trust-consensus.md) | The consensus paper (English). |
 | [`docs/consenso-confianza-tejida.md`](docs/consenso-confianza-tejida.md) | The consensus paper (Spanish). |
 | [`reputation-engine/`](reputation-engine/) | Runnable prototype of the reputation core + attack simulations. |
+| [`consensus-simulator/`](consensus-simulator/) | Runnable simulator: security threshold measured in reputation, not node count. |
 
 ### Run the reputation engine
 
@@ -90,6 +91,7 @@ tiempo** — un bien que *no se compra, no se computa y no se atesora*. Al conse
 | [`docs/consenso-confianza-tejida.md`](docs/consenso-confianza-tejida.md) | El paper del consenso (español). |
 | [`docs/woven-trust-consensus.md`](docs/woven-trust-consensus.md) | El paper del consenso (inglés). |
 | [`reputation-engine/`](reputation-engine/) | Prototipo ejecutable del núcleo de reputación + simulaciones de ataque. |
+| [`consensus-simulator/`](consensus-simulator/) | Simulador ejecutable: el umbral de seguridad se mide en reputación, no en número de nodos. |
 
 ### Ejecutar el motor de reputación
 
