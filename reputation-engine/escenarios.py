@@ -167,6 +167,48 @@ def escenario_colusion(
     )
 
 
+def escenario_colusion_dispersa(
+    semilla: int = 7, n_anillo: int = 30, grado: int = 3, honestos_engañados: int = 3
+) -> Escenario:
+    """
+    Colusión SOFISTICADA (frente abierto §1.6): en vez de un clique denso (todos avalan a todos),
+    un anillo DISPERSO donde cada colusor avala solo a `grado` otros del anillo, elegidos para
+    minimizar la reciprocidad y el solapamiento de vecinos (imita patrones honestos). Es el ataque
+    que más cuesta detectar: pocas firmas obvias de endogamia. c0 tiene reputación real que el
+    anillo intenta lavar. Sirve para MEDIR si el damping (pensado contra cliques) también frena al
+    anillo disperso, o se filtra (revelando la frontera).
+    """
+    rng = random.Random(semilla)
+    agentes, grafo, facciones = _construir_base(rng)
+
+    anillo = [f"c{i}" for i in range(n_anillo)]
+    for idx, cid in enumerate(anillo):
+        evidencia = {"comercio": 20.0} if idx == 0 else {}
+        agentes.append(Agente(id=cid, tipo=TipoAgente.COLUSOR, es_humano_unico=True,
+                              evidencia=evidencia, cluster="anillo_disperso"))
+        facciones[cid] = "colusor"
+
+    # anillo disperso: cada colusor avala a `grado` otros, evitando reciprocidad directa cuando se
+    # puede (baja la firma de endogamia). Topología tipo grafo aleatorio dirigido disperso.
+    for a in anillo:
+        candidatos = [b for b in anillo if b != a]
+        for b in rng.sample(candidatos, min(grado, len(candidatos))):
+            grafo.atestar(a, b, "comercio", 1.0)
+
+    honestos = [aid for aid, f in facciones.items() if f == "honesto"]
+    for hid, cid in zip(rng.sample(honestos, honestos_engañados), anillo):
+        grafo.atestar(hid, cid, "comercio", 1.0)
+
+    return Escenario(
+        nombre="colusion_dispersa",
+        descripcion=f"Anillo DISPERSO de {n_anillo} (grado {grado}, baja endogamia) + {honestos_engañados} "
+        f"honestos engañados. Colusión sofisticada (frente §1.6).",
+        agentes=agentes,
+        grafo=grafo,
+        facciones=facciones,
+    )
+
+
 def escenario_blanqueo(semilla: int = 7) -> Escenario:
     """
     Whitewashing (§5, §1): un seudónimo CONSOLIDADO (blanq_viejo, con evidencia + avales) frente a

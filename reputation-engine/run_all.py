@@ -115,6 +115,24 @@ def medir_colusion_damping() -> dict:
     }
 
 
+def _lavado_secuaces(esc, damping: bool = True) -> tuple[float, float]:
+    """(reputación de c0, total lavado a los demás colusores) bajo el escenario dado."""
+    rep = reputacion_vectorial(esc.agentes, esc.grafo, damping=damping)
+    total = {aid: suma_vector(v) for aid, v in rep.items()}
+    secuaces = [c for c, f in esc.facciones.items() if f == "colusor" and c != "c0"]
+    return total["c0"], sum(total[s] for s in secuaces)
+
+
+def medir_colusion_dispersa() -> dict:
+    """Compara el lavado en un anillo DENSO (clique) vs uno DISPERSO (frente §1.6)."""
+    densa = escenarios.escenario_colusion()
+    dispersa = escenarios.escenario_colusion_dispersa()
+    c0_d, sec_d = _lavado_secuaces(densa, damping=True)
+    c0_s, sec_s = _lavado_secuaces(dispersa, damping=True)
+    c0_s0, sec_s0 = _lavado_secuaces(dispersa, damping=False)
+    return {"densa": (c0_d, sec_d), "dispersa_con": (c0_s, sec_s), "dispersa_sin": (c0_s0, sec_s0)}
+
+
 def medir_blanqueo() -> dict:
     esc = escenarios.escenario_blanqueo()
     rep_vec = reputacion_vectorial(esc.agentes, esc.grafo)
@@ -209,6 +227,25 @@ def construir_informe() -> str:
         w("\nCon damping, lo lavado a los secuaces cae a ~0.\n")
     w("Sin el anti-colusión, un solo miembro con reputación real puede 'prestársela' a todo su\n"
       "anillo de títeres; con él, la reputación se queda donde se ganó.\n")
+
+    # colusion dispersa (frente abierto §1.6)
+    disp = medir_colusion_dispersa()
+    w("\n## 2b. Frente abierto: colusión SOFISTICADA (anillo disperso, §1.6)\n")
+    w("El clique denso es fácil de detectar. Un anillo **disperso** (cada colusor avala a pocos, baja "
+      "reciprocidad/solapamiento) imita patrones honestos. ¿Aguanta el damping?\n\n")
+    w("| Anillo | Lavado a los secuaces (con damping) |\n|---|---|\n")
+    w(f"| denso (clique) | {disp['densa'][1]:.1f} |\n")
+    w(f"| **disperso** | {disp['dispersa_con'][1]:.1f} |\n")
+    w(f"| disperso SIN damping (referencia) | {disp['dispersa_sin'][1]:.1f} |\n")
+    dc, ds = disp["densa"][1], disp["dispersa_con"][1]
+    if ds > dc * 1.5:
+        w(f"\n**Hallazgo honesto:** el anillo disperso lava **más** ({ds:.0f} vs {dc:.0f}) — el damping, "
+          "calibrado contra cliques, **se filtra** con topologías dispersas. Es exactamente la frontera "
+          "abierta (§1.6, PAPER §10): el siguiente paso es endurecer la detección (independencia más "
+          "global, detección de comunidades) contra colusión que imita lo honesto.\n")
+    else:
+        w(f"\nEl damping también contiene el anillo disperso en este régimen ({ds:.0f} vs {dc:.0f} del "
+          "denso). Aun así, la colusión sofisticada sigue siendo el frente a vigilar (§1.6).\n")
 
     # blanqueo
     bl = medir_blanqueo()

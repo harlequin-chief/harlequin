@@ -33,6 +33,17 @@ El damping recorta la reputación lavada a los secuaces **8.7×**.
 Sin el anti-colusión, un solo miembro con reputación real puede 'prestársela' a todo su
 anillo de títeres; con él, la reputación se queda donde se ganó.
 
+## 2b. Frente abierto: colusión SOFISTICADA (anillo disperso, §1.6)
+El clique denso es fácil de detectar. Un anillo **disperso** (cada colusor avala a pocos, baja reciprocidad/solapamiento) imita patrones honestos. ¿Aguanta el damping?
+
+| Anillo | Lavado a los secuaces (con damping) |
+|---|---|
+| denso (clique) | 24.6 |
+| **disperso** | 148.0 |
+| disperso SIN damping (referencia) | 209.5 |
+
+**Hallazgo honesto:** el anillo disperso lava **más** (148 vs 25) — el damping, calibrado contra cliques, **se filtra** con topologías dispersas. Es exactamente la frontera abierta (§1.6, PAPER §10): el siguiente paso es endurecer la detección (independencia más global, detección de comunidades) contra colusión que imita lo honesto.
+
 ## 3. Blanqueo de seudónimo (whitewashing, §5)
 Mismo humano, dos máscaras: una consolidada y una nueva.
 
