@@ -147,14 +147,37 @@ def construir_informe() -> str:
       "ni siquiera atasca: su bloque correlacionado no entra lo bastante en los comités. Coherente con "
       "Snowball/Avalanche: la seguridad es robusta; el coste adaptativo es liveness, recuperable.\n")
 
+    # 5. partición de red: ataque + mitigación
+    import particion
+    w("\n## 5. Partición de red: ataque de partición + mitigación quórum-de-red\n")
+    w("Se rompe el supuesto de red completa: los honestos se parten en un grupo grande A (60) y uno "
+      "pequeño B (20); un adversario inofensivo global (15%) concentra su reputación en B. La red está "
+      "partida `D` rondas (cada grupo solo se ve a sí mismo) y luego sana.\n\n")
+    w("| D (rondas partido) | fork (sin mitig.) | fork (+quórum 60%) | atasco (+quórum) |\n|---:|---:|---:|---:|\n")
+    for D in (0, 20, 50, 90):
+        s = particion.medir(0.15, D, quorum_red=0.0)
+        c = particion.medir(0.15, D, quorum_red=0.6)
+        w(f"| {D} | {s['fork']:.0f} % | {c['fork']:.0f} % | {c['atasco']:.0f} % |\n")
+    w("\n**Hallazgo (honesto, importante):** una partición larga **concentra la cuota LOCAL del "
+      "adversario** en el grupo pequeño por encima del umbral → B finaliza el valor falso → al sanar, "
+      "**FORK**. Un 15% global inofensivo se vuelve **100% de fork** con partición de 90 rondas. **Es un "
+      "fallo de safety real**, encontrado en simulación antes de construir la cadena.\n\n")
+    w("**Mitigación:** condicionar la **finalidad** a ver un **quórum de la reputación total** (un nodo "
+      "no decide si alcanza a ver <60% de la red). Bajo partición, B (25% de la rep) no llega al quórum → "
+      "**no finaliza, se atasca** (coste de liveness) en vez de forkear, y **recupera al sanar**. El fork "
+      "cae de ~100% a ~0–2%. Es la regla esperable de un BFT robusto: **ante duda de partición, preferir "
+      "parar (liveness) antes que decidir mal (safety)**. Pendiente: detección dinámica de la fracción "
+      "vista (aquí se modela con el grupo) y latencia/pérdida de mensajes.\n")
+
     w("\n## Conclusión\n")
-    w("El simulador confirma las piezas del paper: (1) el **umbral de seguridad se mide en fracción de "
-      "REPUTACIÓN**, no de nodos; (2) el **muestreo por independencia** (PAPER §5.4) eleva ese umbral "
-      "frente a un adversario **correlacionado**, acotando su presencia en el comité por estructura — y "
-      "vencerlo exige fragmentar en clústeres que parezcan independientes, lo que el motor de reputación "
-      "resiste (*los dos prototipos componen*); (3) un adversario **adaptativo** solo ataca la "
-      "**vivacidad**, nunca la seguridad. Limitación honesta: modelo de decisión binaria, red completa "
-      "(sin partición/latencia), y prueba **formal** de safety/liveness aún pendiente (PAPER §10).\n")
+    w("El simulador confirma y endurece las piezas del paper: (1) el **umbral de seguridad se mide en "
+      "fracción de REPUTACIÓN**, no de nodos; (2) el **muestreo por independencia** (PAPER §5.4) eleva ese "
+      "umbral frente a un adversario **correlacionado** — vencerlo exige fragmentar en clústeres que "
+      "parezcan independientes, lo que el motor de reputación resiste (*los dos prototipos componen*); "
+      "(3) un adversario **adaptativo** solo ataca la **vivacidad**, nunca la seguridad; (4) bajo "
+      "**partición** aparece un fork real si se finaliza a ciegas, **mitigado** condicionando la finalidad "
+      "a un quórum de red (safety sobre liveness). Limitación honesta restante: modelo binario, latencia/"
+      "pérdida de mensajes no modeladas, y prueba **formal** de safety/liveness (PAPER §10).\n")
     return "".join(L)
 
 

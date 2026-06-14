@@ -14,7 +14,7 @@ instead of uniform. Python standard library only.
 
 ```bash
 python3 run_consenso.py            # generates RESULTADOS-consenso.md
-python3 tests/test_consenso.py     # self-audit (8 tests)
+python3 tests/test_consenso.py     # self-audit (10 tests)
 ```
 
 Findings (see `RESULTADOS-consenso.md`):
@@ -37,9 +37,15 @@ Findings (see `RESULTADOS-consenso.md`):
 - **Adaptive adversary.** A splitter that each round reports the minority colour (worst-case, anti-
   finality) attacks **liveness** (it stalls convergence) but **never forces a false decision** — and
   under independence-weighted sampling it cannot even stall.
+- **Network partition — attack found *and* mitigated (`particion.py`).** A globally harmless adversary
+  (15%) concentrated in a small group, under a long partition, captures that group (its *local* share
+  exceeds the threshold), which finalises the false value → **fork on heal** (a real safety failure,
+  found in simulation). Mitigation: gate finality on seeing a **quorum of total reputation** — under
+  partition the isolated group never reaches quorum, so it **stalls instead of forking** and recovers
+  on heal. Fork drops from ~100% to ~0–2% (safety over liveness, as a robust BFT should).
 
 ## Honesty
 
-This is a binary-decision model over a complete network (no partition/latency). A **formal**
+This is a binary-decision model; message latency/loss is not yet modelled, and a **formal**
 safety/liveness proof is still open (see the paper, §10). The chain is not written until the model
 holds up.

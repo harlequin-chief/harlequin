@@ -51,6 +51,9 @@ def run_once(
     clusters: dict[str, str] | None = None,
     cap_cluster: int | None = None,
     adversario: str = "fijo",
+    grupo: dict[str, int] | None = None,
+    rondas_particion: int = 0,
+    quorum_red: float = 0.0,
 ) -> dict[str, int]:
     """
     Una ejecución del consenso. Devuelve un recuento de resultados entre los HONESTOS:
@@ -62,6 +65,12 @@ def run_once(
     `cap_cluster`: si se da (con `clusters`), ninguna muestra puede contener más de `cap_cluster`
     nodos del mismo clúster -> muestreo ponderado por independencia (PAPER §5.4).
     `adversario`: "fijo" (siempre 1) o "adaptativo" (reporta el color minoritario entre honestos).
+    `grupo` + `rondas_particion`: PARTICIÓN de red. Durante las primeras `rondas_particion` rondas,
+    cada nodo solo puede muestrear dentro de su propio grupo (la red está partida); después sana y se
+    muestrea de toda la red. Mide safety (¿deciden distinto los dos lados?) y liveness (¿se recupera?).
+    `quorum_red`: MITIGACIÓN anti-partición. Un nodo no FINALIZA (decide) si la reputación que alcanza
+    a ver es < `quorum_red` del total. Bajo partición, el grupo aislado no llega al quórum -> no
+    finaliza (se atasca, no forkea) -> recupera al sanar. 0.0 = sin mitigación (comportamiento base).
     """
     ids = list(reputacion)
     if ponderado:
@@ -72,17 +81,42 @@ def run_once(
 
     usar_cap = cap_cluster is not None and clusters is not None
 
-    def muestra() -> list[str]:
-        """k nodos ponderados por reputación; con tope por clúster si se pide (independencia)."""
+    # pools por grupo para la fase de partición (ids + cum_weights restringidos a cada grupo)
+    pools: dict[int, tuple[list[str], list[float]]] = {}
+    rep_grupo: dict[int, float] = {}
+    if grupo is not None and rondas_particion > 0:
+        for g in set(grupo.values()):
+            gids = [i for i in ids if grupo.get(i) == g]
+            gpesos = [max(reputacion[i], 0.0) if ponderado else 1.0 for i in gids]
+            pools[g] = (gids, _cum_weights(gpesos))
+            rep_grupo[g] = sum(gpesos)
+    rep_total = sum(max(reputacion[i], 0.0) if ponderado else 1.0 for i in ids)
+
+    def alcanza_quorum(nodo: str, ronda: int) -> bool:
+        """¿El nodo ve suficiente reputación de la red para poder FINALIZAR? (mitigación partición)"""
+        if quorum_red <= 0.0:
+            return True
+        visible = rep_grupo.get(grupo[nodo], rep_total) if (pools and ronda < rondas_particion) else rep_total
+        return rep_total > 0 and visible / rep_total >= quorum_red
+
+    def muestra(nodo: str, ronda: int) -> list[str]:
+        """k nodos ponderados por reputación; con tope por clúster y/o partición de red si aplica."""
+        # partición activa: el nodo solo ve su grupo
+        if pools and ronda < rondas_particion:
+            gids, gcum = pools[grupo[nodo]]
+            base_ids, base_cum = gids, gcum
+        else:
+            base_ids, base_cum = ids, cum
         if not usar_cap:
-            return rng.choices(ids, cum_weights=cum, k=params.k)
+            return rng.choices(base_ids, cum_weights=base_cum, k=params.k)
+        ids_local, cum_local = base_ids, base_cum
         elegidos: list[str] = []
         por_cluster: dict[str, int] = {}
         intentos = 0
         limite = params.k * 40  # cota anti-bucle si no hay diversidad suficiente
         while len(elegidos) < params.k and intentos < limite:
             intentos += 1
-            cand = rng.choices(ids, cum_weights=cum, k=1)[0]
+            cand = rng.choices(ids_local, cum_weights=cum_local, k=1)[0]
             cl = clusters.get(cand, cand)
             if por_cluster.get(cl, 0) >= cap_cluster:
                 continue
@@ -90,7 +124,7 @@ def run_once(
             por_cluster[cl] = por_cluster.get(cl, 0) + 1
         # si la diversidad no alcanza para k, se completa sin tope (no se penaliza la vivacidad)
         while len(elegidos) < params.k:
-            elegidos.append(rng.choices(ids, cum_weights=cum, k=1)[0])
+            elegidos.append(rng.choices(ids_local, cum_weights=cum_local, k=1)[0])
         return elegidos
 
     honestos = [i for i in ids if i not in adversarios]
@@ -107,7 +141,7 @@ def run_once(
             return decision[i]
         return pref[i]
 
-    for _ in range(params.max_rondas):
+    for ronda in range(params.max_rondas):
         if len(decision) == len(honestos):
             break
         if adversario == "adaptativo":
@@ -119,7 +153,7 @@ def run_once(
         for n in honestos:
             if n in decision:
                 continue
-            m = muestra()
+            m = muestra(n, ronda)
             unos = sum(1 for s in m if reporta(s) == 1)
             ceros = params.k - unos
             color, cuenta = (1, unos) if unos >= ceros else (0, ceros)
@@ -129,7 +163,8 @@ def run_once(
                 else:
                     pref[n] = color
                     racha[n] = 1
-                if racha[n] >= params.beta:
+                # finaliza solo con racha suficiente Y viendo quórum de la red (anti-partición)
+                if racha[n] >= params.beta and alcanza_quorum(n, ronda):
                     decision[n] = color
             else:
                 racha[n] = 0

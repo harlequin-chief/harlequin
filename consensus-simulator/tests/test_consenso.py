@@ -111,6 +111,29 @@ def test_adversario_adaptativo_no_rompe_seguridad():
     assert captura == 0.0, "el adaptativo no deberia capturar (solo atascar)"
 
 
+def test_particion_larga_forkea_sin_mitigacion():
+    """
+    Ataque de partición: un adversario inofensivo global (15%) concentrado en el grupo pequeño, con
+    una partición larga, captura ese grupo y produce FORK al sanar (fallo de safety). Documenta el
+    riesgo real que el simulador encontró.
+    """
+    import particion
+    m = particion.medir(0.15, D=90, quorum_red=0.0, trials=40)
+    assert m["fork"] > 50.0, f"la partición larga debería forkear, fue {m['fork']}%"
+
+
+def test_particion_quorum_preserva_safety():
+    """
+    Mitigación quórum-de-red: condicionar la finalidad a ver ≥60% de la reputación elimina casi por
+    completo el fork (safety preservada), a cambio de atasco (liveness recuperable).
+    """
+    import particion
+    sin = particion.medir(0.15, D=90, quorum_red=0.0, trials=40)
+    con = particion.medir(0.15, D=90, quorum_red=0.6, trials=40)
+    assert con["fork"] < sin["fork"] * 0.2, f"el quórum debería recortar el fork drásticamente ({sin['fork']}→{con['fork']})"
+    assert con["fork"] < 10.0, f"con quórum el fork debería ser bajo, fue {con['fork']}%"
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     fallos = 0
