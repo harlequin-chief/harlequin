@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """
-Runner del prototipo: ejecuta todos los escenarios, mide cuánto poder captura cada facción y
-escribe el informe RESULTADOS.md. Sin dependencias externas.
+Prototype runner: runs every scenario, measures how much power each faction captures and writes the
+report RESULTS.md. No external dependencies.
 
-Uso:
-    python3 run_all.py            # ejecuta y escribe RESULTADOS.md
-    python3 run_all.py --stdout   # además vuelca el informe por pantalla
+Usage:
+    python3 run_all.py            # runs and writes RESULTS.md
+    python3 run_all.py --stdout   # also dumps the report to the screen
 
-Métricas:
-  - Cuota de reputación ganada por facción (suma de todo el vector) -> intuición de "masa de poder".
-  - Cuota de comité de consenso (sorteo ponderado por reputación, §2.2) -> poder estructural real.
-  - Colusión: comparación CON vs SIN damping (§1.6) para medir cuánto aporta el anti-colusión.
-  - Blanqueo: reputación del seudónimo viejo vs el nuevo (whitewashing, §5).
-  - Slashing en cascada (§1.5c, §1.7): qué pierde el padrino cuando el ahijado defrauda.
+Metrics:
+  - Earned-reputation share per faction (sum of the whole vector) -> intuition of "power mass".
+  - Consensus committee share (reputation-weighted sortition, §2.2) -> real structural power.
+  - Collusion: comparison WITH vs WITHOUT damping (§1.6) to measure what anti-collusion contributes.
+  - Whitewashing: reputation of the old vs the new pseudonym (§5).
+  - Cascade slashing (§1.5c, §1.7): what the sponsor loses when the protege defrauds.
 """
 
 from __future__ import annotations
@@ -20,414 +20,408 @@ from __future__ import annotations
 import sys
 from collections import defaultdict
 
-from harlequin_rep.consenso import sorteo_ponderado
-from harlequin_rep.model import DIMENSIONES
-from harlequin_rep.reputacion import (
-    agregado_conservador,
-    reputacion_vectorial,
-)
+from harlequin_rep.consensus import weighted_sortition
+from harlequin_rep.reputation import conservative_aggregate, reputation_vector
 from harlequin_rep.vouch import (
-    RegistroAvales,
-    cupo_de_avales,
-    dividendo_de_mentor,
-    slashing_en_cascada,
+    VouchRegistry,
+    cascade_slashing,
+    mentor_dividend,
+    vouch_quota,
 )
-import adaptativo
-import escenarios
+import adaptive
+import scenarios
 
 
-# ----------------------------- utilidades de medida ---------------------------------------------
+# ----------------------------- measurement utilities --------------------------------------------
 
-def suma_vector(vec: dict[str, float]) -> float:
+def sum_vector(vec: dict[str, float]) -> float:
     return sum(vec.values())
 
 
-def cuotas_por_faccion(valor_por_agente: dict[str, float], facciones: dict[str, str]) -> dict[str, float]:
-    """Agrupa un valor por agente en cuotas (%) por facción."""
-    por_fac: dict[str, float] = defaultdict(float)
-    for aid, v in valor_por_agente.items():
-        por_fac[facciones[aid]] += v
-    total = sum(por_fac.values())
+def shares_by_faction(value_per_agent: dict[str, float], factions: dict[str, str]) -> dict[str, float]:
+    """Groups a per-agent value into (%) shares per faction."""
+    per_fac: dict[str, float] = defaultdict(float)
+    for aid, v in value_per_agent.items():
+        per_fac[factions[aid]] += v
+    total = sum(per_fac.values())
     if total <= 0:
-        return {f: 0.0 for f in por_fac}
-    return {f: 100.0 * v / total for f, v in por_fac.items()}
+        return {f: 0.0 for f in per_fac}
+    return {f: 100.0 * v / total for f, v in per_fac.items()}
 
 
-def pesos_consenso(rep_vec: dict[str, dict[str, float]], modo: str = "mediana") -> dict[str, float]:
-    """Peso de consenso = agregado conservador del vector de reputación (§1.2b, §2.2)."""
-    return {aid: agregado_conservador(vec, modo) for aid, vec in rep_vec.items()}
+def consensus_weights(rep_vec: dict[str, dict[str, float]], mode: str = "median") -> dict[str, float]:
+    """Consensus weight = conservative aggregate of the reputation vector (§1.2b, §2.2)."""
+    return {aid: conservative_aggregate(vec, mode) for aid, vec in rep_vec.items()}
 
 
 def fmt_pct(d: dict[str, float]) -> str:
-    orden = ["genesis", "honesto", "sybil", "colusor", "blanqueador"]
-    partes = [f"{f}={d[f]:.2f}%" for f in orden if f in d and d[f] > 1e-9]
-    return ", ".join(partes) if partes else "(ninguna)"
+    order = ["genesis", "honest", "sybil", "colluder", "whitewasher"]
+    parts = [f"{f}={d[f]:.2f}%" for f in order if f in d and d[f] > 1e-9]
+    return ", ".join(parts) if parts else "(none)"
 
 
-# ----------------------------- ejecución de escenarios ------------------------------------------
+# ----------------------------- scenario execution -----------------------------------------------
 
-def medir_escenario(esc) -> dict:
-    rep_vec = reputacion_vectorial(esc.agentes, esc.grafo)
-    rep_total = {aid: suma_vector(vec) for aid, vec in rep_vec.items()}
-    cuota_rep = cuotas_por_faccion(rep_total, esc.facciones)
+def measure_scenario(sc) -> dict:
+    rep_vec = reputation_vector(sc.agents, sc.graph)
+    rep_total = {aid: sum_vector(vec) for aid, vec in rep_vec.items()}
+    rep_share = shares_by_faction(rep_total, sc.factions)
 
-    pesos = pesos_consenso(rep_vec, "mediana")
-    n_facciones = len(set(esc.facciones.values()))
-    conteo = sorteo_ponderado(pesos, tam_comite=21, epocas=2000)
-    cuota_comite = cuotas_por_faccion({k: float(v) for k, v in conteo.items()}, esc.facciones)
+    weights = consensus_weights(rep_vec, "median")
+    count = weighted_sortition(weights, committee_size=21, epochs=2000)
+    committee_share = shares_by_faction({k: float(v) for k, v in count.items()}, sc.factions)
 
     return {
-        "escenario": esc,
+        "scenario": sc,
         "rep_vec": rep_vec,
         "rep_total": rep_total,
-        "cuota_rep": cuota_rep,
-        "cuota_comite": cuota_comite,
-        "pesos": pesos,
-        "n_facciones": n_facciones,
+        "rep_share": rep_share,
+        "committee_share": committee_share,
+        "weights": weights,
     }
 
 
-def medir_colusion_damping() -> dict:
+def measure_collusion_damping() -> dict:
     """
-    Mismo anillo de colusión (con c0 = trabajador real que el anillo intenta amplificar), con y sin
-    damping anti-colusión (§1.6). Mide: cuota de reputación del anillo, y cuántos miembros del anillo
-    alcanzan "poder" (umbral = 50% de la reputación media honesta).
+    Same collusion ring (with c0 = real worker the ring tries to amplify), with and without the
+    anti-collusion damping (§1.6). Measures: the ring's reputation share, and how much is laundered
+    to the 29 cronies.
     """
-    esc = escenarios.escenario_colusion()
-    con = reputacion_vectorial(esc.agentes, esc.grafo, damping=True)
-    sin = reputacion_vectorial(esc.agentes, esc.grafo, damping=False)
-    con_total = {aid: suma_vector(v) for aid, v in con.items()}
-    sin_total = {aid: suma_vector(v) for aid, v in sin.items()}
+    sc = scenarios.scenario_collusion()
+    on = reputation_vector(sc.agents, sc.graph, damping=True)
+    off = reputation_vector(sc.agents, sc.graph, damping=False)
+    on_total = {aid: sum_vector(v) for aid, v in on.items()}
+    off_total = {aid: sum_vector(v) for aid, v in off.items()}
 
-    colusores = [aid for aid, f in esc.facciones.items() if f == "colusor"]
-    secuaces = [c for c in colusores if c != "c0"]  # los 29 sin trabajo real
+    colluders = [aid for aid, f in sc.factions.items() if f == "colluder"]
+    cronies = [c for c in colluders if c != "c0"]  # the 29 with no real work
 
-    def reparto_secuaces(rep_total: dict[str, float]) -> tuple[float, float, float]:
-        """(reputación de c0, total repartido a los 29 secuaces, máx de un secuaz)."""
+    def crony_split(rep_total: dict[str, float]) -> tuple[float, float, float]:
+        """(c0 reputation, total laundered to the 29 cronies, max of one crony)."""
         rep_c0 = rep_total["c0"]
-        total_sec = sum(rep_total[s] for s in secuaces)
-        max_sec = max(rep_total[s] for s in secuaces)
-        return rep_c0, total_sec, max_sec
+        total_cr = sum(rep_total[s] for s in cronies)
+        max_cr = max(rep_total[s] for s in cronies)
+        return rep_c0, total_cr, max_cr
 
     return {
-        "con": reparto_secuaces(con_total),
-        "sin": reparto_secuaces(sin_total),
-        "n_secuaces": len(secuaces),
+        "on": crony_split(on_total),
+        "off": crony_split(off_total),
+        "n_cronies": len(cronies),
     }
 
 
-def _lavado_secuaces(esc, damping: bool = True, comunidad: bool = False) -> tuple[float, float]:
-    """(reputación de c0, total lavado a los demás colusores) bajo el escenario dado."""
-    rep = reputacion_vectorial(esc.agentes, esc.grafo, damping=damping, comunidad=comunidad)
-    total = {aid: suma_vector(v) for aid, v in rep.items()}
-    secuaces = [c for c, f in esc.facciones.items() if f == "colusor" and c != "c0"]
-    return total["c0"], sum(total[s] for s in secuaces)
+def _laundered(sc, damping: bool = True, community: bool = False) -> tuple[float, float]:
+    """(c0 reputation, total laundered to the other colluders) under the given scenario."""
+    rep = reputation_vector(sc.agents, sc.graph, damping=damping, community=community)
+    total = {aid: sum_vector(v) for aid, v in rep.items()}
+    cronies = [c for c, f in sc.factions.items() if f == "colluder" and c != "c0"]
+    return total["c0"], sum(total[s] for s in cronies)
 
 
-def medir_colusion_dispersa() -> dict:
+def measure_scattered_collusion() -> dict:
     """
-    Anillo DISPERSO (frente §1.6) con tres defensas: sin damping, damping LOCAL (solo independencia
-    pareja), y damping LOCAL + COMUNIDAD (label propagation + sospecha). Mide si la detección de
-    comunidades cierra el hueco que el damping local deja.
+    SCATTERED ring (frontier §1.6) with three defences: no damping, LOCAL damping (pairwise
+    independence only), and LOCAL + COMMUNITY damping (label propagation + suspicion). Measures
+    whether community detection closes the gap left by the local damping.
     """
-    densa = escenarios.escenario_colusion()
-    dispersa = escenarios.escenario_colusion_dispersa()
-    _, sec_densa_local = _lavado_secuaces(densa, damping=True)
-    _, sec_sin = _lavado_secuaces(dispersa, damping=False)
-    _, sec_local = _lavado_secuaces(dispersa, damping=True, comunidad=False)
-    _, sec_comun = _lavado_secuaces(dispersa, damping=True, comunidad=True)
-    # control de falsos positivos: ¿la comunidad daña la reputación honesta?
-    rep_local = reputacion_vectorial(densa.agentes, densa.grafo, damping=True, comunidad=False)
-    rep_comun = reputacion_vectorial(densa.agentes, densa.grafo, damping=True, comunidad=True)
-    honestos = [a.id for a in densa.agentes if densa.facciones[a.id] in ("honesto", "genesis")]
-    h_local = sum(suma_vector(rep_local[h]) for h in honestos)
-    h_comun = sum(suma_vector(rep_comun[h]) for h in honestos)
+    dense = scenarios.scenario_collusion()
+    scattered = scenarios.scenario_scattered_collusion()
+    _, cr_dense_local = _laundered(dense, damping=True)
+    _, cr_none = _laundered(scattered, damping=False)
+    _, cr_local = _laundered(scattered, damping=True, community=False)
+    _, cr_comm = _laundered(scattered, damping=True, community=True)
+    # false-positive control: does community detection harm honest reputation?
+    rep_local = reputation_vector(dense.agents, dense.graph, damping=True, community=False)
+    rep_comm = reputation_vector(dense.agents, dense.graph, damping=True, community=True)
+    honest = [a.id for a in dense.agents if dense.factions[a.id] in ("honest", "genesis")]
+    h_local = sum(sum_vector(rep_local[h]) for h in honest)
+    h_comm = sum(sum_vector(rep_comm[h]) for h in honest)
     return {
-        "sec_densa_local": sec_densa_local,
-        "sec_sin": sec_sin,
-        "sec_local": sec_local,
-        "sec_comun": sec_comun,
-        "honesto_local": h_local,
-        "honesto_comun": h_comun,
+        "cr_dense_local": cr_dense_local,
+        "cr_none": cr_none,
+        "cr_local": cr_local,
+        "cr_comm": cr_comm,
+        "honest_local": h_local,
+        "honest_comm": h_comm,
     }
 
 
-def medir_blanqueo() -> dict:
-    esc = escenarios.escenario_blanqueo()
-    rep_vec = reputacion_vectorial(esc.agentes, esc.grafo)
-    viejo = suma_vector(rep_vec["blanq_viejo"])
-    nuevo = suma_vector(rep_vec["blanq_nuevo"])
-    return {"viejo": viejo, "nuevo": nuevo}
+def measure_whitewashing() -> dict:
+    sc = scenarios.scenario_whitewashing()
+    rep_vec = reputation_vector(sc.agents, sc.graph)
+    old = sum_vector(rep_vec["ww_old"])
+    new = sum_vector(rep_vec["ww_new"])
+    return {"old": old, "new": new}
 
 
 def demo_slashing() -> dict:
     """
-    Demuestra responsabilidad persistente (§1.5c) + slashing en cascada (§1.7).
+    Demonstrates persistent liability (§1.5c) + cascade slashing (§1.7).
 
-    Cadena de avales: mentor -> intermedio -> ahijado. El ahijado defrauda y pierde 100. El golpe
-    repercute hacia arriba (fracción 0.5 por salto). Apadrinar a la ligera sale caro.
+    Vouch chain: mentor -> middle -> protege. The protege defrauds and loses 100. The hit propagates
+    upwards (fraction 0.5 per hop). Sponsoring carelessly is costly.
     """
-    reputacion = {"mentor": 200.0, "intermedio": 120.0, "ahijado": 100.0, "ajeno": 150.0}
-    reg = RegistroAvales()
-    reg.apadrinar("mentor", "intermedio")
-    reg.apadrinar("intermedio", "ahijado")
-    despues = slashing_en_cascada(reputacion, reg, culpable="ahijado", perdida=100.0)
-    return {"antes": reputacion, "despues": despues}
+    reputation = {"mentor": 200.0, "middle": 120.0, "protege": 100.0, "outsider": 150.0}
+    reg = VouchRegistry()
+    reg.sponsor_link("mentor", "middle")
+    reg.sponsor_link("middle", "protege")
+    after = cascade_slashing(reputation, reg, culprit="protege", loss=100.0)
+    return {"before": reputation, "after": after}
 
 
-def demo_economia_avales() -> dict:
-    """Cupo sublineal (§1.5c) + dividendo de mentor que NO rinde con títeres."""
-    cupos = {rep: cupo_de_avales(rep) for rep in (1, 10, 100, 1000, 10000)}
-    div_real = dividendo_de_mentor(rep_independiente_ahijado=80.0)   # ahijado con rep independiente
-    div_titere = dividendo_de_mentor(rep_independiente_ahijado=0.5)  # títere: rep independiente ~0
-    return {"cupos": cupos, "div_real": div_real, "div_titere": div_titere}
+def demo_vouch_economy() -> dict:
+    """Sublinear quota (§1.5c) + mentor dividend that does NOT pay off with puppets."""
+    quotas = {rep: vouch_quota(rep) for rep in (1, 10, 100, 1000, 10000)}
+    div_real = mentor_dividend(protege_independent_rep=80.0)   # protege with independent rep
+    div_puppet = mentor_dividend(protege_independent_rep=0.5)  # puppet: independent rep ~0
+    return {"quotas": quotas, "div_real": div_real, "div_puppet": div_puppet}
 
 
-# ----------------------------- informe ----------------------------------------------------------
+# ----------------------------- report -----------------------------------------------------------
 
-def construir_informe() -> str:
+def build_report() -> str:
     L: list[str] = []
     w = L.append
 
-    w("# RESULTADOS — Prototipo del motor de reputación de Harlequin\n")
-    w("> Generado por `run_all.py` (solo stdlib). Reproducible: PRNG sembrado. Las cifras son\n"
-      "> **relativas** (reparto de poder), no unidades absolutas. Mapea SPEC §1 (reputación), §1.6\n"
-      "> (anti-colusión), §2.2 (consenso) y §5 (salida/seudónimo).\n")
+    w("# RESULTS — Harlequin reputation engine prototype\n")
+    w("> Generated by `run_all.py` (stdlib only). Reproducible: seeded PRNG. The figures are\n"
+      "> **relative** (power distribution), not absolute units. Maps SPEC §1 (reputation), §1.6\n"
+      "> (anti-collusion), §2.2 (consensus) and §5 (exit/pseudonym).\n")
 
-    w("\n## Tesis que se pone a prueba\n")
-    w("**El muro anti-Sybil real es la reputación GANADA, no la prueba de personalidad** (SPEC §1.5,\n"
-      "§2.4). Crear identidades falsas o granjear avales en círculo NO debe dar poder estructural,\n"
-      "porque la reputación se ancla en evidencia real y se amortigua la colusión (§1.6).\n")
+    w("\n## Thesis under test\n")
+    w("**The real anti-Sybil wall is EARNED reputation, not the personhood test** (SPEC §1.5, §2.4).\n"
+      "Creating fake identities or farming vouches in a circle must NOT grant structural power,\n"
+      "because reputation is anchored in real evidence and collusion is damped (§1.6).\n")
 
-    # escenarios principales
-    resultados = {}
-    for fab in escenarios.TODOS:
-        esc = fab()
-        if esc.nombre == "blanqueo":
-            continue  # se trata aparte
-        resultados[esc.nombre] = medir_escenario(esc)
+    # main scenarios
+    results = {}
+    for fab in scenarios.ALL:
+        sc = fab()
+        if sc.name == "whitewashing":
+            continue  # handled separately
+        results[sc.name] = measure_scenario(sc)
 
-    w("\n## 1. Reputación y poder de consenso por escenario\n")
-    w("| Escenario | Nº agentes | Cuota de reputación ganada | Cuota de comité de consenso |\n")
+    w("\n## 1. Reputation and consensus power per scenario\n")
+    w("| Scenario | # agents | Earned-reputation share | Consensus committee share |\n")
     w("|---|---|---|---|\n")
-    for nombre in ("honesto", "sybil", "colusion"):
-        r = resultados[nombre]
-        esc = r["escenario"]
-        w(f"| **{nombre}** | {len(esc.agentes)} | {fmt_pct(r['cuota_rep'])} | "
-          f"{fmt_pct(r['cuota_comite'])} |\n")
+    for name in ("honest", "sybil", "collusion"):
+        r = results[name]
+        sc = r["scenario"]
+        w(f"| **{name}** | {len(sc.agents)} | {fmt_pct(r['rep_share'])} | "
+          f"{fmt_pct(r['committee_share'])} |\n")
 
-    w("\n**Lectura:**\n")
-    syb = resultados["sybil"]
-    col = resultados["colusion"]
-    w(f"- **Sybil:** 200 cuentas falsas (40% de la red) capturan "
-      f"**{syb['cuota_rep'].get('sybil', 0.0):.2f}%** de la reputación y "
-      f"**{syb['cuota_comite'].get('sybil', 0.0):.2f}%** del comité de consenso. "
-      "Nacen con reputación 0; sin evidencia ni avales de reputados, no obtienen poder.\n")
-    w(f"- **Colusión:** el anillo de 30 que se avala en círculo captura "
-      f"**{col['cuota_rep'].get('colusor', 0.0):.2f}%** de la reputación y "
-      f"**{col['cuota_comite'].get('colusor', 0.0):.2f}%** del comité, pese a los 3 honestos "
-      "engañados que lo avalan.\n")
+    w("\n**Reading:**\n")
+    syb = results["sybil"]
+    col = results["collusion"]
+    w(f"- **Sybil:** 200 fake accounts (40% of the network) capture "
+      f"**{syb['rep_share'].get('sybil', 0.0):.2f}%** of the reputation and "
+      f"**{syb['committee_share'].get('sybil', 0.0):.2f}%** of the consensus committee. "
+      "They are born with reputation 0; without evidence nor vouches from the reputed, they gain no power.\n")
+    w(f"- **Collusion:** the ring of 30 vouching in a circle captures "
+      f"**{col['rep_share'].get('colluder', 0.0):.2f}%** of the reputation and "
+      f"**{col['committee_share'].get('colluder', 0.0):.2f}%** of the committee, despite the 3 fooled "
+      "honest members vouching for it.\n")
 
     # damping
-    damp = medir_colusion_damping()
-    c0_con, sec_con, max_con = damp["con"]
-    c0_sin, sec_sin, max_sin = damp["sin"]
-    w("\n## 2. ¿Cuánto aporta el anti-colusión (damping, §1.6)?\n")
-    w("Ataque de **lavado de reputación**: un miembro del anillo (`c0`) SÍ tiene reputación legítima\n"
-      "alta (trabajo real) e intenta **repartirla** a 29 secuaces avalándose en círculo. El damping\n"
-      "debe impedir la propagación: `c0` conserva lo suyo, los secuaces se quedan en ~0.\n\n")
-    w(f"| | Reputación de `c0` (legítima) | Repartida a los {damp['n_secuaces']} secuaces | "
-      "Máx. de un secuaz |\n|---|---|---|---|\n")
-    w(f"| **SIN damping** | {c0_sin:.1f} | {sec_sin:.1f} | {max_sin:.1f} |\n")
-    w(f"| **CON damping** | {c0_con:.1f} | {sec_con:.1f} | {max_con:.1f} |\n")
-    if sec_con > 0:
-        w(f"\nEl damping recorta la reputación lavada a los secuaces **{sec_sin / sec_con:.1f}×**.\n")
+    damp = measure_collusion_damping()
+    c0_on, cr_on, max_on = damp["on"]
+    c0_off, cr_off, max_off = damp["off"]
+    w("\n## 2. How much does anti-collusion (damping, §1.6) contribute?\n")
+    w("**Reputation-laundering** attack: a ring member (`c0`) DOES have high legitimate reputation\n"
+      "(real work) and tries to **split it** among 29 cronies by vouching in a circle. The damping\n"
+      "must stop the propagation: `c0` keeps its own, the cronies stay at ~0.\n\n")
+    w(f"| | `c0` reputation (legitimate) | Split to the {damp['n_cronies']} cronies | "
+      "Max of one crony |\n|---|---|---|---|\n")
+    w(f"| **WITHOUT damping** | {c0_off:.1f} | {cr_off:.1f} | {max_off:.1f} |\n")
+    w(f"| **WITH damping** | {c0_on:.1f} | {cr_on:.1f} | {max_on:.1f} |\n")
+    if cr_on > 0:
+        w(f"\nThe damping cuts the reputation laundered to the cronies **{cr_off / cr_on:.1f}×**.\n")
     else:
-        w("\nCon damping, lo lavado a los secuaces cae a ~0.\n")
-    w("Sin el anti-colusión, un solo miembro con reputación real puede 'prestársela' a todo su\n"
-      "anillo de títeres; con él, la reputación se queda donde se ganó.\n")
+        w("\nWith damping, what is laundered to the cronies falls to ~0.\n")
+    w("Without anti-collusion, a single member with real reputation can 'lend' it to its whole\n"
+      "ring of puppets; with it, reputation stays where it was earned.\n")
 
-    # colusion dispersa (frente abierto §1.6) + defensa por comunidades
-    disp = medir_colusion_dispersa()
-    w("\n## 2b. Frente abierto: colusión SOFISTICADA (anillo disperso, §1.6)\n")
-    w("El clique denso es fácil de detectar. Un anillo **disperso** (cada colusor avala a pocos, baja "
-      "reciprocidad/solapamiento) imita patrones honestos y **se filtra** del damping local. Probamos "
-      "una defensa nueva: **detección de comunidades** (la señal global que el anillo disperso sí deja).\n\n")
-    w("| Defensa sobre el anillo disperso | Lavado a los secuaces |\n|---|---|\n")
-    w(f"| sin damping (referencia) | {disp['sec_sin']:.1f} |\n")
-    w(f"| damping LOCAL (solo independencia pareja) | {disp['sec_local']:.1f} |\n")
-    w(f"| damping LOCAL + COMUNIDAD (nuevo) | {disp['sec_comun']:.1f} |\n")
-    w(f"\n(Referencia: el clique denso con damping local lava solo {disp['sec_densa_local']:.1f}.)\n")
-    mejora = disp["sec_local"] / disp["sec_comun"] if disp["sec_comun"] > 0 else float("inf")
-    w(f"\n**Resultado:** la detección de comunidades reduce el lavado del anillo disperso de "
-      f"**{disp['sec_local']:.0f}** (damping local) a **{disp['sec_comun']:.0f}** "
-      f"(~{mejora:.1f}× menos) — cierra buena parte del hueco que dejaba el damping local.\n")
-    danio = 100.0 * (1.0 - disp["honesto_comun"] / disp["honesto_local"]) if disp["honesto_local"] else 0.0
-    w(f"**Control de falsos positivos:** la reputación honesta total apenas cambia con la defensa de "
-      f"comunidades ({danio:+.1f}% sobre la base) → no castiga a las comunidades honestas (tienen "
-      "evidencia real, baja su sospecha). Honesto: sigue siendo opt-in y a validar más; la colusión "
-      "adaptativa (fragmentar el anillo en varias comunidades) es el siguiente frente (§1.6, PAPER §10).\n")
+    # scattered collusion (open frontier §1.6) + community defence
+    sca = measure_scattered_collusion()
+    w("\n## 2b. Open frontier: SOPHISTICATED collusion (scattered ring, §1.6)\n")
+    w("The dense clique is easy to detect. A **scattered** ring (each colluder vouches for few, low "
+      "reciprocity/overlap) mimics honest patterns and **slips through** the local damping. We test a "
+      "new defence: **community detection** (the global signal the scattered ring does leave).\n\n")
+    w("| Defence on the scattered ring | Laundered to the cronies |\n|---|---|\n")
+    w(f"| no damping (reference) | {sca['cr_none']:.1f} |\n")
+    w(f"| LOCAL damping (pairwise independence only) | {sca['cr_local']:.1f} |\n")
+    w(f"| LOCAL + COMMUNITY damping (new) | {sca['cr_comm']:.1f} |\n")
+    w(f"\n(Reference: the dense clique with local damping launders only {sca['cr_dense_local']:.1f}.)\n")
+    gain = sca["cr_local"] / sca["cr_comm"] if sca["cr_comm"] > 0 else float("inf")
+    w(f"\n**Result:** community detection reduces the scattered ring's laundering from "
+      f"**{sca['cr_local']:.0f}** (local damping) to **{sca['cr_comm']:.0f}** "
+      f"(~{gain:.1f}× less) — it closes much of the gap the local damping left.\n")
+    harm = 100.0 * (1.0 - sca["honest_comm"] / sca["honest_local"]) if sca["honest_local"] else 0.0
+    w(f"**False-positive control:** total honest reputation barely changes with the community defence "
+      f"({harm:+.1f}% over the base) → it does not punish honest communities (they have real evidence, "
+      "lowering their suspicion). Honest: still opt-in and to validate further; adaptive collusion "
+      "(fragmenting the ring into several communities) is the next frontier (§1.6, PAPER §10).\n")
 
-    # colusión adaptativa: fragmentar para evadir la etiqueta de comunidad (§1.6, frente abierto)
-    filas = adaptativo.barrido(puentes=1)
-    w("\n## 2c. Frente abierto: colusión ADAPTATIVA (fragmentar para evadir, §1.6)\n")
-    w("El atacante sabe que castigamos las comunidades densas-sin-evidencia, así que **fragmenta** el "
-      "anillo en sub-anillos pequeños y dispersos para caer por debajo del radar. Pero para lavar la "
-      "reputación real de c0 a los títeres, ésta tiene que **fluir** entre fragmentos por unos pocos "
-      "puentes. Esa es la tensión: evadir la etiqueta estrangula el flujo.\n\n")
-    w("| fragmentos | comunidades vistas | lavado sin damping | lavado +comunidad | **poder consenso (min)** |\n")
+    # adaptive collusion: fragment to evade the community label (§1.6, open frontier)
+    rows = adaptive.sweep(bridges=1)
+    w("\n## 2c. Open frontier: ADAPTIVE collusion (fragment to evade, §1.6)\n")
+    w("The attacker knows we punish dense-without-evidence communities, so it **fragments** the ring "
+      "into small scattered sub-rings to fall below the radar. But to launder c0's real reputation to "
+      "the puppets, it must **flow** between fragments through a few bridges. That is the tension: "
+      "evading the label chokes the flow.\n\n")
+    w("| fragments | communities seen | laundered no damping | laundered +community | **consensus power (min)** |\n")
     w("|---:|---:|---:|---:|---:|\n")
-    for k, m in filas:
-        w(f"| {k} | {m['n_com']} | {m['sin']:.1f} | {m['comunidad']:.1f} | **{m['poder']:.3f}** |\n")
-    w("\n**Resultado (doble):** (1) fragmentar **sube** el nº de comunidades vistas (evade la etiqueta) "
-      "pero **no sube** el lavado bajo defensa —al fragmentar, los puentes se vuelven cuellos de botella "
-      "que el damping LOCAL muerde más fuerte—; el peor caso para la defensa es el anillo disperso SIN "
-      "fragmentar. (2) Lo que sí se filtra es **unidimensional** (solo `comercio`): bajo el agregado "
-      "conservador (min, §1.2b) que rige el poder de consenso/aval, los títeres colapsan a **~0** a "
-      "cualquier fragmentación. Para tener poder real el atacante necesitaría evidencia verificable en "
-      "**todas** las dimensiones por cada títere = hacer el trabajo honesto. *El lavado difuso no compra "
-      "poder estructural.*\n")
+    for k, m in rows:
+        w(f"| {k} | {m['n_com']} | {m['none']:.1f} | {m['community']:.1f} | **{m['power']:.3f}** |\n")
+    w("\n**Result (two-fold):** (1) fragmenting **raises** the number of communities seen (evades the "
+      "label) but does **not raise** the laundering under defence — as it fragments, the bridges become "
+      "bottlenecks the LOCAL damping bites harder; the worst case for the defence is the scattered ring "
+      "WITHOUT fragmenting. (2) What does leak is **single-dimension** (only `commerce`): under the "
+      "conservative aggregate (min, §1.2b) that governs consensus/vouch power, the puppets collapse to "
+      "**~0** at any fragmentation. For real power the attacker would need verifiable evidence in "
+      "**every** dimension for each puppet = doing the honest work. *Diffuse laundering buys no "
+      "structural power.*\n")
 
-    # colusión asimétrica: embudo PageRank (frente §1.6, hallazgo honesto del gap)
-    from harlequin_rep.reputacion import agregado_conservador as _agg_min
-    w("\n## 2d. Frente abierto: colusión ASIMÉTRICA (embudo PageRank, §1.6)\n")
-    w("En vez de un anillo recíproco, un **embudo dirigido**: muchos feeders (con algo de obra real) "
-      "avalan TODOS al mismo objetivo c0 (evidencia 0), sin reciprocidad, para concentrar/funnelear su "
-      "reputación en c0. **Hallazgo honesto:** el embudo **evade el damping local** —como c0 no avala a "
-      "nadie, el solapamiento de vecinos es 0 y la reciprocidad 0, así que `independencia(feeder→c0)=1` "
-      "y el damping no recorta el pump—.\n\n")
-    w("| diversificación de feeders | c0 sin damping | c0 +damping local | c0 +comunidad | **poder consenso c0 (min)** |\n")
+    # asymmetric collusion: PageRank funnel (frontier §1.6, honest gap finding)
+    from harlequin_rep.reputation import conservative_aggregate as _agg_min
+    w("\n## 2d. Open frontier: ASYMMETRIC collusion (PageRank funnel, §1.6)\n")
+    w("Instead of a reciprocal ring, a **directed funnel**: many feeders (with some real work) all "
+      "vouch for the same target c0 (evidence 0), without reciprocity, to concentrate/funnel their "
+      "reputation onto c0. **Honest finding:** the funnel **evades the local damping** — since c0 "
+      "vouches for nobody, neighbour overlap is 0 and reciprocity is 0, so `independence(feeder→c0)=1` "
+      "and the damping does not cut the pump.\n\n")
+    w("| feeder diversification | c0 no damping | c0 +local damping | c0 +community | **c0 consensus power (min)** |\n")
     w("|---:|---:|---:|---:|---:|\n")
     for div in (0, 3, 6):
-        esc_a = escenarios.escenario_colusion_asimetrica(diversificar=div)
-        r_sin = reputacion_vectorial(esc_a.agentes, esc_a.grafo, damping=False)
-        r_loc = reputacion_vectorial(esc_a.agentes, esc_a.grafo, damping=True)
-        r_com = reputacion_vectorial(esc_a.agentes, esc_a.grafo, damping=True, comunidad=True)
-        w(f"| {div} | {suma_vector(r_sin['c0']):.1f} | {suma_vector(r_loc['c0']):.1f} | "
-          f"{suma_vector(r_com['c0']):.1f} | **{_agg_min(r_com['c0'], 'min'):.3f}** |\n")
-    w("\n**Resultado (doble, como en §2c):** (1) el damping de grafo **no** frena el embudo —es un gap "
-      "real: la independencia local mira reciprocidad y solapamiento, firmas que el embudo no deja—. "
-      "(2) Pero el pump es **unidimensional** (solo `comercio`): bajo el agregado conservador (min, "
-      "§1.2b) el poder de consenso de c0 colapsa a **~0**. *El agregado vectorial es el backstop que "
-      "aguanta donde el damping de grafo no llega.* Para poder real, c0 necesitaría evidencia funneleada "
-      "en **todas** las dimensiones = los feeders haciendo obra real en todas y cediéndola = trabajo "
-      "honesto. **Frente vivo:** endurecer la independencia con una señal de **concentración de "
-      "in-degree desde una sola comunidad** (con análisis de falsos positivos sobre nodos honestos "
-      "legítimamente populares) — siguiente iteración del motor.\n")
+        sc_a = scenarios.scenario_asymmetric_collusion(diversify=div)
+        r_off = reputation_vector(sc_a.agents, sc_a.graph, damping=False)
+        r_loc = reputation_vector(sc_a.agents, sc_a.graph, damping=True)
+        r_com = reputation_vector(sc_a.agents, sc_a.graph, damping=True, community=True)
+        w(f"| {div} | {sum_vector(r_off['c0']):.1f} | {sum_vector(r_loc['c0']):.1f} | "
+          f"{sum_vector(r_com['c0']):.1f} | **{_agg_min(r_com['c0'], 'min'):.3f}** |\n")
+    w("\n**Result (two-fold, as in §2c):** (1) the graph damping does **not** stop the funnel — a real "
+      "gap: local independence looks at reciprocity and overlap, signatures the funnel does not leave. "
+      "(2) But the pump is **single-dimension** (only `commerce`): under the conservative aggregate "
+      "(min, §1.2b) c0's consensus power collapses to **~0**. *The vectorial aggregate is the backstop "
+      "where the graph damping does not reach.* For real power, c0 would need evidence funnelled in "
+      "**every** dimension = the feeders doing real work in all of them and ceding it = honest work. "
+      "**Live frontier:** harden independence with an **in-degree-concentration-from-one-community** "
+      "signal (with false-positive analysis on legitimately popular honest nodes) — next engine "
+      "iteration.\n")
 
-    # blanqueo
-    bl = medir_blanqueo()
-    w("\n## 3. Blanqueo de seudónimo (whitewashing, §5)\n")
-    w("Mismo humano, dos máscaras: una consolidada y una nueva.\n\n")
-    w("| Seudónimo | Reputación ganada |\n|---|---|\n")
-    w(f"| consolidado (`blanq_viejo`) | {bl['viejo']:.2f} |\n")
-    w(f"| nuevo (`blanq_nuevo`) | {bl['nuevo']:.2f} |\n")
-    w("\nAbandonar el seudónimo para 'empezar limpio' cuesta **toda** la reputación ganada: vuelve a\n"
-      "la ciudadanía base. La reputación se ata a la máscara y no se transfiere (Art. VII/VIII).\n")
+    # whitewashing
+    ww = measure_whitewashing()
+    w("\n## 3. Pseudonym whitewashing (§5)\n")
+    w("Same human, two masks: a consolidated one and a fresh one.\n\n")
+    w("| Pseudonym | Earned reputation |\n|---|---|\n")
+    w(f"| consolidated (`ww_old`) | {ww['old']:.2f} |\n")
+    w(f"| fresh (`ww_new`) | {ww['new']:.2f} |\n")
+    w("\nAbandoning the pseudonym to 'start clean' costs **all** the earned reputation: it falls back to\n"
+      "base citizenship. Reputation is bound to the mask and is not transferred (Art. VII/VIII).\n")
 
     # slashing
     sl = demo_slashing()
-    w("\n## 4. Responsabilidad persistente + slashing en cascada (§1.5c, §1.7)\n")
-    w("El ahijado defrauda y pierde 100. El golpe sube por la cadena de avales (½ por salto).\n\n")
-    w("| Agente | Antes | Después | Δ |\n|---|---|---|---|\n")
-    for aid in ("ahijado", "intermedio", "mentor", "ajeno"):
-        a, d = sl["antes"][aid], sl["despues"][aid]
+    w("\n## 4. Persistent liability + cascade slashing (§1.5c, §1.7)\n")
+    w("The protege defrauds and loses 100. The hit climbs the vouch chain (½ per hop).\n\n")
+    w("| Agent | Before | After | Δ |\n|---|---|---|---|\n")
+    for aid in ("protege", "middle", "mentor", "outsider"):
+        a, d = sl["before"][aid], sl["after"][aid]
         w(f"| {aid} | {a:.1f} | {d:.1f} | {d - a:+.1f} |\n")
-    w("\nQuien avala responde de a quién metió, aunque pase el tiempo. El `ajeno` (no avaló) no se\n"
-      "ve afectado. Apadrinar a la ligera sale caro -> fuerza selectividad.\n")
+    w("\nWhoever vouches answers for whom they let in, even later. The `outsider` (did not vouch) is\n"
+      "unaffected. Sponsoring carelessly is costly -> it forces selectivity.\n")
 
-    # economia avales
-    ec = demo_economia_avales()
-    w("\n## 5. Economía de avales (§1.5c)\n")
-    w("**Cupo de avales vivos = función sublineal de la reputación** (rendimientos decrecientes):\n\n")
-    w("| Reputación | Cupo de avales |\n|---|---|\n")
-    for rep, cupo in ec["cupos"].items():
-        w(f"| {rep} | {cupo} |\n")
-    w(f"\n**Dividendo de mentor:** apadrinar a alguien con reputación independiente real rinde "
-      f"{ec['div_real']:.2f}; apadrinar a un títere (reputación independiente ~0) rinde "
-      f"{ec['div_titere']:.2f}. Las granjas padrino->títere no son rentables (§1.6).\n")
+    # vouch economy
+    ec = demo_vouch_economy()
+    w("\n## 5. Vouch economy (§1.5c)\n")
+    w("**Live-vouch quota = sublinear function of reputation** (decreasing returns):\n\n")
+    w("| Reputation | Vouch quota |\n|---|---|\n")
+    for rep, quota in ec["quotas"].items():
+        w(f"| {rep} | {quota} |\n")
+    w(f"\n**Mentor dividend:** sponsoring someone with real independent reputation yields "
+      f"{ec['div_real']:.2f}; sponsoring a puppet (independent reputation ~0) yields "
+      f"{ec['div_puppet']:.2f}. Sponsor->puppet farms do not pay off (§1.6).\n")
 
-    # dinámica temporal (§1.7 decaimiento, Art. VI anti-atrincheramiento)
+    # temporal dynamics (§1.7 decay, Art. VI anti-entrenchment)
     import temporal
-    tray = temporal.simular()
-    w("\n## 6. Dinámica temporal: decaimiento y anti-atrincheramiento (§1.7, Art. VI)\n")
-    w(f"El motor base es una foto fija; aquí se modela el TIEMPO en épocas envejeciendo el ancla de "
-      f"evidencia (ρ={temporal.RHO} de retención por época). La reputación no contribuida se evapora "
-      "(§1.7) y el poder de ayer no blinda el de mañana (Art. VI).\n\n")
-    w("| época | Honesto activo | Honesto retirado (para en t=3) | Pionero durmiente (obra única t=0) | Títeres anillo farm-y-sienta |\n")
+    traj = temporal.simulate()
+    w("\n## 6. Temporal dynamics: decay and anti-entrenchment (§1.7, Art. VI)\n")
+    w(f"The base engine is a fixed snapshot; here TIME is modelled in epochs by aging the evidence "
+      f"anchor (ρ={temporal.RHO} retention per epoch). Uncontributed reputation evaporates (§1.7) and "
+      "yesterday's power does not shield tomorrow's (Art. VI).\n\n")
+    w("| epoch | Active honest | Retired honest (stops at t=3) | Sleeping pioneer (single work t=0) | Farm-and-sit ring puppets |\n")
     w("|---:|---:|---:|---:|---:|\n")
-    for t in range(temporal.N_EPOCAS):
-        w(f"| {t} | {tray['honesto_activo'][t]:.0f} | {tray['honesto_retirado'][t]:.0f} | "
-          f"{tray['pionero_durmiente'][t]:.0f} | {tray['titeres_anillo'][t]:.0f} |\n")
-    ret, pio = tray["honesto_retirado"], tray["pionero_durmiente"]
-    w(f"\n**Resultado:** quien **sigue aportando** se sostiene y crece; quien se **retira** decae "
-      f"(~{100*(1-ret[-1]/max(ret)):.0f}% desde su pico) → anti-atrincheramiento (Art. VI). Un **pionero** "
-      f"de una obra única se desinfla (~{100*(1-pio[-1]/max(pio)):.0f}%) → defensa **anti-long-range** "
-      "gratis: una historia vieja no se reactiva a poder. Y una **granja** que farmea y se sienta ve a "
-      "sus títeres evaporarse: la colusión tiene que ser SOSTENIDA, no un sprint.\n")
+    for t in range(temporal.N_EPOCHS):
+        w(f"| {t} | {traj['active_honest'][t]:.0f} | {traj['retired_honest'][t]:.0f} | "
+          f"{traj['sleeping_pioneer'][t]:.0f} | {traj['ring_puppets'][t]:.0f} |\n")
+    ret, pio = traj["retired_honest"], traj["sleeping_pioneer"]
+    w(f"\n**Result:** whoever **keeps contributing** holds and grows; whoever **retires** decays "
+      f"(~{100*(1-ret[-1]/max(ret)):.0f}% from its peak) → anti-entrenchment (Art. VI). A **pioneer** "
+      f"of a single work deflates (~{100*(1-pio[-1]/max(pio)):.0f}%) → **free anti-long-range** defence: "
+      "an old history is not reactivated into power. And a **farm** that farms and sits sees its puppets "
+      "evaporate: collusion has to be SUSTAINED, not a sprint.\n")
 
-    # graduación de ahijados (§1.5c): el andamiaje se diluye
-    import graduacion
-    gt = graduacion.simular()
-    ep_g = next((t for t in range(len(gt["graduado"])) if gt["graduado"][t]), None)
-    w("\n## 7. Graduación de ahijados: el apadrinamiento es andamiaje (§1.5c)\n")
-    w("Un ahijado entra apadrinado (su reputación se apoya en el aval del mentor) y, al hacer obra real "
-      "y recibir avales independientes, gradúa: el aval del mentor se libera y deja de ocupar su cupo. "
-      "La responsabilidad persiste (slashing en cascada). Se mide la reputación de A CON vs SIN el aval "
-      "del mentor (la independiente).\n\n")
-    w("| época | rep total A | rep independiente A | % independiente | cupo libre M | graduado |\n")
+    # protege graduation (§1.5c): the scaffolding dilutes
+    import graduation
+    gt = graduation.simulate()
+    ep_g = next((t for t in range(len(gt["graduated"])) if gt["graduated"][t]), None)
+    w("\n## 7. Protege graduation: sponsorship is scaffolding (§1.5c)\n")
+    w("A protege enters sponsored (its reputation leans on the mentor vouch) and, as it does real work "
+      "and receives independent vouches, it graduates: the mentor vouch is released and stops taking up "
+      "its quota. The liability persists (cascade slashing). We measure A's reputation WITH vs WITHOUT "
+      "the mentor vouch (the independent one).\n\n")
+    w("| epoch | A total rep | A independent rep | % independent | M free quota | graduated |\n")
     w("|---:|---:|---:|---:|---:|:--:|\n")
-    for t in range(graduacion.N_EPOCAS):
-        rt, ri = gt["total"][t], gt["independiente"][t]
+    for t in range(graduation.N_EPOCHS):
+        rt, ri = gt["total"][t], gt["independent"][t]
         pct = 100 * ri / rt if rt else 0.0
-        w(f"| {t} | {rt:.0f} | {ri:.0f} | {pct:.0f}% | {gt['cupo_libre_M'][t]} | "
-          f"{'sí' if gt['graduado'][t] else '—'} |\n")
+        w(f"| {t} | {rt:.0f} | {ri:.0f} | {pct:.0f}% | {gt['M_free_quota'][t]} | "
+          f"{'yes' if gt['graduated'][t] else '—'} |\n")
     if ep_g is not None:
-        w(f"\n**Resultado:** A arranca dependiente del andamiaje (rep independiente ~0) y en la **época "
-          f"{ep_g}** se sostiene solo (≥{int(graduacion.UMBRAL_GRADUACION*100)}% independiente) → "
-          f"**gradúa**, liberando el cupo del mentor ({gt['cupo_libre_M'][ep_g-1]}→{gt['cupo_libre_M'][ep_g]}). "
-          "El apadrinamiento bien hecho invierte en que el ahijado se **independice**, no en atarlo; el "
-          "andamiaje se diseña para diluirse (coherente con la semilla génesis y el Art. VI).\n")
+        w(f"\n**Result:** A starts dependent on the scaffolding (independent rep ~0) and at **epoch "
+          f"{ep_g}** stands on its own (≥{int(graduation.GRADUATION_THRESHOLD*100)}% independent) → it "
+          f"**graduates**, freeing the mentor's quota ({gt['M_free_quota'][ep_g-1]}→{gt['M_free_quota'][ep_g]}). "
+          "Sponsoring done well invests in the protege becoming **independent**, not in tethering it; the "
+          "scaffolding is designed to dilute (consistent with the genesis seed and Art. VI).\n")
 
-    # envejecimiento de aristas (§1.7, Art. VI): la confianza es perecedera
-    import aristas
-    at = aristas.simular()
-    ac = aristas.simular(rho_arista=1.0)
-    w("\n## 8. Envejecimiento de avales: la confianza es perecedera (§1.7, Art. VI)\n")
-    w(f"Cierra la limitación de §6: además de envejecer la evidencia, se envejecen los **avales** "
-      f"(ρ_arista={aristas.RHO_ARISTA}). Experimento controlado: dos honestos con **idéntica evidencia "
-      "constante**; uno renueva avales cada época, el otro no.\n\n")
-    w("| época | renovador | durmiente | durmiente sin aging (ρ=1) |\n|---:|---:|---:|---:|\n")
-    for t in range(aristas.N_EPOCAS):
-        w(f"| {t} | {at['renovador'][t]:.0f} | {at['durmiente'][t]:.0f} | {ac['durmiente'][t]:.0f} |\n")
-    brecha = 100 * (at["renovador"][-1] / max(at["durmiente"][-1], 1e-9) - 1)
-    extra = 100 * (1 - at["durmiente"][-1] / max(ac["durmiente"][-1], 1e-9))
-    w(f"\n**Resultado:** prima de frescura ~{brecha:.0f}% (renovador sobre durmiente, misma evidencia); el "
-      f"envejecimiento recorta al durmiente un ~{extra:.0f}% adicional sobre el control sin aging. Matiz "
-      "honesto: el decaimiento uniforme de todas las aristas de un nodo se cancela en parte al normalizar "
-      "la fila (igual que el bug del damping ya corregido); el efecto real es RELATIVO —no renovar mientras "
-      "otros sí—, justo lo que se quiere premiar. Anti-atrincheramiento también en el grafo de confianza.\n")
+    # edge aging (§1.7, Art. VI): trust is perishable
+    import edge_aging
+    at = edge_aging.simulate()
+    ac = edge_aging.simulate(rho_edge=1.0)
+    w("\n## 8. Vouch aging: trust is perishable (§1.7, Art. VI)\n")
+    w(f"Closes the limitation of §6: besides aging the evidence, the **vouches** age "
+      f"(RHO_EDGE={edge_aging.RHO_EDGE}). Controlled experiment: two honest agents with **identical "
+      "constant evidence**; one renews vouches each epoch, the other does not.\n\n")
+    w("| epoch | renewer | dormant | dormant no aging (ρ=1) |\n|---:|---:|---:|---:|\n")
+    for t in range(edge_aging.N_EPOCHS):
+        w(f"| {t} | {at['renewer'][t]:.0f} | {at['dormant'][t]:.0f} | {ac['dormant'][t]:.0f} |\n")
+    gap = 100 * (at["renewer"][-1] / max(at["dormant"][-1], 1e-9) - 1)
+    extra = 100 * (1 - at["dormant"][-1] / max(ac["dormant"][-1], 1e-9))
+    w(f"\n**Result:** freshness premium ~{gap:.0f}% (renewer over dormant, same evidence); aging cuts "
+      f"the dormant node a further ~{extra:.0f}% over the no-aging control. Honest nuance: the uniform "
+      "decay of all of a node's edges partly cancels under row normalisation (same as the already-fixed "
+      "damping bug); the real effect is RELATIVE — not renewing while others do — exactly what we want "
+      "to reward. Anti-entrenchment in the trust graph too.\n")
 
-    w("\n## Conclusión\n")
-    w("El prototipo confirma, en cifras, la apuesta central de la SPEC: **el poder estructural no se\n"
-      "compra con identidades ni con avales endogámicos**. Sybils y anillos de colusión quedan cerca\n"
-      "de 0% de poder de consenso; el damping anti-colusión es medible y necesario; el blanqueo no\n"
-      "compensa; y la responsabilidad persistente hace cara la colusión. La colusión sofisticada\n"
-      "—anillo disperso (§2b) y fragmentado/adaptativo (§2c)— tampoco compra poder: el lavado que se\n"
-      "filtra es unidimensional y el agregado conservador (§1.2b) lo anula. Frentes vivos: dinámica\n"
-      "temporal (decaimiento por época) y safety/liveness formales del consenso.\n")
+    w("\n## Conclusion\n")
+    w("The prototype confirms, in figures, the SPEC's central bet: **structural power is not bought\n"
+      "with identities nor with inbred vouches**. Sybils and collusion rings stay near 0% of consensus\n"
+      "power; the anti-collusion damping is measurable and necessary; whitewashing does not pay off;\n"
+      "and persistent liability makes collusion expensive. Sophisticated collusion — scattered ring\n"
+      "(§2b) and fragmented/adaptive (§2c) — buys no power either: what leaks is single-dimension and\n"
+      "the conservative aggregate (§1.2b) nullifies it. Live frontiers: hardening independence against\n"
+      "the asymmetric funnel (§2d) and a formal safety/liveness proof of the consensus.\n")
 
     return "".join(L)
 
 
 def main() -> None:
-    informe = construir_informe()
-    ruta = "RESULTADOS.md"
-    with open(ruta, "w", encoding="utf-8") as f:
-        f.write(informe)
-    print(f"[ok] informe escrito en {ruta}")
+    report = build_report()
+    path = "RESULTS.md"
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(report)
+    print(f"[ok] report written to {path}")
     if "--stdout" in sys.argv:
-        print("\n" + informe)
+        print("\n" + report)
 
 
 if __name__ == "__main__":

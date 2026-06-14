@@ -44,8 +44,8 @@ No external dependencies — Python 3 standard library only.
 
 ```bash
 cd reputation-engine
-python3 run_all.py            # generates RESULTADOS.md
-python3 tests/test_motor.py   # self-audit (8 tests)
+python3 run_all.py            # generates RESULTS.md
+python3 tests/test_engine.py  # self-audit (15 tests)
 ```
 
 It shows, in numbers, that false identities and collusion rings capture ~0% of consensus power, that
@@ -99,8 +99,8 @@ Sin dependencias externas — solo biblioteca estándar de Python 3.
 
 ```bash
 cd reputation-engine
-python3 run_all.py            # genera RESULTADOS.md
-python3 tests/test_motor.py   # autoauditoría (8 tests)
+python3 run_all.py            # genera RESULTS.md
+python3 tests/test_engine.py  # autoauditoría (15 tests)
 ```
 
 Muestra, en cifras, que las identidades falsas y los anillos de colusión capturan ~0% del poder de

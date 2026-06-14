@@ -1,16 +1,16 @@
 """
-Mecánica de avales: cupo, responsabilidad persistente, dividendo de mentor y slashing en cascada.
+Vouching mechanics: quota, persistent liability, mentor dividend and cascade slashing.
 
-Ancla en SPEC.md:
-- §1.5c: incentivo a apadrinar SOLO reputacional; vínculo padrino->ahijado PERSISTENTE.
-  - cara negativa: si el ahijado defrauda, el padrino PIERDE reputación (aunque pase el tiempo).
-  - cara positiva: dividendo de mentor = eco pequeño de la reputación INDEPENDIENTE del ahijado;
-    apadrinar títeres (reputación dependiente del propio cluster) NO rinde.
-  - cupo de avales vivos = función SUBLINEAL de la reputación (rendimientos decrecientes).
-- §1.7: slashing por fraude probado.
+Anchored in SPEC.md:
+- §1.5c: incentive to sponsor is ONLY reputational; sponsor->protege link is PERSISTENT.
+  - negative side: if the protege defrauds, the sponsor LOSES reputation (even later in time).
+  - positive side: mentor dividend = a small echo of the protege's INDEPENDENT reputation;
+    sponsoring puppets (reputation dependent on one's own cluster) does NOT pay off.
+  - live-vouch quota = SUBLINEAR function of reputation (decreasing returns).
+- §1.7: slashing for proven fraud.
 
-Esto NO recalcula el EigenTrust; opera sobre un vector de reputación ya calculado para mostrar las
-DINÁMICAS de incentivos (qué le pasa al padrino cuando el ahijado prospera o defrauda).
+This does NOT recompute EigenTrust; it operates on an already-computed reputation vector to show the
+incentive DYNAMICS (what happens to the sponsor when the protege prospers or defrauds).
 """
 
 from __future__ import annotations
@@ -20,91 +20,91 @@ from dataclasses import dataclass, field
 
 
 @dataclass
-class Apadrinamiento:
-    padrino: str
-    ahijado: str
-    vivo: bool = True  # se libera al "graduarse" el ahijado, pero la responsabilidad no caduca
+class Sponsorship:
+    sponsor: str
+    protege: str
+    live: bool = True  # released when the protege "graduates", but the liability does not expire
 
 
 @dataclass
-class RegistroAvales:
-    """Lleva la cuenta de quién avaló a quién (responsabilidad persistente, §1.5c)."""
+class VouchRegistry:
+    """Keeps track of who vouched for whom (persistent liability, §1.5c)."""
 
-    vinculos: list[Apadrinamiento] = field(default_factory=list)
+    links: list[Sponsorship] = field(default_factory=list)
 
-    def apadrinar(self, padrino: str, ahijado: str) -> None:
-        self.vinculos.append(Apadrinamiento(padrino, ahijado))
+    def sponsor_link(self, sponsor: str, protege: str) -> None:
+        self.links.append(Sponsorship(sponsor, protege))
 
-    def padrinos_de(self, ahijado: str) -> list[str]:
-        return [v.padrino for v in self.vinculos if v.ahijado == ahijado]
+    def sponsors_of(self, protege: str) -> list[str]:
+        return [v.sponsor for v in self.links if v.protege == protege]
 
-    def avales_vivos(self, padrino: str) -> int:
-        return sum(1 for v in self.vinculos if v.padrino == padrino and v.vivo)
+    def live_vouches(self, sponsor: str) -> int:
+        return sum(1 for v in self.links if v.sponsor == sponsor and v.live)
 
-    def graduar(self, padrino: str, ahijado: str) -> bool:
+    def graduate(self, sponsor: str, protege: str) -> bool:
         """
-        Gradúa al ahijado (§1.5c): libera el vínculo VIVO (deja de ocupar cupo del padrino) cuando el
-        ahijado ya se sostiene con reputación independiente propia. La RESPONSABILIDAD no caduca: el
-        vínculo sigue en el registro (slashing en cascada lo seguirá alcanzando), solo deja de estar
-        `vivo`. Devuelve True si graduó alguno.
+        Graduate the protege (§1.5c): release the LIVE link (it stops taking up the sponsor's quota)
+        once the protege stands on its own independent reputation. The LIABILITY does not expire: the
+        link stays in the registry (cascade slashing still reaches it), it just stops being `live`.
+        Returns True if any were graduated.
         """
-        graduado = False
-        for v in self.vinculos:
-            if v.padrino == padrino and v.ahijado == ahijado and v.vivo:
-                v.vivo = False
-                graduado = True
-        return graduado
+        graduated = False
+        for v in self.links:
+            if v.sponsor == sponsor and v.protege == protege and v.live:
+                v.live = False
+                graduated = True
+        return graduated
 
 
-def cupo_de_avales(reputacion_agregada: float, k: float = 3.0) -> int:
+def vouch_quota(aggregate_reputation: float, k: float = 3.0) -> int:
     """
-    Cupo de avales VIVOS = función sublineal de la reputación (§1.5c): más reputación -> más cupo,
-    con rendimientos decrecientes para que nadie monopolice el apadrinamiento.
+    Live-vouch quota = sublinear function of reputation (§1.5c): more reputation -> more quota, with
+    decreasing returns so that nobody monopolises sponsorship.
 
-    cupo = floor(k * log2(1 + rep))   (sublineal, crece despacio).
+    quota = floor(k * log2(1 + rep))   (sublinear, grows slowly).
     """
-    return int(k * math.log2(1.0 + max(0.0, reputacion_agregada)))
+    return int(k * math.log2(1.0 + max(0.0, aggregate_reputation)))
 
 
-def dividendo_de_mentor(
-    rep_independiente_ahijado: float,
-    eco: float = 0.05,
+def mentor_dividend(
+    protege_independent_rep: float,
+    echo: float = 0.05,
 ) -> float:
     """
-    Dividendo de mentor (§1.5c, cara positiva): el padrino gana un eco PEQUEÑO de la reputación
-    INDEPENDIENTE del ahijado (ya descontada por cercanía en el grafo, §1.6). Apadrinar a tus
-    propios títeres -> su reputación independiente ~ 0 -> dividendo ~ 0 -> no rinde.
+    Mentor dividend (§1.5c, positive side): the sponsor earns a SMALL echo of the protege's
+    INDEPENDENT reputation (already discounted by graph closeness, §1.6). Sponsoring your own
+    puppets -> their independent reputation ~ 0 -> dividend ~ 0 -> does not pay off.
     """
-    return eco * max(0.0, rep_independiente_ahijado)
+    return echo * max(0.0, protege_independent_rep)
 
 
-def slashing_en_cascada(
-    reputacion: dict[str, float],
-    registro: RegistroAvales,
-    culpable: str,
-    perdida: float,
-    fraccion_padrino: float = 0.5,
-    profundidad: int = 3,
+def cascade_slashing(
+    reputation: dict[str, float],
+    registry: VouchRegistry,
+    culprit: str,
+    loss: float,
+    sponsor_fraction: float = 0.5,
+    depth: int = 3,
 ) -> dict[str, float]:
     """
-    Slashing por fraude probado (§1.7) con RESPONSABILIDAD PERSISTENTE en cascada (§1.5c).
+    Slashing for proven fraud (§1.7) with PERSISTENT LIABILITY in cascade (§1.5c).
 
-    El culpable pierde `perdida`. Cada padrino pierde una FRACCIÓN de lo que perdió su ahijado
-    (responsabilidad por a quién metió), y así hacia arriba en la cadena de avales hasta
-    `profundidad`. Devuelve un NUEVO dict de reputación (no muta el de entrada).
+    The culprit loses `loss`. Each sponsor loses a FRACTION of what their protege lost (liability for
+    whom they let in), and so on up the vouch chain up to `depth`. Returns a NEW reputation dict
+    (does not mutate the input).
 
-    Esto es lo que hace cara la colusión: montar un anillo y que uno defraude arrastra a sus
-    avaladores. Apadrinar a la ligera sale caro.
+    This is what makes collusion expensive: building a ring and having one defraud drags down its
+    vouchers. Sponsoring carelessly is costly.
     """
-    nueva = dict(reputacion)
+    updated = dict(reputation)
 
-    def aplicar(agente: str, monto: float, nivel: int) -> None:
-        if monto <= 0 or nivel < 0 or agente not in nueva:
+    def apply(agent: str, amount: float, level: int) -> None:
+        if amount <= 0 or level < 0 or agent not in updated:
             return
-        nueva[agente] = max(0.0, nueva[agente] - monto)
-        repercute = monto * fraccion_padrino
-        for padrino in registro.padrinos_de(agente):
-            aplicar(padrino, repercute, nivel - 1)
+        updated[agent] = max(0.0, updated[agent] - amount)
+        passes_on = amount * sponsor_fraction
+        for sponsor in registry.sponsors_of(agent):
+            apply(sponsor, passes_on, level - 1)
 
-    aplicar(culpable, perdida, profundidad)
-    return nueva
+    apply(culprit, loss, depth)
+    return updated

@@ -1,16 +1,16 @@
 """
-wtc_sim — Simulador del Consenso de Confianza Tejida (Woven Trust Consensus).
+wtc_sim — Woven Trust Consensus simulator.
 
-Mide, en cifras, la tesis del paper (`PAPER-confianza-tejida.md`): el poder en el consenso depende
-de la REPUTACIÓN, no del número de nodos. Un atacante con muchas identidades pero poca reputación
-(Sybil) no rompe la red; el umbral de seguridad se expresa en FRACCIÓN DE REPUTACIÓN del adversario,
-no en fracción de nodos.
+Measures, in figures, the paper's thesis (`woven-trust-consensus.md`): power in consensus depends on
+REPUTATION, not on the number of nodes. An attacker with many identities but little reputation (Sybil)
+does not break the network; the security threshold is expressed as a FRACTION OF THE ADVERSARY'S
+REPUTATION, not a fraction of nodes.
 
-Implementa el voto sub-muestreado tipo Snowball/Avalanche (SPEC §2.2), con la aportación propia de
-WTC: el muestreo se pondera por REPUTACIÓN (en vez de uniforme). Solo biblioteca estándar.
+Implements sub-sampled Snowball/Avalanche voting (SPEC §2.2), with WTC's own contribution: sampling is
+weighted by REPUTATION (instead of uniform). Standard library only.
 """
 
-from .consenso import run_once, ParamsConsenso
-from .poblacion import poblacion_sybil, poblacion_fraccion_rep
+from .consensus import run_once, ConsensusParams
+from .population import population_sybil, population_reputation_fraction
 
-__all__ = ["run_once", "ParamsConsenso", "poblacion_sybil", "poblacion_fraccion_rep"]
+__all__ = ["run_once", "ConsensusParams", "population_sybil", "population_reputation_fraction"]

@@ -1,106 +1,105 @@
-# Prototipo del motor de reputación de Harlequin
+# Harlequin reputation engine prototype
 
-Primer **código ejecutable** del proyecto. Implementa el núcleo descrito en `SPEC.md §1`
-(reputación), `§1.6` (anti-colusión) y `§2.2` (consenso por sorteo ponderado por reputación), y lo
-**pone a prueba con simulaciones de ataque**. Solo biblioteca estándar de Python 3 — **sin
-dependencias externas** (criterio OPSEC del proyecto).
+The project's first **executable code**. It implements the core described in `SPEC.md §1`
+(reputation), `§1.6` (anti-collusion) and `§2.2` (consensus by reputation-weighted sortition), and
+**tests it with attack simulations**. Python 3 standard library only — **no external dependencies**
+(the project's OPSEC criterion).
 
-> Esto NO es la blockchain. Es el banco de pruebas del mecanismo más importante para Chief: la
-> reputación. Sirve para **medir** si las defensas anti-Sybil y anti-colusión hacen lo que la SPEC
-> promete, antes de construir la cadena alrededor. Capa 2 del `ROADMAP.md`, paso 0.
+> This is NOT the blockchain. It is the test bench for the mechanism that matters most: reputation. It
+> serves to **measure** whether the anti-Sybil and anti-collusion defences do what the SPEC promises,
+> before building the chain around them. Layer 2 of `ROADMAP.md`, step 0.
 
-## Qué demuestra
+## What it demonstrates
 
-La apuesta central de la SPEC (§1.5, §2.4): **el muro anti-Sybil real es la reputación GANADA, no
-la prueba de personalidad.** Crear identidades falsas o granjear avales en círculo no debe dar poder.
+The SPEC's central bet (§1.5, §2.4): **the real anti-Sybil wall is EARNED reputation, not the
+personhood test.** Creating fake identities or farming vouches in a circle must not grant power.
 
-| Simulación | Resultado (ver `RESULTADOS.md`) |
+| Simulation | Result (see `RESULTS.md`) |
 |---|---|
-| 200 Sybils (40% de la red) | capturan **0%** de la reputación y del consenso |
-| Anillo de colusión de 30 | ~0% de poder de consenso |
-| Lavado de reputación (1 real reparte a 29 títeres) | el damping anti-colusión lo recorta **~9×** |
-| Blanqueo de seudónimo (whitewashing) | el seudónimo nuevo pierde **toda** la reputación |
-| Slashing en cascada | el fraude del ahijado golpea a sus padrinos |
+| 200 Sybils (40% of the network) | capture **0%** of reputation and of consensus |
+| Collusion ring of 30 | ~0% of consensus power |
+| Reputation laundering (1 real splits to 29 puppets) | the anti-collusion damping cuts it **~9×** |
+| Pseudonym whitewashing | the fresh pseudonym loses **all** reputation |
+| Cascade slashing | the protege's fraud hits its sponsors |
 
-## Cómo se ejecuta
+## How to run
 
 ```bash
 cd prototipos/reputacion
-python3 run_all.py            # genera RESULTADOS.md
-python3 run_all.py --stdout   # además lo imprime
-python3 tests/test_motor.py   # autoauditoría (8 tests, sin pytest)
+python3 run_all.py            # generates RESULTS.md
+python3 run_all.py --stdout   # also prints it
+python3 tests/test_engine.py  # self-audit (15 tests, no pytest)
 ```
 
-## Estructura
+## Layout
 
 ```
 prototipos/reputacion/
-├── harlequin_rep/          # el motor (paquete)
-│   ├── model.py            # dimensiones (§1.2b) + agente con dos puertas (§1.4)
-│   ├── graph.py            # grafo de avales + independencia anti-colusión (§1.6)
-│   ├── reputacion.py       # EigenTrust anclado en evidencia + damping (§1.3, §1.6)
-│   ├── consenso.py         # sorteo ponderado por reputación (§2.2)
-│   └── vouch.py            # cupo, dividendo de mentor, slashing en cascada (§1.5c, §1.7)
-├── escenarios.py           # poblaciones de red + ataques
-├── adaptativo.py           # barrido de colusión adaptativa (fragmentar para evadir, §1.6)
-├── temporal.py             # dinámica multi-época: decaimiento §1.7 / anti-atrincheramiento Art. VI
-├── graduacion.py           # graduación de ahijados: el apadrinamiento se diluye (§1.5c)
-├── aristas.py              # envejecimiento de avales por época: la confianza es perecedera (§1.7)
-├── run_all.py              # runner -> RESULTADOS.md
-├── tests/test_motor.py     # tests de autoauditoría
-└── RESULTADOS.md           # informe generado
+├── harlequin_rep/          # the engine (package)
+│   ├── model.py            # dimensions (§1.2b) + agent with two gates (§1.4)
+│   ├── graph.py            # vouch graph + anti-collusion independence (§1.6)
+│   ├── reputation.py       # evidence-anchored EigenTrust + damping (§1.3, §1.6)
+│   ├── consensus.py        # reputation-weighted sortition (§2.2)
+│   └── vouch.py            # quota, mentor dividend, cascade slashing (§1.5c, §1.7)
+├── scenarios.py            # network populations + attacks
+├── adaptive.py             # adaptive-collusion sweep (fragment to evade, §1.6)
+├── temporal.py             # multi-epoch dynamics: decay §1.7 / anti-entrenchment Art. VI
+├── graduation.py           # protege graduation: sponsorship dilutes (§1.5c)
+├── edge_aging.py           # vouch aging per epoch: trust is perishable (§1.7)
+├── run_all.py              # runner -> RESULTS.md
+├── tests/test_engine.py    # self-audit tests
+└── RESULTS.md              # generated report
 ```
 
-## Cómo funciona (resumen técnico)
+## How it works (technical summary)
 
-La reputación de cada dimensión es el vector estacionario de **EigenTrust** (Kamvar 2003) con
-teletransporte a un **pre-trust anclado en evidencia real** (tratos liquidados, §1.3a) + semilla
-génesis (§1.4):
+Each dimension's reputation is the stationary vector of **EigenTrust** (Kamvar 2003) with teleport to
+a **pre-trust anchored in real evidence** (settled deals, §1.3a) + genesis seed (§1.4):
 
 ```
 t = (1 - α)·Cᵀ·t + α·p
 ```
 
-- `C` = matriz de avales, fila-estocástica, **amortiguada por independencia** (§1.6): un aval entre
-  miembros de un anillo cerrado (recíproco + vecinos compartidos) vale casi nada.
-- **Detalle clave:** la amortiguación se normaliza por la suma SIN amortiguar, de modo que un nodo
-  endogámico emite filas **sub-estocásticas**; la confianza que "no propaga" **se fuga al
-  pre-trust**. Esto es lo que impide que un anillo recircule y amplifique reputación. (Si se
-  normalizase por la suma amortiguada, un factor uniforme se cancelaría y el damping no haría nada
-  — fue un bug real, corregido; ver el test `test_damping_reduce_lavado`.)
-- `p` = pre-trust = evidencia normalizada. Sin evidencia real, ningún juego de avales fabrica poder.
+- `C` = vouch matrix, row-stochastic, **damped by independence** (§1.6): a vouch between members of a
+  closed ring (reciprocal + shared neighbours) is worth almost nothing.
+- **Key detail:** the damping is normalised by the UNDAMPED sum, so an inbred node emits
+  **sub-stochastic** rows; the trust that "does not propagate" **leaks to the pre-trust**. This is what
+  stops a ring from recirculating and amplifying reputation. (If we normalised by the damped sum, a
+  uniform factor would cancel and the damping would do nothing — a real bug, fixed; see the test
+  `test_damping_reduces_laundering`.)
+- `p` = pre-trust = normalised evidence. Without real evidence, no game of vouches manufactures power.
 
-El **consenso** (§2.2) sortea comités con probabilidad ∝ agregado **conservador** del vector
-(mínimos/medianas, nunca suma: no se compra integridad con pericia, §1.2b).
+The **consensus** (§2.2) draws committees with probability ∝ the **conservative** aggregate of the
+vector (minimums/medians, never a sum: you do not buy integrity with expertise, §1.2b).
 
-## Limitaciones (honestas) y siguiente iteración
+## Limitations (honest) and next iteration
 
-- **Colusión sofisticada — abordada (§2b/§2c del informe).** Además del clique denso, se modela el
-  anillo **disperso** (defensa por detección de comunidades) y el **adaptativo** que fragmenta el
-  anillo para evadir esa etiqueta (`adaptativo.py`). Hallazgo: fragmentar evade la etiqueta pero
-  estrangula el flujo de reputación, y lo que se filtra es **unidimensional** → bajo el agregado
-  conservador (§1.2b) el poder de consenso de los títeres colapsa a ~0 a cualquier fragmentación.
-- **Colusión asimétrica — gap honesto documentado (§2d del informe).** Un **embudo PageRank** (muchos
-  feeders avalan a un solo objetivo, sin reciprocidad) **evade el damping local**: el objetivo no
-  avala a nadie, así que no deja firmas de reciprocidad ni solapamiento, y `independencia(feeder→c0)=1`.
-  El pump pasa el damping de grafo, pero es unidimensional → el agregado conservador (§1.2b) lo deja en
-  ~0 poder de consenso (el backstop que aguanta donde el grafo no llega). *Frente vivo:* endurecer la
-  independencia con una señal de concentración de in-degree desde una sola comunidad (con análisis de
-  falsos positivos sobre nodos honestos legítimamente populares).
-- **Dinámica temporal — abordada (§6 del informe, `temporal.py`).** Simulación multi-época con
-  envejecimiento del ancla de evidencia: quien deja de aportar decae (anti-atrincheramiento, Art.
-  VI), un pionero de obra única no conserva poder (anti-long-range gratis), una granja que farmea y
-  se sienta se desinfla.
-- **Graduación de ahijados — abordada (§7 del informe, `graduacion.py`).** Un ahijado entra apoyado
-  en el aval del mentor y, al ganar reputación independiente, gradúa: el aval se libera y deja de
-  ocupar el cupo del mentor (la responsabilidad persiste). El andamiaje se diseña para diluirse.
-- **Envejecimiento de avales — abordado (§8 del informe, `aristas.py`).** Además de la evidencia, los
-  avales decaen con el tiempo salvo renovación. Experimento controlado (misma evidencia, distinta
-  frescura de avales): prima de frescura ~200%; el aging añade decaimiento relativo sobre el control
-  sin envejecer. Matiz honesto: el decaimiento uniforme se cancela en parte al normalizar la fila, así
-  que el efecto real es RELATIVO (no renovar mientras otros sí) — lo que se quiere premiar.
-- El VRF se simula con un PRNG sembrado; en producción es una función aleatoria verificable real.
-- Las cifras son **relativas** (reparto de poder), no parámetros de producción (esos son `[PARÁMETRO]`
-  en la SPEC, a derivar con modelado).
+- **Sophisticated collusion — addressed (§2b/§2c of the report).** Besides the dense clique, we model
+  the **scattered** ring (community-detection defence) and the **adaptive** one that fragments the ring
+  to evade that label (`adaptive.py`). Finding: fragmenting evades the label but chokes the reputation
+  flow, and what leaks is **single-dimension** → under the conservative aggregate (§1.2b) the puppets'
+  consensus power collapses to ~0 at any fragmentation.
+- **Asymmetric collusion — honest gap documented (§2d of the report).** A **PageRank funnel** (many
+  feeders vouch for a single target, no reciprocity) **evades the local damping**: the target vouches
+  for nobody, so it leaves no reciprocity nor overlap signature, and `independence(feeder→c0)=1`. The
+  pump passes the graph damping, but it is single-dimension → the conservative aggregate (§1.2b) leaves
+  it at ~0 consensus power (the backstop where the graph does not reach). *Live frontier:* harden
+  independence with an in-degree-concentration-from-one-community signal (with false-positive analysis
+  on legitimately popular honest nodes).
+- **Temporal dynamics — addressed (§6 of the report, `temporal.py`).** Multi-epoch simulation aging
+  the evidence anchor: whoever stops contributing decays (anti-entrenchment, Art. VI), a single-work
+  pioneer keeps no power (free anti-long-range), a farm-and-sit ring deflates.
+- **Protege graduation — addressed (§7 of the report, `graduation.py`).** A protege enters leaning on
+  the mentor vouch and, as it earns independent reputation, graduates: the vouch is released and stops
+  taking up the mentor's quota (the liability persists). The scaffolding is designed to dilute.
+- **Vouch aging — addressed (§8 of the report, `edge_aging.py`).** Besides the evidence, vouches decay
+  over time unless renewed. Controlled experiment (same evidence, different vouch freshness): freshness
+  premium ~200%; aging adds relative decay over the no-aging control. Honest nuance: uniform decay
+  partly cancels under row normalisation, so the real effect is RELATIVE (not renewing while others
+  do) — exactly what we want to reward.
+- The VRF is simulated with a seeded PRNG; in production it is a real verifiable random function.
+- The figures are **relative** (power distribution), not production parameters (those are `[PARAMETER]`
+  in the SPEC, to be derived with modelling).
 
-Frentes vivos: anti-colusión con coste económico explícito, y safety/liveness formales del consenso.
+Live frontiers: anti-collusion with an explicit economic cost, and a formal safety/liveness proof of
+the consensus.

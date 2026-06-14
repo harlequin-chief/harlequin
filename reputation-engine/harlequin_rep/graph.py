@@ -1,12 +1,12 @@
 """
-Grafo de confianza: las atestaciones (avales) entre seudónimos, por dimensión.
+Trust graph: the attestations (vouches) between pseudonyms, per dimension.
 
-Ancla en SPEC.md:
-- §1.3b: avalar = poner reputación en juego. Aquí el aval es una arista dirigida y ponderada.
-- §1.6: ANTI-COLUSIÓN. La reputación que entra desde un anillo cerrado de votantes mutuos vale
-  poco; la que viene de fuentes independientes y ya-reputadas vale más. Se implementa con
-  `independencia(i, j)`: penaliza la reciprocidad (i<->j) y el solapamiento de vecinos (vivir en
-  el mismo cluster). Un aval endogámico tiende a 0.
+Anchored in SPEC.md:
+- §1.3b: vouching = putting reputation at stake. Here a vouch is a directed, weighted edge.
+- §1.6: ANTI-COLLUSION. Reputation arriving from a closed ring of mutual voters is worth little;
+  reputation from independent, already-reputed sources is worth more. Implemented with
+  `independence(i, j)`: it penalises reciprocity (i<->j) and neighbour overlap (living in the same
+  cluster). An inbred vouch tends to 0.
 """
 
 from __future__ import annotations
@@ -14,32 +14,32 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 
 
-class GrafoConfianza:
-    """Aristas de atestación por dimensión: (origen -> destino, peso) dentro de una dimensión."""
+class TrustGraph:
+    """Attestation edges per dimension: (source -> target, weight) within a dimension."""
 
     def __init__(self) -> None:
-        # dim -> origen -> destino -> peso
-        self._aristas: dict[str, dict[str, dict[str, float]]] = defaultdict(
+        # dim -> source -> target -> weight
+        self._edges: dict[str, dict[str, dict[str, float]]] = defaultdict(
             lambda: defaultdict(dict)
         )
 
-    def atestar(self, origen: str, destino: str, dim: str, peso: float = 1.0) -> None:
-        """origen avala a destino en la dimensión dim (§1.3b). Suma si ya existía."""
-        if origen == destino:
-            return  # nadie se avala a sí mismo
-        actual = self._aristas[dim][origen].get(destino, 0.0)
-        self._aristas[dim][origen][destino] = actual + peso
+    def attest(self, source: str, target: str, dim: str, weight: float = 1.0) -> None:
+        """source vouches for target in dimension dim (§1.3b). Adds if already present."""
+        if source == target:
+            return  # nobody vouches for themselves
+        current = self._edges[dim][source].get(target, 0.0)
+        self._edges[dim][source][target] = current + weight
 
-    def salientes(self, origen: str, dim: str) -> dict[str, float]:
-        return dict(self._aristas[dim].get(origen, {}))
+    def outgoing(self, source: str, dim: str) -> dict[str, float]:
+        return dict(self._edges[dim].get(source, {}))
 
-    def vecinos_salida(self, nodo: str, dim: str) -> set[str]:
-        return set(self._aristas[dim].get(nodo, {}).keys())
+    def out_neighbors(self, node: str, dim: str) -> set[str]:
+        return set(self._edges[dim].get(node, {}).keys())
 
-    def tiene_arista(self, origen: str, destino: str, dim: str) -> bool:
-        return destino in self._aristas[dim].get(origen, {})
+    def has_edge(self, source: str, target: str, dim: str) -> bool:
+        return target in self._edges[dim].get(source, {})
 
-    def independencia(
+    def independence(
         self,
         i: str,
         j: str,
@@ -48,129 +48,129 @@ class GrafoConfianza:
         gamma: float = 4.0,
     ) -> float:
         """
-        Factor de independencia del aval i->j en [0, 1] (§1.6).
+        Independence factor of the vouch i->j in [0, 1] (§1.6).
 
-        Penaliza dos firmas de colusión:
-          - reciprocidad: si j también avala a i (anillo de avales mutuos).
-          - solapamiento de vecinos (Jaccard de a quién avalan i y j): vivir en el mismo cluster
-            cerrado -> avalan a la misma gente -> endogamia.
+        Penalises two collusion signatures:
+          - reciprocity: if j also vouches for i (mutual-vouching ring).
+          - neighbour overlap (Jaccard of whom i and j vouch for): living in the same closed cluster
+            -> vouching for the same people -> inbreeding.
 
-        independencia = 1 / (1 + beta*recíproco + gamma*solapamiento)
-        Un aval entre dos miembros de un anillo cerrado (recíproco=1, solapamiento alto) cae a ~0.14
-        o menos; un aval entre extraños bien conectados al resto de la red se queda cerca de 1.
+        independence = 1 / (1 + beta*reciprocal + gamma*overlap)
+        A vouch between two members of a closed ring (reciprocal=1, high overlap) falls to ~0.14 or
+        less; a vouch between strangers well connected to the rest of the network stays near 1.
         """
-        reciproco = 1.0 if self.tiene_arista(j, i, dim) else 0.0
+        reciprocal = 1.0 if self.has_edge(j, i, dim) else 0.0
 
-        ni = self.vecinos_salida(i, dim) - {j}
-        nj = self.vecinos_salida(j, dim) - {i}
+        ni = self.out_neighbors(i, dim) - {j}
+        nj = self.out_neighbors(j, dim) - {i}
         union = ni | nj
-        solapamiento = (len(ni & nj) / len(union)) if union else 0.0
+        overlap = (len(ni & nj) / len(union)) if union else 0.0
 
-        return 1.0 / (1.0 + beta * reciproco + gamma * solapamiento)
+        return 1.0 / (1.0 + beta * reciprocal + gamma * overlap)
 
-    def comunidades(self, dim: str, nodos: list[str]) -> dict[str, str]:
+    def communities(self, dim: str, nodes: list[str]) -> dict[str, str]:
         """
-        Detección de comunidades por **propagación de etiquetas** (label propagation) sobre la
-        proyección no dirigida de los avales. Señal GLOBAL que un anillo de colusión deja aunque sea
-        disperso (baja endogamia local): sigue siendo una comunidad densamente interconectada.
-        Determinista (orden y desempates fijos) -> reproducible.
+        Community detection by **label propagation** over the undirected projection of the vouches.
+        A GLOBAL signal that a collusion ring leaves even when it is scattered (low local inbreeding):
+        it is still a densely interconnected community. Deterministic (fixed order and tie-breaks) ->
+        reproducible.
         """
-        nodos_set = set(nodos)
+        node_set = set(nodes)
         adj: dict[str, set[str]] = defaultdict(set)
-        for i in nodos:
-            for j in self.salientes(i, dim):
-                if j in nodos_set:
+        for i in nodes:
+            for j in self.outgoing(i, dim):
+                if j in node_set:
                     adj[i].add(j)
                     adj[j].add(i)
-        etiqueta = {n: n for n in nodos}
-        orden = sorted(nodos)
+        label = {n: n for n in nodes}
+        order = sorted(nodes)
         for _ in range(15):
-            cambiado = False
-            for n in orden:
-                vecinos = adj.get(n)
-                if not vecinos:
+            changed = False
+            for n in order:
+                neighbors = adj.get(n)
+                if not neighbors:
                     continue
-                cuenta = Counter(etiqueta[m] for m in vecinos)
-                mejor = max(sorted(cuenta), key=lambda k: cuenta[k])
-                if etiqueta[n] != mejor:
-                    etiqueta[n] = mejor
-                    cambiado = True
-            if not cambiado:
+                count = Counter(label[m] for m in neighbors)
+                best = max(sorted(count), key=lambda k: count[k])
+                if label[n] != best:
+                    label[n] = best
+                    changed = True
+            if not changed:
                 break
-        return etiqueta
+        return label
 
-    def sospecha_comunidades(
-        self, dim: str, nodos: list[str], etiqueta: dict[str, str], evidencia: dict[str, float]
+    def community_suspicion(
+        self, dim: str, nodes: list[str], label: dict[str, str], evidence: dict[str, float]
     ) -> dict[str, float]:
         """
-        Sospecha por comunidad = aristas internas / (1 + evidencia de la comunidad). Alta cuando hay
-        mucho aval mutuo y poca obra real -> firma de colusión, válida para anillos DENSOS y DISPERSOS
-        (a diferencia de la independencia local, que solo ve cliques).
+        Community suspicion = internal edges / (1 + community evidence). High when there is a lot of
+        mutual vouching and little real work -> collusion signature, valid for DENSE and SCATTERED
+        rings (unlike local independence, which only sees cliques).
         """
-        aristas_int: Counter = Counter()
-        nodos_set = set(nodos)
-        for i in nodos:
-            for j in self.salientes(i, dim):
-                if j in nodos_set and etiqueta[i] == etiqueta[j]:
-                    aristas_int[etiqueta[i]] += 1
+        internal_edges: Counter = Counter()
+        node_set = set(nodes)
+        for i in nodes:
+            for j in self.outgoing(i, dim):
+                if j in node_set and label[i] == label[j]:
+                    internal_edges[label[i]] += 1
         ev: dict[str, float] = defaultdict(float)
-        for n in nodos:
-            ev[etiqueta[n]] += evidencia.get(n, 0.0)
+        for n in nodes:
+            ev[label[n]] += evidence.get(n, 0.0)
         return {
-            comm: aristas_int.get(comm, 0) / (1.0 + ev.get(comm, 0.0))
-            for comm in set(etiqueta.values())
+            comm: internal_edges.get(comm, 0) / (1.0 + ev.get(comm, 0.0))
+            for comm in set(label.values())
         }
 
-    def matriz_local_amortiguada(
+    def damped_local_matrix(
         self,
         dim: str,
-        nodos: list[str],
+        nodes: list[str],
         damping: bool = True,
-        comunidad: bool = False,
-        evidencia: dict[str, float] | None = None,
+        community: bool = False,
+        evidence: dict[str, float] | None = None,
         kappa: float = 0.5,
     ) -> dict[str, dict[str, float]]:
         """
-        Matriz de confianza local C, fila-estocástica, con damping anti-colusión aplicado (§1.6).
+        Local trust matrix C, row-stochastic, with anti-collusion damping applied (§1.6).
 
-        C[i][j] = peso(i->j) * independencia(i, j), normalizado para que la fila i sume 1.
-        Si i no avala a nadie (fila vacía), se deja vacía -> EigenTrust lo trata como "colgante"
-        y reparte su masa hacia el pre-trust (anclaje en evidencia real).
+        C[i][j] = weight(i->j) * independence(i, j), normalised so that row i sums to 1.
+        If i vouches for nobody (empty row), it is left empty -> EigenTrust treats it as "dangling"
+        and redistributes its mass towards the pre-trust (anchoring in real evidence).
 
-        `damping=False` desactiva el factor de independencia (sirve para MEDIR cuánto aporta el
-        anti-colusión: comparar reputación con vs sin damping ante un anillo de colusión).
+        `damping=False` disables the independence factor (useful to MEASURE how much the
+        anti-collusion contributes: compare reputation with vs without damping under a collusion ring).
 
-        CLAVE (corrección de diseño): la normalización se hace por la suma de pesos SIN amortiguar.
-        Así, cuando un nodo solo avala dentro de un anillo endogámico (independencia baja en TODAS
-        sus aristas), su fila suma << 1 -> es SUB-estocástica -> la mayor parte de su confianza
-        "se fuga" en vez de propagarse al anillo. Si en cambio normalizásemos por la suma ya
-        amortiguada, un factor uniforme se cancelaría y el damping no haría nada. El déficit de fila
-        (1 - suma) lo reinyecta el cálculo de reputación hacia el pre-trust (anclaje en evidencia).
+        KEY (design fix): normalisation uses the sum of the UNDAMPED weights. So when a node only
+        vouches inside an inbred ring (low independence on ALL its edges), its row sums to << 1 -> it
+        is SUB-stochastic -> most of its trust "leaks out" instead of propagating to the ring. If we
+        normalised by the already-damped sum, a uniform factor would cancel and the damping would do
+        nothing. The row deficit (1 - sum) is reinjected by the reputation computation towards the
+        pre-trust (anchoring in evidence).
         """
-        nodos_set = set(nodos)
+        node_set = set(nodes)
 
-        # damping por comunidad (opt-in): factor global que castiga aristas dentro de una comunidad
-        # sospechosa (muchas aristas internas, poca evidencia). Cierra el hueco del anillo disperso.
-        etiqueta: dict[str, str] = {}
-        sospecha: dict[str, float] = {}
-        if damping and comunidad and evidencia is not None:
-            etiqueta = self.comunidades(dim, nodos)
-            sospecha = self.sospecha_comunidades(dim, nodos, etiqueta, evidencia)
+        # community damping (opt-in): a global factor punishing edges inside a suspicious community
+        # (many internal edges, little evidence). Closes the scattered-ring gap.
+        label: dict[str, str] = {}
+        suspicion: dict[str, float] = {}
+        if damping and community and evidence is not None:
+            label = self.communities(dim, nodes)
+            suspicion = self.community_suspicion(dim, nodes, label, evidence)
 
         def factor(i: str, j: str) -> float:
             if not damping:
                 return 1.0
-            f = self.independencia(i, j, dim)
-            if etiqueta and etiqueta.get(i) == etiqueta.get(j):
-                f *= 1.0 / (1.0 + kappa * sospecha.get(etiqueta[i], 0.0))
+            f = self.independence(i, j, dim)
+            if label and label.get(i) == label.get(j):
+                f *= 1.0 / (1.0 + kappa * suspicion.get(label[i], 0.0))
             return f
 
         C: dict[str, dict[str, float]] = {}
-        for i in nodos:
-            salientes = {j: p for j, p in self.salientes(i, dim).items() if j in nodos_set}
-            suma_bruta = sum(salientes.values())
-            if suma_bruta <= 0:
+        for i in nodes:
+            outgoing = {j: w for j, w in self.outgoing(i, dim).items() if j in node_set}
+            raw_sum = sum(outgoing.values())
+            if raw_sum <= 0:
                 C[i] = {}
                 continue
-            C[i] = {j: peso * factor(i, j) / suma_bruta for j, peso in salientes.items()}
+            C[i] = {j: w * factor(i, j) / raw_sum for j, w in outgoing.items()}
         return C

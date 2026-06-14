@@ -1,11 +1,11 @@
 """
-Modelo de datos: dimensiones de reputación y agentes (seudónimos).
+Data model: reputation dimensions and agents (pseudonyms).
 
-Ancla en SPEC.md:
-- §1.2b: reputación VECTORIAL. Dimensiones iniciales (extensibles): comercio, contribución
-  técnica, función judicial, gobernanza. Ganar en una NO contamina las otras.
-- §1.4: DOS PUERTAS. Puerta 1 = personalidad (humano único) -> ciudadanía base = 1, sin padrino.
-  Puerta 2 = reputación ganada por encima de la base.
+Anchored in SPEC.md:
+- §1.2b: VECTORIAL reputation. Initial dimensions (extensible): commerce, technical contribution,
+  judicial function, governance. Earning in one does NOT contaminate the others.
+- §1.4: TWO GATES. Gate 1 = personhood (unique human) -> base citizenship = 1, no sponsor.
+  Gate 2 = reputation earned above the base.
 """
 
 from __future__ import annotations
@@ -14,48 +14,48 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 
-# §1.2b — dimensiones iniciales de la reputación vectorial (conjunto extensible).
-DIMENSIONES: tuple[str, ...] = (
-    "comercio",
-    "contribucion_tecnica",
-    "funcion_judicial",
-    "gobernanza",
+# §1.2b — initial dimensions of the vectorial reputation (extensible set).
+DIMENSIONS: tuple[str, ...] = (
+    "commerce",
+    "technical_contribution",
+    "judicial_function",
+    "governance",
 )
 
 
-class TipoAgente(str, Enum):
-    """Etiqueta SOLO para análisis de la simulación (el protocolo no la conoce)."""
+class AgentKind(str, Enum):
+    """Label used ONLY for analysing the simulation (the protocol does not know it)."""
 
-    GENESIS = "genesis"        # cohorte fundadora (semilla, §1.4); diseñada para diluirse
-    HONESTO = "honesto"        # miembro real con historial verificable
-    SYBIL = "sybil"            # identidad falsa sin trabajo real (§1.5)
-    COLUSOR = "colusor"        # parte de un anillo de avales mutuos (§1.6)
-    BLANQUEADOR = "blanqueador"  # abandona un seudónimo "quemado" y reinicia (whitewashing)
+    GENESIS = "genesis"          # founding cohort (seed, §1.4); designed to dilute away
+    HONEST = "honest"            # real member with a verifiable history
+    SYBIL = "sybil"              # fake identity with no real work (§1.5)
+    COLLUDER = "colluder"        # part of a mutual-vouching ring (§1.6)
+    WHITEWASHER = "whitewasher"  # abandons a "burned" pseudonym and restarts (whitewashing)
 
 
 @dataclass
-class Agente:
+class Agent:
     """
-    Un seudónimo de la red. La identidad física NUNCA se modela: solo el seudónimo (Art. VII).
+    A pseudonym of the network. The physical identity is NEVER modelled: only the pseudonym (Art. VII).
 
-    - es_humano_unico: pasó la prueba de personalidad (§1.5). Da ciudadanía base = 1.
-    - evidencia: trabajo/tratos VALIDADOS por dimensión (§1.3a). Es el ancla "real" de la
-      reputación: sin evidencia objetiva, los avales no pueden, por sí solos, fabricar poder.
-    - el vector de reputación ganada NO se guarda aquí: se DERIVA del grafo + evidencia
-      (ver reputacion.reputacion_vectorial). Aquí solo viven las entradas del modelo.
+    - unique_human: passed the personhood test (§1.5). Grants base citizenship = 1.
+    - evidence: work/deals VALIDATED per dimension (§1.3a). The "real" anchor of reputation: without
+      objective evidence, vouches alone cannot manufacture power.
+    - the earned reputation vector is NOT stored here: it is DERIVED from the graph + evidence
+      (see reputation.reputation_vector). Only the model inputs live here.
     """
 
     id: str
-    tipo: TipoAgente
-    es_humano_unico: bool = True
-    # evidencia objetiva verificable por dimensión (tratos liquidados, trabajo comprobado).
-    evidencia: dict[str, float] = field(default_factory=dict)
-    cluster: str | None = None  # etiqueta de anillo, solo para construir/analizar escenarios
+    kind: AgentKind
+    unique_human: bool = True
+    # objective verifiable evidence per dimension (settled deals, proven work).
+    evidence: dict[str, float] = field(default_factory=dict)
+    cluster: str | None = None  # ring/cluster label, only to build/analyse scenarios
 
     @property
     def base(self) -> float:
-        """Ciudadanía base (§1.4): 1 si es persona única verificada, 0 si no."""
-        return 1.0 if self.es_humano_unico else 0.0
+        """Base citizenship (§1.4): 1 if a verified unique person, 0 otherwise."""
+        return 1.0 if self.unique_human else 0.0
 
-    def evidencia_dim(self, dim: str) -> float:
-        return self.evidencia.get(dim, 0.0)
+    def evidence_in(self, dim: str) -> float:
+        return self.evidence.get(dim, 0.0)
