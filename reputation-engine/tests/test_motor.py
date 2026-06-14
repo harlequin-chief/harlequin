@@ -80,6 +80,58 @@ def test_comunidad_reduce_anillo_disperso():
     assert hon_comun > hon_local * 0.9, "la defensa de comunidad NO debe castigar a los honestos"
 
 
+def test_adaptativa_comunidad_no_empeora():
+    """
+    Colusión ADAPTATIVA (fragmentar para evadir la etiqueta de comunidad): a cualquier nivel de
+    fragmentación, la defensa de comunidad NUNCA lava más que la local sola y SIEMPRE reduce frente
+    a no tener damping. Evadir la etiqueta no le compra al atacante más reputación lavada.
+    """
+    titeres_de = lambda esc: [c for c, f in esc.facciones.items() if f == "colusor" and c != "c0"]
+    for k in (1, 3, 6, 10):
+        esc = escenarios.escenario_colusion_adaptativa(n_fragmentos=k)
+        tit = titeres_de(esc)
+        sin = sum(_suma(reputacion_vectorial(esc.agentes, esc.grafo, damping=False)[t]) for t in tit)
+        loc = sum(_suma(reputacion_vectorial(esc.agentes, esc.grafo, damping=True)[t]) for t in tit)
+        com = sum(_suma(reputacion_vectorial(esc.agentes, esc.grafo, damping=True, comunidad=True)[t]) for t in tit)
+        assert com <= loc + 1e-6, f"k={k}: comunidad ({com:.1f}) lava más que local ({loc:.1f})"
+        assert com < sin, f"k={k}: la defensa no reduce frente a sin damping"
+
+
+def test_adaptativa_sin_poder_de_consenso():
+    """
+    El lavado adaptativo es UNIDIMENSIONAL (solo 'comercio'): bajo el agregado conservador (min,
+    §1.2b) que rige el poder de consenso/aval, los títeres colapsan a ~0 a cualquier fragmentación.
+    Filtrar reputación difusa en una dimensión NO compra poder que exige fiabilidad global.
+    """
+    for k in (1, 3, 10):
+        esc = escenarios.escenario_colusion_adaptativa(n_fragmentos=k)
+        tit = [c for c, f in esc.facciones.items() if f == "colusor" and c != "c0"]
+        rep = reputacion_vectorial(esc.agentes, esc.grafo, damping=True, comunidad=True)
+        poder = sum(agregado_conservador(rep[t], "min") for t in tit)
+        assert poder < 0.01, f"k={k}: títeres capturan poder de consenso {poder:.4f} (> 0)"
+
+
+def test_temporal_decae_inactivos():
+    """
+    Dinámica temporal (§1.7, Art. VI): quien deja de aportar DECAE; quien sigue aportando se
+    sostiene. El pionero de una obra única no conserva el poder (anti-long-range); el activo sí.
+    """
+    import temporal
+    tray = temporal.simular()
+    activo = tray["honesto_activo"]
+    retirado = tray["honesto_retirado"]
+    pionero = tray["pionero_durmiente"]
+    # el activo termina por encima de donde empezó (aportar mantiene/crece el poder)
+    assert activo[-1] > activo[0], "el honesto activo no debería decaer"
+    # el retirado decae claramente desde su pico tras dejar de aportar (anti-atrincheramiento)
+    assert retirado[-1] < max(retirado) * 0.8, "el retirado debería decaer tras parar"
+    # el pionero durmiente pierde la mayor parte de su poder (anti-long-range)
+    assert pionero[-1] < max(pionero) * 0.3, "el pionero durmiente debería perder casi todo"
+    # los títeres del anillo que farmea-y-se-sienta se desinflan con el tiempo
+    titeres = tray["titeres_anillo"]
+    assert titeres[-1] < titeres[1], "los títeres del anillo deberían desinflarse"
+
+
 def test_blanqueo_pierde_todo():
     """El seudónimo nuevo (whitewashing) no hereda reputación: ~0 frente al consolidado."""
     esc = escenarios.escenario_blanqueo()

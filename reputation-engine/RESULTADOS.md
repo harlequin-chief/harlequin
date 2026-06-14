@@ -47,6 +47,21 @@ El clique denso es fácil de detectar. Un anillo **disperso** (cada colusor aval
 **Resultado:** la detección de comunidades reduce el lavado del anillo disperso de **148** (damping local) a **66** (~2.2× menos) — cierra buena parte del hueco que dejaba el damping local.
 **Control de falsos positivos:** la reputación honesta total apenas cambia con la defensa de comunidades (-0.1% sobre la base) → no castiga a las comunidades honestas (tienen evidencia real, baja su sospecha). Honesto: sigue siendo opt-in y a validar más; la colusión adaptativa (fragmentar el anillo en varias comunidades) es el siguiente frente (§1.6, PAPER §10).
 
+## 2c. Frente abierto: colusión ADAPTATIVA (fragmentar para evadir, §1.6)
+El atacante sabe que castigamos las comunidades densas-sin-evidencia, así que **fragmenta** el anillo en sub-anillos pequeños y dispersos para caer por debajo del radar. Pero para lavar la reputación real de c0 a los títeres, ésta tiene que **fluir** entre fragmentos por unos pocos puentes. Esa es la tensión: evadir la etiqueta estrangula el flujo.
+
+| fragmentos | comunidades vistas | lavado sin damping | lavado +comunidad | **poder consenso (min)** |
+|---:|---:|---:|---:|---:|
+| 1 | 1 | 209.5 | 66.2 | **0.000** |
+| 2 | 2 | 214.8 | 61.3 | **0.000** |
+| 3 | 3 | 239.3 | 62.1 | **0.000** |
+| 5 | 5 | 200.9 | 53.2 | **0.000** |
+| 6 | 6 | 209.4 | 56.0 | **0.000** |
+| 10 | 6 | 264.6 | 42.4 | **0.000** |
+| 15 | 3 | 202.9 | 49.2 | **0.000** |
+
+**Resultado (doble):** (1) fragmentar **sube** el nº de comunidades vistas (evade la etiqueta) pero **no sube** el lavado bajo defensa —al fragmentar, los puentes se vuelven cuellos de botella que el damping LOCAL muerde más fuerte—; el peor caso para la defensa es el anillo disperso SIN fragmentar. (2) Lo que sí se filtra es **unidimensional** (solo `comercio`): bajo el agregado conservador (min, §1.2b) que rige el poder de consenso/aval, los títeres colapsan a **~0** a cualquier fragmentación. Para tener poder real el atacante necesitaría evidencia verificable en **todas** las dimensiones por cada títere = hacer el trabajo honesto. *El lavado difuso no compra poder estructural.*
+
 ## 3. Blanqueo de seudónimo (whitewashing, §5)
 Mismo humano, dos máscaras: una consolidada y una nueva.
 
@@ -84,9 +99,29 @@ ve afectado. Apadrinar a la ligera sale caro -> fuerza selectividad.
 
 **Dividendo de mentor:** apadrinar a alguien con reputación independiente real rinde 4.00; apadrinar a un títere (reputación independiente ~0) rinde 0.03. Las granjas padrino->títere no son rentables (§1.6).
 
+## 6. Dinámica temporal: decaimiento y anti-atrincheramiento (§1.7, Art. VI)
+El motor base es una foto fija; aquí se modela el TIEMPO en épocas envejeciendo el ancla de evidencia (ρ=0.7 de retención por época). La reputación no contribuida se evapora (§1.7) y el poder de ayer no blinda el de mañana (Art. VI).
+
+| época | Honesto activo | Honesto retirado (para en t=3) | Pionero durmiente (obra única t=0) | Títeres anillo farm-y-sienta |
+|---:|---:|---:|---:|---:|
+| 0 | 151 | 240 | 816 | 19 |
+| 1 | 215 | 327 | 566 | 28 |
+| 2 | 283 | 415 | 436 | 22 |
+| 3 | 364 | 372 | 359 | 19 |
+| 4 | 438 | 333 | 292 | 15 |
+| 5 | 501 | 300 | 234 | 12 |
+| 6 | 553 | 274 | 188 | 9 |
+| 7 | 594 | 253 | 152 | 7 |
+| 8 | 626 | 236 | 124 | 5 |
+| 9 | 650 | 224 | 104 | 4 |
+
+**Resultado:** quien **sigue aportando** se sostiene y crece; quien se **retira** decae (~46% desde su pico) → anti-atrincheramiento (Art. VI). Un **pionero** de una obra única se desinfla (~87%) → defensa **anti-long-range** gratis: una historia vieja no se reactiva a poder. Y una **granja** que farmea y se sienta ve a sus títeres evaporarse: la colusión tiene que ser SOSTENIDA, no un sprint.
+
 ## Conclusión
 El prototipo confirma, en cifras, la apuesta central de la SPEC: **el poder estructural no se
 compra con identidades ni con avales endogámicos**. Sybils y anillos de colusión quedan cerca
 de 0% de poder de consenso; el damping anti-colusión es medible y necesario; el blanqueo no
-compensa; y la responsabilidad persistente hace cara la colusión. El frente a seguir
-endureciendo es §1.6 (colusión más sofisticada que un clique denso) — siguiente iteración.
+compensa; y la responsabilidad persistente hace cara la colusión. La colusión sofisticada
+—anillo disperso (§2b) y fragmentado/adaptativo (§2c)— tampoco compra poder: el lavado que se
+filtra es unidimensional y el agregado conservador (§1.2b) lo anula. Frentes vivos: dinámica
+temporal (decaimiento por época) y safety/liveness formales del consenso.

@@ -42,6 +42,8 @@ prototipos/reputacion/
 │   ├── consenso.py         # sorteo ponderado por reputación (§2.2)
 │   └── vouch.py            # cupo, dividendo de mentor, slashing en cascada (§1.5c, §1.7)
 ├── escenarios.py           # poblaciones de red + ataques
+├── adaptativo.py           # barrido de colusión adaptativa (fragmentar para evadir, §1.6)
+├── temporal.py             # dinámica multi-época: decaimiento §1.7 / anti-atrincheramiento Art. VI
 ├── run_all.py              # runner -> RESULTADOS.md
 ├── tests/test_motor.py     # tests de autoauditoría
 └── RESULTADOS.md           # informe generado
@@ -71,12 +73,17 @@ El **consenso** (§2.2) sortea comités con probabilidad ∝ agregado **conserva
 
 ## Limitaciones (honestas) y siguiente iteración
 
-- El damping usa un clique denso como modelo de colusión. La colusión real es más sutil (anillos
-  dispersos, avales asimétricos, ataques tipo PageRank). **Frente #1 de la SPEC (§1.6): seguir
-  endureciendo.**
+- **Colusión sofisticada — abordada (§2b/§2c del informe).** Además del clique denso, se modela el
+  anillo **disperso** (defensa por detección de comunidades) y el **adaptativo** que fragmenta el
+  anillo para evadir esa etiqueta (`adaptativo.py`). Hallazgo: fragmentar evade la etiqueta pero
+  estrangula el flujo de reputación, y lo que se filtra es **unidimensional** → bajo el agregado
+  conservador (§1.2b) el poder de consenso de los títeres colapsa a ~0 a cualquier fragmentación.
+- **Dinámica temporal — abordada (§6 del informe, `temporal.py`).** Simulación multi-época con
+  envejecimiento del ancla de evidencia: quien deja de aportar decae (anti-atrincheramiento, Art.
+  VI), un pionero de obra única no conserva poder (anti-long-range gratis), una granja que farmea y
+  se sienta se desinfla. *Pendiente:* envejecer también las aristas y graduar ahijados por época.
 - El VRF se simula con un PRNG sembrado; en producción es una función aleatoria verificable real.
 - Las cifras son **relativas** (reparto de poder), no parámetros de producción (esos son `[PARÁMETRO]`
   en la SPEC, a derivar con modelado).
-- Falta modelar la dinámica temporal completa (decaimiento época a época, graduación de ahijados).
 
-Estas se abordan en la próxima iteración del prototipo, antes de pasar al diseño de la cadena.
+Frentes vivos: anti-colusión con coste económico explícito, y safety/liveness formales del consenso.

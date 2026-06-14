@@ -32,6 +32,7 @@ from harlequin_rep.vouch import (
     dividendo_de_mentor,
     slashing_en_cascada,
 )
+import adaptativo
 import escenarios
 
 
@@ -267,6 +268,26 @@ def construir_informe() -> str:
       "evidencia real, baja su sospecha). Honesto: sigue siendo opt-in y a validar más; la colusión "
       "adaptativa (fragmentar el anillo en varias comunidades) es el siguiente frente (§1.6, PAPER §10).\n")
 
+    # colusión adaptativa: fragmentar para evadir la etiqueta de comunidad (§1.6, frente abierto)
+    filas = adaptativo.barrido(puentes=1)
+    w("\n## 2c. Frente abierto: colusión ADAPTATIVA (fragmentar para evadir, §1.6)\n")
+    w("El atacante sabe que castigamos las comunidades densas-sin-evidencia, así que **fragmenta** el "
+      "anillo en sub-anillos pequeños y dispersos para caer por debajo del radar. Pero para lavar la "
+      "reputación real de c0 a los títeres, ésta tiene que **fluir** entre fragmentos por unos pocos "
+      "puentes. Esa es la tensión: evadir la etiqueta estrangula el flujo.\n\n")
+    w("| fragmentos | comunidades vistas | lavado sin damping | lavado +comunidad | **poder consenso (min)** |\n")
+    w("|---:|---:|---:|---:|---:|\n")
+    for k, m in filas:
+        w(f"| {k} | {m['n_com']} | {m['sin']:.1f} | {m['comunidad']:.1f} | **{m['poder']:.3f}** |\n")
+    w("\n**Resultado (doble):** (1) fragmentar **sube** el nº de comunidades vistas (evade la etiqueta) "
+      "pero **no sube** el lavado bajo defensa —al fragmentar, los puentes se vuelven cuellos de botella "
+      "que el damping LOCAL muerde más fuerte—; el peor caso para la defensa es el anillo disperso SIN "
+      "fragmentar. (2) Lo que sí se filtra es **unidimensional** (solo `comercio`): bajo el agregado "
+      "conservador (min, §1.2b) que rige el poder de consenso/aval, los títeres colapsan a **~0** a "
+      "cualquier fragmentación. Para tener poder real el atacante necesitaría evidencia verificable en "
+      "**todas** las dimensiones por cada títere = hacer el trabajo honesto. *El lavado difuso no compra "
+      "poder estructural.*\n")
+
     # blanqueo
     bl = medir_blanqueo()
     w("\n## 3. Blanqueo de seudónimo (whitewashing, §5)\n")
@@ -299,12 +320,33 @@ def construir_informe() -> str:
       f"{ec['div_real']:.2f}; apadrinar a un títere (reputación independiente ~0) rinde "
       f"{ec['div_titere']:.2f}. Las granjas padrino->títere no son rentables (§1.6).\n")
 
+    # dinámica temporal (§1.7 decaimiento, Art. VI anti-atrincheramiento)
+    import temporal
+    tray = temporal.simular()
+    w("\n## 6. Dinámica temporal: decaimiento y anti-atrincheramiento (§1.7, Art. VI)\n")
+    w(f"El motor base es una foto fija; aquí se modela el TIEMPO en épocas envejeciendo el ancla de "
+      f"evidencia (ρ={temporal.RHO} de retención por época). La reputación no contribuida se evapora "
+      "(§1.7) y el poder de ayer no blinda el de mañana (Art. VI).\n\n")
+    w("| época | Honesto activo | Honesto retirado (para en t=3) | Pionero durmiente (obra única t=0) | Títeres anillo farm-y-sienta |\n")
+    w("|---:|---:|---:|---:|---:|\n")
+    for t in range(temporal.N_EPOCAS):
+        w(f"| {t} | {tray['honesto_activo'][t]:.0f} | {tray['honesto_retirado'][t]:.0f} | "
+          f"{tray['pionero_durmiente'][t]:.0f} | {tray['titeres_anillo'][t]:.0f} |\n")
+    ret, pio = tray["honesto_retirado"], tray["pionero_durmiente"]
+    w(f"\n**Resultado:** quien **sigue aportando** se sostiene y crece; quien se **retira** decae "
+      f"(~{100*(1-ret[-1]/max(ret)):.0f}% desde su pico) → anti-atrincheramiento (Art. VI). Un **pionero** "
+      f"de una obra única se desinfla (~{100*(1-pio[-1]/max(pio)):.0f}%) → defensa **anti-long-range** "
+      "gratis: una historia vieja no se reactiva a poder. Y una **granja** que farmea y se sienta ve a "
+      "sus títeres evaporarse: la colusión tiene que ser SOSTENIDA, no un sprint.\n")
+
     w("\n## Conclusión\n")
     w("El prototipo confirma, en cifras, la apuesta central de la SPEC: **el poder estructural no se\n"
       "compra con identidades ni con avales endogámicos**. Sybils y anillos de colusión quedan cerca\n"
       "de 0% de poder de consenso; el damping anti-colusión es medible y necesario; el blanqueo no\n"
-      "compensa; y la responsabilidad persistente hace cara la colusión. El frente a seguir\n"
-      "endureciendo es §1.6 (colusión más sofisticada que un clique denso) — siguiente iteración.\n")
+      "compensa; y la responsabilidad persistente hace cara la colusión. La colusión sofisticada\n"
+      "—anillo disperso (§2b) y fragmentado/adaptativo (§2c)— tampoco compra poder: el lavado que se\n"
+      "filtra es unidimensional y el agregado conservador (§1.2b) lo anula. Frentes vivos: dinámica\n"
+      "temporal (decaimiento por época) y safety/liveness formales del consenso.\n")
 
     return "".join(L)
 

@@ -209,6 +209,79 @@ def escenario_colusion_dispersa(
     )
 
 
+def escenario_colusion_adaptativa(
+    semilla: int = 7,
+    n_anillo: int = 30,
+    n_fragmentos: int = 3,
+    grado: int = 3,
+    puentes: int = 1,
+    honestos_engañados: int = 3,
+) -> Escenario:
+    """
+    Colusión ADAPTATIVA (frente abierto §1.6, evasión de la detección de comunidades).
+
+    El atacante sabe que la defensa etiqueta comunidades y castiga las densas-sin-evidencia. Su
+    contramedida: **fragmentar** el anillo en `n_fragmentos` sub-anillos pequeños, cada uno
+    internamente DISPERSO (cada miembro avala a `grado` otros de SU fragmento). Así cada fragmento
+    parece una comunidad pequeña y poco endogámica, por debajo del radar de la sospecha por comunidad.
+
+    PERO el atacante todavía quiere LAVAR la reputación real de c0 (su único nodo con evidencia) a
+    los 29 títeres. Para que la reputación FLUYA entre fragmentos hace falta conectar los fragmentos:
+    `puentes` aristas dirigidas entre fragmentos consecutivos (c0 está en el fragmento 0). Ahí está la
+    tensión que este escenario sirve para medir: **más fragmentación evade mejor la etiqueta de
+    comunidad, pero estrangula el flujo de reputación** (menos puentes, sub-anillos dispersos -> la
+    independencia local y los cuellos de botella de los puentes recortan el lavado igualmente).
+
+    Caso degenerado `n_fragmentos=1` == anillo disperso clásico (sirve de control del barrido).
+    """
+    rng = random.Random(semilla)
+    agentes, grafo, facciones = _construir_base(rng)
+
+    anillo = [f"c{i}" for i in range(n_anillo)]
+    for idx, cid in enumerate(anillo):
+        evidencia = {"comercio": 20.0} if idx == 0 else {}
+        agentes.append(Agente(id=cid, tipo=TipoAgente.COLUSOR, es_humano_unico=True,
+                              evidencia=evidencia, cluster="anillo_adaptativo"))
+        facciones[cid] = "colusor"
+
+    # repartir el anillo en n_fragmentos contiguos (c0 cae en el fragmento 0, con la evidencia)
+    n_fragmentos = max(1, min(n_fragmentos, n_anillo))
+    fragmentos: list[list[str]] = [anillo[i::n_fragmentos] for i in range(n_fragmentos)]
+    # nota: corte intercalado mantiene a c0 en el fragmento 0 y reparte los títeres uniformemente.
+
+    # avales INTERNOS dispersos dentro de cada fragmento (baja endogamia local, comunidad pequeña)
+    for frag in fragmentos:
+        for a in frag:
+            candidatos = [b for b in frag if b != a]
+            if not candidatos:
+                continue
+            for b in rng.sample(candidatos, min(grado, len(candidatos))):
+                grafo.atestar(a, b, "comercio", 1.0)
+
+    # PUENTES entre fragmentos consecutivos: por aquí tiene que pasar la reputación de c0 para lavarse.
+    # Pocos puentes -> cuello de botella; el flujo total queda acotado por su capacidad amortiguada.
+    for fi in range(len(fragmentos) - 1):
+        origen_frag, destino_frag = fragmentos[fi], fragmentos[fi + 1]
+        for _ in range(puentes):
+            o = rng.choice(origen_frag)
+            d = rng.choice(destino_frag)
+            grafo.atestar(o, d, "comercio", 1.0)
+
+    honestos = [aid for aid, f in facciones.items() if f == "honesto"]
+    for hid, cid in zip(rng.sample(honestos, honestos_engañados), anillo):
+        grafo.atestar(hid, cid, "comercio", 1.0)
+
+    return Escenario(
+        nombre="colusion_adaptativa",
+        descripcion=f"Anillo de {n_anillo} fragmentado en {n_fragmentos} sub-anillos dispersos "
+        f"(grado {grado}, {puentes} puente(s)/par) que evaden la etiqueta de comunidad. Mide la "
+        f"tensión evasión↔flujo (frente §1.6).",
+        agentes=agentes,
+        grafo=grafo,
+        facciones=facciones,
+    )
+
+
 def escenario_blanqueo(semilla: int = 7) -> Escenario:
     """
     Whitewashing (§5, §1): un seudónimo CONSOLIDADO (blanq_viejo, con evidencia + avales) frente a
