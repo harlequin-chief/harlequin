@@ -13,7 +13,11 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from wtc_sim.consenso import ParamsConsenso, run_once
-from wtc_sim.poblacion import poblacion_fraccion_rep, poblacion_sybil
+from wtc_sim.poblacion import (
+    poblacion_adversario_agrupado,
+    poblacion_fraccion_rep,
+    poblacion_sybil,
+)
 
 PARAMS = ParamsConsenso(k=20, alpha=14, beta=12, max_rondas=80)
 
@@ -23,6 +27,16 @@ def _agrega(rep, adv, ponderado, trials=40, semilla=1984):
     seg = cap = 0
     for _ in range(trials):
         r = run_once(rep, adv, PARAMS, rng, ponderado=ponderado)
+        seg += r["seguro"]; cap += r["captura"]
+    return 100 * seg / trials, 100 * cap / trials
+
+
+def _agrega_cap(rep, adv, clusters, cap_cluster, adversario="fijo", trials=60, semilla=1984):
+    rng = random.Random(semilla)
+    seg = cap = 0
+    for _ in range(trials):
+        r = run_once(rep, adv, PARAMS, rng, ponderado=True,
+                     clusters=clusters, cap_cluster=cap_cluster, adversario=adversario)
         seg += r["seguro"]; cap += r["captura"]
     return 100 * seg / trials, 100 * cap / trials
 
@@ -60,6 +74,41 @@ def test_umbral_es_de_reputacion_no_de_nodos():
     rep, adv = poblacion_fraccion_rep(0.1)
     seguro, _ = _agrega(rep, adv, ponderado=True)
     assert seguro == 100.0
+
+
+def test_independencia_protege_de_bloque_correlacionado():
+    """
+    Un adversario con 45% de la reputación pero TODA en un clúster correlacionado captura la red con
+    muestreo rep-only; el muestreo ponderado por INDEPENDENCIA (tope por clúster) lo neutraliza.
+    """
+    rep, adv, cl = poblacion_adversario_agrupado(0.45, n_clusters_adv=1)
+    seg_sin, cap_sin = _agrega_cap(rep, adv, cl, cap_cluster=None)      # rep-only
+    seg_cap, cap_cap = _agrega_cap(rep, adv, cl, cap_cluster=3)         # +independencia
+    assert cap_sin > 0.0, "rep-only deberia ser capturado por el bloque correlacionado"
+    assert seg_cap >= 95.0 and cap_cap == 0.0, "el tope por independencia deberia proteger"
+
+
+def test_independencia_cede_si_el_adversario_fragmenta_lo_suficiente():
+    """
+    El tope (cap) sobre k=20, alpha=14 exige al adversario >= ceil(alpha/cap) clústeres distintos
+    para capturar. Con cap=3 hace falta fragmentar en >=5 bloques; con menos, la red sigue segura.
+    Frontera honesta: cada bloque tiene que parecer INDEPENDIENTE (lo que el motor de reputación
+    resiste).
+    """
+    seg2, cap2 = _agrega_cap(*poblacion_adversario_agrupado(0.45, n_clusters_adv=2), cap_cluster=3)
+    seg6, cap6 = _agrega_cap(*poblacion_adversario_agrupado(0.45, n_clusters_adv=6), cap_cluster=3)
+    assert cap2 == 0.0, "con 2 bloques (<5) el tope deberia aguantar"
+    assert cap6 > 0.0, "con 6 bloques (>=5) el adversario deberia poder capturar de nuevo"
+
+
+def test_adversario_adaptativo_no_rompe_seguridad():
+    """
+    El adversario ADAPTATIVO (divisor anti-finalidad) ataca la VIVACIDAD (atasca), pero por debajo
+    del umbral de reputación NUNCA fuerza una decisión falsa (seguridad intacta).
+    """
+    rep, adv, cl = poblacion_adversario_agrupado(0.3, n_clusters_adv=1)
+    _, captura = _agrega_cap(rep, adv, cl, cap_cluster=None, adversario="adaptativo")
+    assert captura == 0.0, "el adaptativo no deberia capturar (solo atascar)"
 
 
 def main():

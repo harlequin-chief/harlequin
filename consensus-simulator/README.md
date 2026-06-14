@@ -14,7 +14,7 @@ instead of uniform. Python standard library only.
 
 ```bash
 python3 run_consenso.py            # generates RESULTADOS-consenso.md
-python3 tests/test_consenso.py     # self-audit (5 tests)
+python3 tests/test_consenso.py     # self-audit (8 tests)
 ```
 
 Findings (see `RESULTADOS-consenso.md`):
@@ -27,9 +27,19 @@ Findings (see `RESULTADOS-consenso.md`):
 - **Contrast:** with *uniform* sampling (plain Avalanche, ignoring reputation), the same swarm
   captures the network. Reputation-weighting is what defends — the same lesson as the anti-collusion
   damping in the reputation engine.
+- **Independence-weighted sampling (paper §5.4).** A subtler attacker earns real reputation but keeps
+  it all in **one correlated trust cluster**. Reputation-only sampling treats it as independent and
+  is captured at ≥~40%. Capping how many committee seats a single cluster may fill **neutralises** it
+  by structure: to force the false value the bloc needs ⌈α/cap⌉ seats from *distinct* clusters. The
+  protection holds until the attacker fragments into that many clusters — but each fragment must then
+  look independent to community detection, which the reputation engine is built to resist. **The two
+  prototypes compose.**
+- **Adaptive adversary.** A splitter that each round reports the minority colour (worst-case, anti-
+  finality) attacks **liveness** (it stalls convergence) but **never forces a false decision** — and
+  under independence-weighted sampling it cannot even stall.
 
 ## Honesty
 
-This is a binary-decision model with a simple Byzantine adversary. It does **not** yet cover an
-adaptive adversary, attacks on the independence of the sampling, or a formal safety/liveness proof —
-all open problems (see the paper, §10). The chain is not written until the model holds up.
+This is a binary-decision model over a complete network (no partition/latency). A **formal**
+safety/liveness proof is still open (see the paper, §10). The chain is not written until the model
+holds up.

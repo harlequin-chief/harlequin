@@ -18,7 +18,11 @@ import random
 import sys
 
 from wtc_sim.consenso import ParamsConsenso, run_once
-from wtc_sim.poblacion import poblacion_fraccion_rep, poblacion_sybil
+from wtc_sim.poblacion import (
+    poblacion_adversario_agrupado,
+    poblacion_fraccion_rep,
+    poblacion_sybil,
+)
 
 
 PARAMS = ParamsConsenso(k=20, alpha=14, beta=12, max_rondas=80)
@@ -26,15 +30,19 @@ TRIALS = 60
 SEMILLA = 1984
 
 
-def agrega(reputacion, adversarios, ponderado, trials=TRIALS):
+def agrega(reputacion, adversarios, ponderado, trials=TRIALS,
+           clusters=None, cap_cluster=None, adversario="fijo"):
     """Ejecuta `trials` veces y promedia las banderas (en %)."""
     rng = random.Random(SEMILLA)
-    seg = cap = bif = 0
+    seg = cap = bif = stall = 0
     for _ in range(trials):
-        r = run_once(reputacion, adversarios, PARAMS, rng, ponderado=ponderado)
+        r = run_once(reputacion, adversarios, PARAMS, rng, ponderado=ponderado,
+                     clusters=clusters, cap_cluster=cap_cluster, adversario=adversario)
         seg += r["seguro"]; cap += r["captura"]; bif += r["bifurcacion"]
+        stall += 1 if r["indecisos"] > 0 else 0
     n = float(trials)
-    return {"seguro": 100*seg/n, "captura": 100*cap/n, "bifurcacion": 100*bif/n}
+    return {"seguro": 100*seg/n, "captura": 100*cap/n,
+            "bifurcacion": 100*bif/n, "stall": 100*stall/n}
 
 
 def construir_informe() -> str:
@@ -90,13 +98,63 @@ def construir_informe() -> str:
       "**uniforme** —sin ponderar—, la misma multitud captura/divide la red. La ponderación por "
       "reputación es lo que defiende (paralelo al damping anti-colusión del motor).\n")
 
+    # 3. muestreo ponderado por INDEPENDENCIA contra un adversario correlacionado (PAPER §5.4)
+    w("\n## 3. Muestreo por INDEPENDENCIA contra un adversario correlacionado (PAPER §5.4)\n")
+    w("Ahora el adversario es más fino: no es una multitud sin reputación, sino un **bloque que SÍ "
+      "ganó reputación**, pero toda **correlacionada** (un solo clúster de confianza que se avaló "
+      "entre sí). El muestreo ponderado solo por reputación lo trata como si fuera independiente. La "
+      "defensa de WTC: ponderar también por **independencia**, limitando a `cap` los nodos que un "
+      f"mismo clúster puede aportar a cada comité de k={PARAMS.k} (α={PARAMS.alpha}).\n\n")
+    w("| Reputación adversaria (1 clúster) | rep-only: seguro / captura | +independencia (cap=3): seguro / captura |\n")
+    w("|---|---|---|\n")
+    for f in (0.3, 0.4, 0.45, 0.5):
+        rep, adv, cl = poblacion_adversario_agrupado(f, n_clusters_adv=1)
+        s = agrega(rep, adv, ponderado=True)                                  # rep-only
+        c = agrega(rep, adv, ponderado=True, clusters=cl, cap_cluster=3)      # +independencia
+        w(f"| {int(f*100)} % | {s['seguro']:.0f} % / {s['captura']:.0f} % | {c['seguro']:.0f} % / {c['captura']:.0f} % |\n")
+    w("\n**Lectura:** con muestreo rep-only, un bloque correlacionado con ≥~40 % de la reputación "
+      "**captura** la red. El muestreo por independencia (tope por clúster) lo **neutraliza**: el bloque "
+      "no puede ocupar suficientes asientos del comité aunque tenga la reputación. Estructuralmente, "
+      "para forzar el color falso necesita ⌈α/cap⌉ asientos de clústeres distintos.\n\n")
+    w("**Frontera honesta — el adversario fragmenta su bloque** (45 % de reputación, cap=3):\n\n")
+    w("| Clústeres del adversario | +independencia (cap=3): seguro / captura |\n|---|---|\n")
+    for nc in (1, 2, 3, 4, 5, 6):
+        rep, adv, cl = poblacion_adversario_agrupado(0.45, n_clusters_adv=nc)
+        c = agrega(rep, adv, ponderado=True, clusters=cl, cap_cluster=3)
+        w(f"| {nc} | {c['seguro']:.0f} % / {c['captura']:.0f} % |\n")
+    w(f"\nLa protección aguanta hasta que el adversario fragmenta en **⌈α/cap⌉ = ⌈{PARAMS.alpha}/3⌉ = 5** "
+      "clústeres distintos; con 5+ vuelve a capturar. Pero fragmentar exige que **cada** sub-bloque "
+      "parezca un clúster **independiente** ante la detección de comunidades — justo lo que el **motor "
+      "de reputación** (damping + comunidades) está diseñado para resistir, y que ya mostramos hace que "
+      "el lavado rinda **0** poder de consenso. *Los dos prototipos componen:* el muestreo por "
+      "independencia del consenso descansa en la identificación de clústeres que aporta el motor.\n")
+
+    # 4. adversario adaptativo (anti-finalidad): ataca vivacidad, no seguridad
+    w("\n## 4. Adversario ADAPTATIVO (divisor anti-finalidad)\n")
+    w("En vez de empujar siempre el mismo valor, el adversario reporta cada ronda el color **minoritario** "
+      "entre los honestos para mantenerlos divididos e impedir que cualquier color cuaje (worst-case: ve "
+      "el estado del momento). Mide si puede romper la SEGURIDAD o solo la VIVACIDAD.\n\n")
+    w("| Reputación adversaria (1 clúster) | adaptativo, rep-only: seguro / captura / atasco | adaptativo, +indep cap=3 |\n")
+    w("|---|---|---|\n")
+    for f in (0.2, 0.3, 0.4, 0.5):
+        rep, adv, cl = poblacion_adversario_agrupado(f, n_clusters_adv=1)
+        a = agrega(rep, adv, ponderado=True, adversario="adaptativo")
+        b = agrega(rep, adv, ponderado=True, clusters=cl, cap_cluster=3, adversario="adaptativo")
+        w(f"| {int(f*100)} % | {a['seguro']:.0f} % / {a['captura']:.0f} % / {a['stall']:.0f} % | "
+          f"{b['seguro']:.0f} % / {b['captura']:.0f} % / {b['stall']:.0f} % |\n")
+    w("\n**Lectura:** el adversario adaptativo **nunca fuerza una decisión falsa** (captura 0 %): ataca "
+      "la **vivacidad** (atasca la convergencia), no la **seguridad**. Y bajo muestreo por independencia, "
+      "ni siquiera atasca: su bloque correlacionado no entra lo bastante en los comités. Coherente con "
+      "Snowball/Avalanche: la seguridad es robusta; el coste adaptativo es liveness, recuperable.\n")
+
     w("\n## Conclusión\n")
-    w("El simulador confirma la pieza que faltaba del paper: el **umbral de seguridad del consenso se "
-      "mide en fracción de REPUTACIÓN**, no de nodos. La falsa multitud no obtiene poder; ganar "
-      "influencia exige reputación real (que, por el motor, exige obra validada en el tiempo — "
-      "*reputación-tiempo*). Limitación honesta: es un modelo de decisión binaria con adversario "
-      "bizantino simple; falta adversario adaptativo, ataque a la independencia del muestreo y prueba "
-      "formal de seguridad (PAPER §10).\n")
+    w("El simulador confirma las piezas del paper: (1) el **umbral de seguridad se mide en fracción de "
+      "REPUTACIÓN**, no de nodos; (2) el **muestreo por independencia** (PAPER §5.4) eleva ese umbral "
+      "frente a un adversario **correlacionado**, acotando su presencia en el comité por estructura — y "
+      "vencerlo exige fragmentar en clústeres que parezcan independientes, lo que el motor de reputación "
+      "resiste (*los dos prototipos componen*); (3) un adversario **adaptativo** solo ataca la "
+      "**vivacidad**, nunca la seguridad. Limitación honesta: modelo de decisión binaria, red completa "
+      "(sin partición/latencia), y prueba **formal** de safety/liveness aún pendiente (PAPER §10).\n")
     return "".join(L)
 
 

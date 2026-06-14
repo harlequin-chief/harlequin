@@ -39,6 +39,45 @@ def poblacion_fraccion_rep(
     return reputacion, adversarios
 
 
+def poblacion_adversario_agrupado(
+    f: float,
+    n_honestos: int = 80,
+    n_adversarios: int = 12,
+    honestos_por_cluster: int = 2,
+    n_clusters_adv: int = 1,
+) -> tuple[dict[str, float], set[str], dict[str, str]]:
+    """
+    Adversario CORRELACIONADO: controla una fracción `f` de la reputación total, repartida entre
+    `n_clusters_adv` clústeres de confianza. Con `n_clusters_adv=1` toda su reputación vive en UN
+    bloque (caso correlacionado puro). Subiendo `n_clusters_adv` el adversario FRAGMENTA su bloque
+    para evadir el tope por clúster del muestreo por independencia (la frontera honesta: fragmentar
+    exige que cada sub-bloque parezca un clúster independiente, justo lo que el motor de reputación
+    —detección de comunidades + damping— está diseñado para resistir).
+
+    Los honestos se reparten en muchos clústeres pequeños e independientes (`honestos_por_cluster`).
+    Devuelve (reputacion, adversarios, clusters).
+    """
+    reputacion: dict[str, float] = {}
+    clusters: dict[str, str] = {}
+    for i in range(n_honestos):
+        hid = f"h{i}"
+        reputacion[hid] = 1.0
+        clusters[hid] = f"hc{i // max(1, honestos_por_cluster)}"   # clústeres honestos pequeños
+    total_honesto = float(n_honestos)
+
+    adversarios: set[str] = set()
+    if f > 0.0:
+        adv_total = f * total_honesto / (1.0 - f)
+        por_nodo = adv_total / n_adversarios
+        nclu = max(1, n_clusters_adv)
+        for i in range(n_adversarios):
+            aid = f"a{i}"
+            reputacion[aid] = por_nodo
+            clusters[aid] = f"adv{i % nclu}"   # repartidos en n_clusters_adv bloques
+            adversarios.add(aid)
+    return reputacion, adversarios, clusters
+
+
 def poblacion_sybil(
     n_honestos: int = 80,
     n_sybil: int = 1000,
