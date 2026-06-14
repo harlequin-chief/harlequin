@@ -149,6 +149,21 @@ def test_graduacion_libera_cupo_del_mentor():
     assert tray["cupo_libre_M"][ep] > tray["cupo_libre_M"][ep - 1], "graduar debería liberar cupo del mentor"
 
 
+def test_aristas_prima_de_frescura():
+    """
+    Envejecimiento de aristas (§1.7, Art. VI): con idéntica evidencia, quien RENUEVA sus avales supera
+    a quien descansa en avales viejos (prima de frescura), y el envejecimiento añade decaimiento
+    ADICIONAL al durmiente frente al control sin aging (ρ=1).
+    """
+    import aristas
+    tray = aristas.simular()                       # con aging (ρ=0.7)
+    control = aristas.simular(rho_arista=1.0)       # sin aging
+    # el renovador termina claramente por encima del durmiente (misma evidencia)
+    assert tray["renovador"][-1] > 1.5 * tray["durmiente"][-1], "el renovador debería superar al durmiente"
+    # el aging recorta al durmiente respecto al control sin envejecer
+    assert tray["durmiente"][-1] < control["durmiente"][-1], "el aging debería recortar al durmiente vs ρ=1"
+
+
 def test_blanqueo_pierde_todo():
     """El seudónimo nuevo (whitewashing) no hereda reputación: ~0 frente al consolidado."""
     esc = escenarios.escenario_blanqueo()

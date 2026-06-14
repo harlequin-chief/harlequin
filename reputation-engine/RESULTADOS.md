@@ -133,6 +133,24 @@ Un ahijado entra apadrinado (su reputación se apoya en el aval del mentor) y, a
 
 **Resultado:** A arranca dependiente del andamiaje (rep independiente ~0) y en la **época 3** se sostiene solo (≥60% independiente) → **gradúa**, liberando el cupo del mentor (21→22). El apadrinamiento bien hecho invierte en que el ahijado se **independice**, no en atarlo; el andamiaje se diseña para diluirse (coherente con la semilla génesis y el Art. VI).
 
+## 8. Envejecimiento de avales: la confianza es perecedera (§1.7, Art. VI)
+Cierra la limitación de §6: además de envejecer la evidencia, se envejecen los **avales** (ρ_arista=0.7). Experimento controlado: dos honestos con **idéntica evidencia constante**; uno renueva avales cada época, el otro no.
+
+| época | renovador | durmiente | durmiente sin aging (ρ=1) |
+|---:|---:|---:|---:|
+| 0 | 129 | 145 | 145 |
+| 1 | 148 | 126 | 129 |
+| 2 | 167 | 123 | 126 |
+| 3 | 167 | 123 | 126 |
+| 4 | 189 | 120 | 122 |
+| 5 | 189 | 120 | 122 |
+| 6 | 208 | 117 | 120 |
+| 7 | 230 | 114 | 116 |
+| 8 | 259 | 85 | 101 |
+| 9 | 259 | 85 | 101 |
+
+**Resultado:** prima de frescura ~206% (renovador sobre durmiente, misma evidencia); el envejecimiento recorta al durmiente un ~16% adicional sobre el control sin aging. Matiz honesto: el decaimiento uniforme de todas las aristas de un nodo se cancela en parte al normalizar la fila (igual que el bug del damping ya corregido); el efecto real es RELATIVO —no renovar mientras otros sí—, justo lo que se quiere premiar. Anti-atrincheramiento también en el grafo de confianza.
+
 ## Conclusión
 El prototipo confirma, en cifras, la apuesta central de la SPEC: **el poder estructural no se
 compra con identidades ni con avales endogámicos**. Sybils y anillos de colusión quedan cerca

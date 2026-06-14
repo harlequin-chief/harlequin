@@ -362,6 +362,25 @@ def construir_informe() -> str:
           "El apadrinamiento bien hecho invierte en que el ahijado se **independice**, no en atarlo; el "
           "andamiaje se diseña para diluirse (coherente con la semilla génesis y el Art. VI).\n")
 
+    # envejecimiento de aristas (§1.7, Art. VI): la confianza es perecedera
+    import aristas
+    at = aristas.simular()
+    ac = aristas.simular(rho_arista=1.0)
+    w("\n## 8. Envejecimiento de avales: la confianza es perecedera (§1.7, Art. VI)\n")
+    w(f"Cierra la limitación de §6: además de envejecer la evidencia, se envejecen los **avales** "
+      f"(ρ_arista={aristas.RHO_ARISTA}). Experimento controlado: dos honestos con **idéntica evidencia "
+      "constante**; uno renueva avales cada época, el otro no.\n\n")
+    w("| época | renovador | durmiente | durmiente sin aging (ρ=1) |\n|---:|---:|---:|---:|\n")
+    for t in range(aristas.N_EPOCAS):
+        w(f"| {t} | {at['renovador'][t]:.0f} | {at['durmiente'][t]:.0f} | {ac['durmiente'][t]:.0f} |\n")
+    brecha = 100 * (at["renovador"][-1] / max(at["durmiente"][-1], 1e-9) - 1)
+    extra = 100 * (1 - at["durmiente"][-1] / max(ac["durmiente"][-1], 1e-9))
+    w(f"\n**Resultado:** prima de frescura ~{brecha:.0f}% (renovador sobre durmiente, misma evidencia); el "
+      f"envejecimiento recorta al durmiente un ~{extra:.0f}% adicional sobre el control sin aging. Matiz "
+      "honesto: el decaimiento uniforme de todas las aristas de un nodo se cancela en parte al normalizar "
+      "la fila (igual que el bug del damping ya corregido); el efecto real es RELATIVO —no renovar mientras "
+      "otros sí—, justo lo que se quiere premiar. Anti-atrincheramiento también en el grafo de confianza.\n")
+
     w("\n## Conclusión\n")
     w("El prototipo confirma, en cifras, la apuesta central de la SPEC: **el poder estructural no se\n"
       "compra con identidades ni con avales endogámicos**. Sybils y anillos de colusión quedan cerca\n"

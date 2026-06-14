@@ -45,6 +45,7 @@ prototipos/reputacion/
 ├── adaptativo.py           # barrido de colusión adaptativa (fragmentar para evadir, §1.6)
 ├── temporal.py             # dinámica multi-época: decaimiento §1.7 / anti-atrincheramiento Art. VI
 ├── graduacion.py           # graduación de ahijados: el apadrinamiento se diluye (§1.5c)
+├── aristas.py              # envejecimiento de avales por época: la confianza es perecedera (§1.7)
 ├── run_all.py              # runner -> RESULTADOS.md
 ├── tests/test_motor.py     # tests de autoauditoría
 └── RESULTADOS.md           # informe generado
@@ -86,7 +87,11 @@ El **consenso** (§2.2) sortea comités con probabilidad ∝ agregado **conserva
 - **Graduación de ahijados — abordada (§7 del informe, `graduacion.py`).** Un ahijado entra apoyado
   en el aval del mentor y, al ganar reputación independiente, gradúa: el aval se libera y deja de
   ocupar el cupo del mentor (la responsabilidad persiste). El andamiaje se diseña para diluirse.
-  *Pendiente:* envejecer también las aristas (avales) por época, no solo la evidencia.
+- **Envejecimiento de avales — abordado (§8 del informe, `aristas.py`).** Además de la evidencia, los
+  avales decaen con el tiempo salvo renovación. Experimento controlado (misma evidencia, distinta
+  frescura de avales): prima de frescura ~200%; el aging añade decaimiento relativo sobre el control
+  sin envejecer. Matiz honesto: el decaimiento uniforme se cancela en parte al normalizar la fila, así
+  que el efecto real es RELATIVO (no renovar mientras otros sí) — lo que se quiere premiar.
 - El VRF se simula con un PRNG sembrado; en producción es una función aleatoria verificable real.
 - Las cifras son **relativas** (reparto de poder), no parámetros de producción (esos son `[PARÁMETRO]`
   en la SPEC, a derivar con modelado).
