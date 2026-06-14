@@ -62,16 +62,20 @@ The attacker knows we punish dense-without-evidence communities, so it **fragmen
 
 **Result (two-fold):** (1) fragmenting **raises** the number of communities seen (evades the label) but does **not raise** the laundering under defence — as it fragments, the bridges become bottlenecks the LOCAL damping bites harder; the worst case for the defence is the scattered ring WITHOUT fragmenting. (2) What does leak is **single-dimension** (only `commerce`): under the conservative aggregate (min, §1.2b) that governs consensus/vouch power, the puppets collapse to **~0** at any fragmentation. For real power the attacker would need verifiable evidence in **every** dimension for each puppet = doing the honest work. *Diffuse laundering buys no structural power.*
 
-## 2d. Open frontier: ASYMMETRIC collusion (PageRank funnel, §1.6)
-Instead of a reciprocal ring, a **directed funnel**: many feeders (with some real work) all vouch for the same target c0 (evidence 0), without reciprocity, to concentrate/funnel their reputation onto c0. **Honest finding:** the funnel **evades the local damping** — since c0 vouches for nobody, neighbour overlap is 0 and reciprocity is 0, so `independence(feeder→c0)=1` and the damping does not cut the pump.
+## 2d. ASYMMETRIC collusion (PageRank funnel, §1.6) — gap CLOSED
+Instead of a reciprocal ring, a **directed funnel**: many feeders (with some real work) all vouch for the same target c0 (evidence 0), without reciprocity, to concentrate/funnel their reputation onto c0. The funnel **evades the local damping** — since c0 vouches for nobody, neighbour overlap is 0 and reciprocity is 0, so `independence(feeder→c0)=1` and neither the local nor the community damping cuts the pump. The previous engine iteration left this as an open frontier; this one closes it with an **in-degree-concentration** signal.
 
-| feeder diversification | c0 no damping | c0 +local damping | c0 +community | **c0 consensus power (min)** |
+The signal, for each target j: how concentrated j's incoming attestation weight is **per community** (Herfindahl index), gated by (a) the number of distinct vouchers and (b) j's evidence **deficit**. A funnel concentrates a 0-evidence target's inflow into one star-bound community → high penalty; a legitimately popular member earned their own evidence and/or draws from many communities → spared. See `harlequin_rep/graph.py:in_concentration_signals`.
+
+| feeder diversification | c0 no damping | c0 +local | c0 +community | **c0 +in-concentration** |
 |---:|---:|---:|---:|---:|
-| 0 | 206.9 | 240.8 | 228.5 | **0.000** |
-| 3 | 63.7 | 76.4 | 69.7 | **0.000** |
-| 6 | 37.8 | 45.4 | 39.2 | **0.000** |
+| 0 | 206.9 | 240.8 | 228.5 | **51.7** |
+| 3 | 63.7 | 76.4 | 69.7 | **11.1** |
+| 6 | 37.8 | 45.4 | 39.2 | **6.1** |
 
-**Result (two-fold, as in §2c):** (1) the graph damping does **not** stop the funnel — a real gap: local independence looks at reciprocity and overlap, signatures the funnel does not leave. (2) But the pump is **single-dimension** (only `commerce`): under the conservative aggregate (min, §1.2b) c0's consensus power collapses to **~0**. *The vectorial aggregate is the backstop where the graph damping does not reach.* For real power, c0 would need evidence funnelled in **every** dimension = the feeders doing real work in all of them and ceding it = honest work. **Live frontier:** harden independence with an **in-degree-concentration-from-one-community** signal (with false-positive analysis on legitimately popular honest nodes) — next engine iteration.
+**False-positive check (honest members, div=0):** retention under the new signal — min **0.90**, mean **1.02**. The worst-hit honest member keeps ≥85% of their reputation; most are untouched.
+
+**Result:** the in-concentration signal cuts the funnel by **~77–85%** at every diversification (robust: the very act of funnelling binds the feeders + c0 into one star-community, which is what the signal detects — diversifying to escape costs pump per feeder), while honest members keep ≥85%. This closes the §2d gap **at graph level**, on top of the standing backstop: the pump is single-dimension, so under the conservative aggregate (min, §1.2b) c0's consensus power was already ~0. **Two independent defences now stop the funnel.** Residual (documented): a brand new honest member with no evidence yet and highly concentrated vouching takes a bounded haircut; and a cross-dimension funnel onto an otherwise-established member is caught by the min-aggregate rather than the graph signal. `mu`, `rho`, `k0` are PARAMETERs.
 
 ## 3. Pseudonym whitewashing (§5)
 Same human, two masks: a consolidated one and a fresh one.
@@ -168,5 +172,7 @@ with identities nor with inbred vouches**. Sybils and collusion rings stay near 
 power; the anti-collusion damping is measurable and necessary; whitewashing does not pay off;
 and persistent liability makes collusion expensive. Sophisticated collusion — scattered ring
 (§2b) and fragmented/adaptive (§2c) — buys no power either: what leaks is single-dimension and
-the conservative aggregate (§1.2b) nullifies it. Live frontiers: hardening independence against
-the asymmetric funnel (§2d) and a formal safety/liveness proof of the consensus.
+the conservative aggregate (§1.2b) nullifies it. The asymmetric PageRank funnel (§2d) is now
+stopped by two independent defences: the in-degree-concentration signal cuts it at graph level
+and the conservative aggregate is the standing backstop. Live frontier: a formal safety/liveness
+proof of the consensus.

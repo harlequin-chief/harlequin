@@ -58,6 +58,7 @@ def reputation_dimension(
     scale: float = 1000.0,
     damping: bool = True,
     community: bool = False,
+    in_concentration: bool = False,
 ) -> dict[str, float]:
     """
     EARNED reputation (gate 2, §1.4) of each agent in one dimension.
@@ -71,7 +72,8 @@ def reputation_dimension(
     # TOTAL evidence per node (all dimensions), for the community suspicion (§1.6)
     total_evidence = {a.id: sum(a.evidence.values()) for a in agents}
     C = graph.damped_local_matrix(
-        dim, nodes, damping=damping, community=community, evidence=total_evidence
+        dim, nodes, damping=damping, community=community,
+        in_concentration=in_concentration, evidence=total_evidence,
     )
 
     # Sum of each row of C (≤ 1). The deficit (1 - sum) is the mass that does NOT propagate: either

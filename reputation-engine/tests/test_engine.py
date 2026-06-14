@@ -129,6 +129,32 @@ def test_asymmetric_evades_damping_but_no_power():
     assert conservative_aggregate(on["c0"], "min") < 0.01, "the single-dimension pump should give no consensus power"
 
 
+def test_in_concentration_closes_funnel():
+    """
+    ASYMMETRIC funnel, gap CLOSED at graph level (frontier §2d). The in-degree-concentration signal
+    cuts the directed PageRank funnel that local independence and community suspicion miss, WITHOUT
+    punishing legitimately popular honest members.
+
+    Mechanism: a funnel concentrates a 0-evidence target's inflow into one (star-bound) community; the
+    signal weights concentration by the target's evidence DEFICIT, so honest members (who earned their
+    own evidence) are spared. Robust to feeder diversification (the star binds the feeders together).
+    """
+    for div in (0, 3, 6):
+        sc = scenarios.scenario_asymmetric_collusion(diversify=div)
+        com = reputation_vector(sc.agents, sc.graph, damping=True, community=True)
+        inc = reputation_vector(sc.agents, sc.graph, damping=True, community=True, in_concentration=True)
+        # the funnel target loses at least half its laundered reputation at every diversification
+        assert _sum(inc["c0"]) < 0.5 * _sum(com["c0"]), f"div={div}: funnel not cut by in-concentration"
+
+    # false-positive guard: honest members keep ~all their reputation (worst case > 0.85)
+    sc = scenarios.scenario_asymmetric_collusion(diversify=0)
+    com = reputation_vector(sc.agents, sc.graph, damping=True, community=True)
+    inc = reputation_vector(sc.agents, sc.graph, damping=True, community=True, in_concentration=True)
+    honest = [a.id for a in sc.agents if sc.factions[a.id] == "honest"]
+    worst = min((_sum(inc[h]) + 1e-9) / (_sum(com[h]) + 1e-9) for h in honest)
+    assert worst > 0.85, f"in-concentration punishes an honest member too much (worst retention {worst:.2f})"
+
+
 def test_temporal_decays_inactive():
     """
     Temporal dynamics (§1.7, Art. VI): whoever stops contributing DECAYS; whoever keeps contributing

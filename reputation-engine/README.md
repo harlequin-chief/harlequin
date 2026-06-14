@@ -79,13 +79,16 @@ vector (minimums/medians, never a sum: you do not buy integrity with expertise, 
   to evade that label (`adaptive.py`). Finding: fragmenting evades the label but chokes the reputation
   flow, and what leaks is **single-dimension** → under the conservative aggregate (§1.2b) the puppets'
   consensus power collapses to ~0 at any fragmentation.
-- **Asymmetric collusion — honest gap documented (§2d of the report).** A **PageRank funnel** (many
-  feeders vouch for a single target, no reciprocity) **evades the local damping**: the target vouches
-  for nobody, so it leaves no reciprocity nor overlap signature, and `independence(feeder→c0)=1`. The
-  pump passes the graph damping, but it is single-dimension → the conservative aggregate (§1.2b) leaves
-  it at ~0 consensus power (the backstop where the graph does not reach). *Live frontier:* harden
-  independence with an in-degree-concentration-from-one-community signal (with false-positive analysis
-  on legitimately popular honest nodes).
+- **Asymmetric collusion — gap closed (§2d of the report).** A **PageRank funnel** (many feeders vouch
+  for a single target, no reciprocity) **evades the local damping**: the target vouches for nobody, so
+  it leaves no reciprocity nor overlap signature, and `independence(feeder→c0)=1`. Now stopped by an
+  **in-degree-concentration** signal (`graph.py:in_concentration_signals`): it measures how
+  concentrated a target's inflow is per community (Herfindahl), gated by the number of distinct
+  vouchers and by the target's **evidence deficit** — so a funnel onto a 0-evidence target is cut
+  ~77–85% (robust to feeder diversification, since funnelling itself binds the feeders into one
+  star-community) while legitimately popular honest members keep ≥85%. Two independent defences now
+  stop it: this graph signal **and** the conservative aggregate (§1.2b), since the pump is
+  single-dimension.
 - **Temporal dynamics — addressed (§6 of the report, `temporal.py`).** Multi-epoch simulation aging
   the evidence anchor: whoever stops contributing decays (anti-entrenchment, Art. VI), a single-work
   pioneer keeps no power (free anti-long-range), a farm-and-sit ring deflates.
