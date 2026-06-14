@@ -282,6 +282,59 @@ def escenario_colusion_adaptativa(
     )
 
 
+def escenario_colusion_asimetrica(
+    semilla: int = 7,
+    n_feeders: int = 25,
+    ev_feeder: float = 4.0,
+    diversificar: int = 0,
+    honestos_engañados: int = 3,
+) -> Escenario:
+    """
+    Colusión ASIMÉTRICA / tipo PageRank-pump (frente §1.6): en vez de un anillo recíproco, un EMBUDO
+    dirigido. `n_feeders` cuentas avalan TODAS al mismo objetivo `c0` (el pump) SIN reciprocidad, para
+    evadir el castigo de reciprocidad de `independencia()`. c0 no tiene evidencia: toda su reputación
+    vendría del embudo. Caso realista (frontera dura): los feeders SÍ hicieron algo de obra real
+    (`ev_feeder`), así que tienen reputación propia que intentan FUNNELear/concentrar en c0
+    (lavado por embudo, no por anillo).
+
+    `diversificar`: si >0, cada feeder además avala a `diversificar` honestos al azar, para BAJAR el
+    solapamiento de vecinos (la otra firma que mira `independencia()`) e intentar colarse. Mide la
+    tensión: dedicarse a c0 → solapamiento alto (penalizado); diversificar → menos pump por feeder.
+    """
+    rng = random.Random(semilla)
+    agentes, grafo, facciones = _construir_base(rng)
+    honestos = [aid for aid, f in facciones.items() if f == "honesto"]
+
+    # objetivo del pump: sin evidencia (su poder solo podría venir del embudo)
+    agentes.append(Agente(id="c0", tipo=TipoAgente.COLUSOR, es_humano_unico=True,
+                          evidencia={}, cluster="embudo"))
+    facciones["c0"] = "colusor"
+
+    feeders = [f"c{i}" for i in range(1, n_feeders + 1)]
+    for fid in feeders:
+        # feeders con algo de obra real -> tienen reputación propia que intentan funnelear a c0
+        agentes.append(Agente(id=fid, tipo=TipoAgente.COLUSOR, es_humano_unico=True,
+                              evidencia={"comercio": ev_feeder}, cluster="embudo"))
+        facciones[fid] = "colusor"
+        grafo.atestar(fid, "c0", "comercio", 1.0)         # el embudo dirigido hacia c0
+        if diversificar > 0:
+            for h in rng.sample(honestos, min(diversificar, len(honestos))):
+                grafo.atestar(fid, h, "comercio", 1.0)    # ruido para bajar solapamiento
+
+    # algún honesto engañado avala a c0 (inyección de confianza real al objetivo)
+    for hid in rng.sample(honestos, honestos_engañados):
+        grafo.atestar(hid, "c0", "comercio", 1.0)
+
+    return Escenario(
+        nombre="colusion_asimetrica",
+        descripcion=f"Embudo PageRank: {n_feeders} feeders (con obra real) avalan a c0 sin reciprocidad "
+        f"(diversificar={diversificar}). Colusión asimétrica (frente §1.6).",
+        agentes=agentes,
+        grafo=grafo,
+        facciones=facciones,
+    )
+
+
 def escenario_blanqueo(semilla: int = 7) -> Escenario:
     """
     Whitewashing (§5, §1): un seudónimo CONSOLIDADO (blanq_viejo, con evidencia + avales) frente a

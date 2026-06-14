@@ -80,6 +80,13 @@ El **consenso** (§2.2) sortea comités con probabilidad ∝ agregado **conserva
   anillo para evadir esa etiqueta (`adaptativo.py`). Hallazgo: fragmentar evade la etiqueta pero
   estrangula el flujo de reputación, y lo que se filtra es **unidimensional** → bajo el agregado
   conservador (§1.2b) el poder de consenso de los títeres colapsa a ~0 a cualquier fragmentación.
+- **Colusión asimétrica — gap honesto documentado (§2d del informe).** Un **embudo PageRank** (muchos
+  feeders avalan a un solo objetivo, sin reciprocidad) **evade el damping local**: el objetivo no
+  avala a nadie, así que no deja firmas de reciprocidad ni solapamiento, y `independencia(feeder→c0)=1`.
+  El pump pasa el damping de grafo, pero es unidimensional → el agregado conservador (§1.2b) lo deja en
+  ~0 poder de consenso (el backstop que aguanta donde el grafo no llega). *Frente vivo:* endurecer la
+  independencia con una señal de concentración de in-degree desde una sola comunidad (con análisis de
+  falsos positivos sobre nodos honestos legítimamente populares).
 - **Dinámica temporal — abordada (§6 del informe, `temporal.py`).** Simulación multi-época con
   envejecimiento del ancla de evidencia: quien deja de aportar decae (anti-atrincheramiento, Art.
   VI), un pionero de obra única no conserva poder (anti-long-range gratis), una granja que farmea y

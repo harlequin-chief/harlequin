@@ -164,6 +164,24 @@ def test_aristas_prima_de_frescura():
     assert tray["durmiente"][-1] < control["durmiente"][-1], "el aging debería recortar al durmiente vs ρ=1"
 
 
+def test_asimetrica_evade_damping_pero_sin_poder():
+    """
+    Colusión ASIMÉTRICA (embudo PageRank, frente §1.6): hallazgo HONESTO en dos partes.
+    (1) El embudo EVADE el damping local: como el objetivo c0 no avala a nadie, el solapamiento de
+        vecinos es 0 y la reciprocidad es 0 → independencia(feeder→c0)=1 → el damping NO recorta el
+        pump (c0 conserva la mayor parte de su reputación inflada). Es un gap real del damping de grafo.
+    (2) Pero el pump es UNIDIMENSIONAL (solo 'comercio') → bajo el agregado conservador (min, §1.2b)
+        el poder de consenso de c0 colapsa a ~0. El agregado vectorial es el backstop que sí aguanta.
+    """
+    esc = escenarios.escenario_colusion_asimetrica(diversificar=0)
+    con = reputacion_vectorial(esc.agentes, esc.grafo, damping=True)
+    sin = reputacion_vectorial(esc.agentes, esc.grafo, damping=False)
+    # (1) el damping local NO crushea el embudo (documenta el gap): c0 con damping no es << sin damping
+    assert _suma(con["c0"]) > 0.7 * _suma(sin["c0"]), "el embudo NO debería ser crusheado por el damping local"
+    # (2) pero el poder de consenso (min vectorial) es ~0: backstop del agregado conservador
+    assert agregado_conservador(con["c0"], "min") < 0.01, "el pump unidimensional no debería dar poder de consenso"
+
+
 def test_blanqueo_pierde_todo():
     """El seudónimo nuevo (whitewashing) no hereda reputación: ~0 frente al consolidado."""
     esc = escenarios.escenario_blanqueo()

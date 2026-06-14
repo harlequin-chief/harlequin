@@ -62,6 +62,17 @@ El atacante sabe que castigamos las comunidades densas-sin-evidencia, así que *
 
 **Resultado (doble):** (1) fragmentar **sube** el nº de comunidades vistas (evade la etiqueta) pero **no sube** el lavado bajo defensa —al fragmentar, los puentes se vuelven cuellos de botella que el damping LOCAL muerde más fuerte—; el peor caso para la defensa es el anillo disperso SIN fragmentar. (2) Lo que sí se filtra es **unidimensional** (solo `comercio`): bajo el agregado conservador (min, §1.2b) que rige el poder de consenso/aval, los títeres colapsan a **~0** a cualquier fragmentación. Para tener poder real el atacante necesitaría evidencia verificable en **todas** las dimensiones por cada títere = hacer el trabajo honesto. *El lavado difuso no compra poder estructural.*
 
+## 2d. Frente abierto: colusión ASIMÉTRICA (embudo PageRank, §1.6)
+En vez de un anillo recíproco, un **embudo dirigido**: muchos feeders (con algo de obra real) avalan TODOS al mismo objetivo c0 (evidencia 0), sin reciprocidad, para concentrar/funnelear su reputación en c0. **Hallazgo honesto:** el embudo **evade el damping local** —como c0 no avala a nadie, el solapamiento de vecinos es 0 y la reciprocidad 0, así que `independencia(feeder→c0)=1` y el damping no recorta el pump—.
+
+| diversificación de feeders | c0 sin damping | c0 +damping local | c0 +comunidad | **poder consenso c0 (min)** |
+|---:|---:|---:|---:|---:|
+| 0 | 206.9 | 240.8 | 228.5 | **0.000** |
+| 3 | 63.7 | 76.4 | 69.7 | **0.000** |
+| 6 | 37.8 | 45.4 | 39.2 | **0.000** |
+
+**Resultado (doble, como en §2c):** (1) el damping de grafo **no** frena el embudo —es un gap real: la independencia local mira reciprocidad y solapamiento, firmas que el embudo no deja—. (2) Pero el pump es **unidimensional** (solo `comercio`): bajo el agregado conservador (min, §1.2b) el poder de consenso de c0 colapsa a **~0**. *El agregado vectorial es el backstop que aguanta donde el damping de grafo no llega.* Para poder real, c0 necesitaría evidencia funneleada en **todas** las dimensiones = los feeders haciendo obra real en todas y cediéndola = trabajo honesto. **Frente vivo:** endurecer la independencia con una señal de **concentración de in-degree desde una sola comunidad** (con análisis de falsos positivos sobre nodos honestos legítimamente populares) — siguiente iteración del motor.
+
 ## 3. Blanqueo de seudónimo (whitewashing, §5)
 Mismo humano, dos máscaras: una consolidada y una nueva.
 

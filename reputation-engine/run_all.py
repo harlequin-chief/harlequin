@@ -288,6 +288,33 @@ def construir_informe() -> str:
       "**todas** las dimensiones por cada títere = hacer el trabajo honesto. *El lavado difuso no compra "
       "poder estructural.*\n")
 
+    # colusión asimétrica: embudo PageRank (frente §1.6, hallazgo honesto del gap)
+    from harlequin_rep.reputacion import agregado_conservador as _agg_min
+    w("\n## 2d. Frente abierto: colusión ASIMÉTRICA (embudo PageRank, §1.6)\n")
+    w("En vez de un anillo recíproco, un **embudo dirigido**: muchos feeders (con algo de obra real) "
+      "avalan TODOS al mismo objetivo c0 (evidencia 0), sin reciprocidad, para concentrar/funnelear su "
+      "reputación en c0. **Hallazgo honesto:** el embudo **evade el damping local** —como c0 no avala a "
+      "nadie, el solapamiento de vecinos es 0 y la reciprocidad 0, así que `independencia(feeder→c0)=1` "
+      "y el damping no recorta el pump—.\n\n")
+    w("| diversificación de feeders | c0 sin damping | c0 +damping local | c0 +comunidad | **poder consenso c0 (min)** |\n")
+    w("|---:|---:|---:|---:|---:|\n")
+    for div in (0, 3, 6):
+        esc_a = escenarios.escenario_colusion_asimetrica(diversificar=div)
+        r_sin = reputacion_vectorial(esc_a.agentes, esc_a.grafo, damping=False)
+        r_loc = reputacion_vectorial(esc_a.agentes, esc_a.grafo, damping=True)
+        r_com = reputacion_vectorial(esc_a.agentes, esc_a.grafo, damping=True, comunidad=True)
+        w(f"| {div} | {suma_vector(r_sin['c0']):.1f} | {suma_vector(r_loc['c0']):.1f} | "
+          f"{suma_vector(r_com['c0']):.1f} | **{_agg_min(r_com['c0'], 'min'):.3f}** |\n")
+    w("\n**Resultado (doble, como en §2c):** (1) el damping de grafo **no** frena el embudo —es un gap "
+      "real: la independencia local mira reciprocidad y solapamiento, firmas que el embudo no deja—. "
+      "(2) Pero el pump es **unidimensional** (solo `comercio`): bajo el agregado conservador (min, "
+      "§1.2b) el poder de consenso de c0 colapsa a **~0**. *El agregado vectorial es el backstop que "
+      "aguanta donde el damping de grafo no llega.* Para poder real, c0 necesitaría evidencia funneleada "
+      "en **todas** las dimensiones = los feeders haciendo obra real en todas y cediéndola = trabajo "
+      "honesto. **Frente vivo:** endurecer la independencia con una señal de **concentración de "
+      "in-degree desde una sola comunidad** (con análisis de falsos positivos sobre nodos honestos "
+      "legítimamente populares) — siguiente iteración del motor.\n")
+
     # blanqueo
     bl = medir_blanqueo()
     w("\n## 3. Blanqueo de seudónimo (whitewashing, §5)\n")
