@@ -194,8 +194,11 @@ def build_report() -> str:
       "compose*); (3) an **adaptive** adversary only attacks **liveness**, never safety; (4) under a "
       "**partition** a real fork appears if finality is reached blindly, **mitigated** by conditioning "
       "finality on a network quorum (safety over liveness); (5) **message loss** only slows liveness, "
-      "never safety. Remaining honest limitation: a binary-decision model and a **formal** "
-      "safety/liveness proof (PAPER §10).\n")
+      "never safety. These regimes are now derived analytically from the parameters in "
+      "[`ANALYSIS-safety-liveness.md`](ANALYSIS-safety-liveness.md) (safety `f<α/k` with a "
+      "metastability barrier; liveness `f≤1−α/k`, `α≤k(1−p)(1−f)` under loss; `⌈α/cap⌉` independence) "
+      "and pinned by property-based tests. Remaining honest limitation: a binary-decision model and a "
+      "**machine-checked** proof (TLA+/Coq, PAPER §10).\n")
     return "".join(L)
 
 

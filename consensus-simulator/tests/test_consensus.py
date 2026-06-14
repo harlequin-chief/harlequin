@@ -147,6 +147,46 @@ def test_partition_quorum_preserves_safety():
     assert yes["fork"] < 10.0, f"with quorum the fork should be low, was {yes['fork']}%"
 
 
+def test_safety_property_below_threshold():
+    """
+    PROPERTY (ANALYSIS §3): in the safety regime the network NEVER finalises a false value nor forks,
+    across many random schedules and both adversary behaviours. Stronger than the point thresholds: we
+    sweep f below the practical capture threshold (~0.4), all seeds, fixed AND adaptive adversary.
+    """
+    for f in (0.1, 0.2, 0.3):
+        rep, adv = population_reputation_fraction(f)
+        for adversary in ("fixed", "adaptive"):
+            for seed in range(30):
+                rng = random.Random(seed)
+                r = run_once(rep, adv, PARAMS, rng, weighted=True, adversary=adversary)
+                assert r["capture"] == 0, f"safety broken at f={f} {adversary} seed={seed}"
+                assert r["fork"] == 0, f"fork at f={f} {adversary} seed={seed}"
+
+
+def test_liveness_boundary_matches_k_alpha():
+    """
+    PROPERTY (ANALYSIS §4): liveness needs (1−f) ≥ α/k and, under loss p, α ≤ k(1−p)(1−f). At
+    k=20,α=14 the no-loss limit is f ≤ 0.3. Below it the network decides; loss that violates the bound
+    only ADDS stalls, never capture (safety holds regardless).
+    """
+    # comfortably inside the liveness regime: everyone decides the legitimate value
+    rep, adv = population_reputation_fraction(0.1)
+    safe, capture = _aggregate(rep, adv, weighted=True, trials=40)
+    assert safe > 90.0 and capture == 0.0, f"should decide cleanly at f=0.1 (safe={safe} cap={capture})"
+
+    # heavy loss p=0.5 violates α ≤ k(1−p) (14 ≤ 10 is false): liveness must degrade (stalls appear)
+    # while safety is preserved (no capture). Measured on the no-adversary network to isolate liveness.
+    rep0, adv0 = population_reputation_fraction(0.0)
+    rng = random.Random(7)
+    stalls = capture = 0
+    for _ in range(40):
+        r = run_once(rep0, adv0, PARAMS, rng, weighted=True, loss=0.5)
+        stalls += 1 if r["undecided"] > 0 else 0
+        capture += r["capture"]
+    assert capture == 0, "loss must never cause capture (safety)"
+    assert stalls > 0, "loss above the α≤k(1−p) bound should produce stalls (liveness cost)"
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failures = 0

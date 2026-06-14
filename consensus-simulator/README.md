@@ -3,8 +3,9 @@
 The original consensus of Harlequin: security anchored in **earned reputation over time**
 (*reputation-time*), not in computation (proof of work) or capital (proof of stake).
 
-- **The paper:** [`../docs/woven-trust-consensus.md`](../docs/woven-trust-consensus.md) (English) ·
-  [`../docs/consenso-confianza-tejida.md`](../docs/consenso-confianza-tejida.md) (Spanish, secondary).
+- **The paper:** [`PAPER-woven-trust.md`](PAPER-woven-trust.md) (English) ·
+  [`PAPER-confianza-tejida.md`](PAPER-confianza-tejida.md) (Spanish, secondary).
+- **The design notes:** [`DISENO-CONSENSO-TEJIDO.md`](DISENO-CONSENSO-TEJIDO.md) (working document).
 - **The simulator:** this directory (`wtc_sim/` + `run_consensus.py`).
 
 ## What the simulator shows
@@ -40,5 +41,9 @@ Findings (see `RESULTS.md`):
 
 ## Honesty
 
-This is a binary-decision model and a **formal** safety/liveness proof is still open (see the paper,
-§10). The chain is not written until the model holds up.
+This is a binary-decision model. An analytical **safety/liveness analysis** that derives the regimes
+from the parameters (safety `f < α/k` with a metastability barrier; liveness `f ≤ 1 − α/k`, and
+`α ≤ k(1−p)(1−f)` under loss; the `⌈α/cap⌉` independence bound; the partition/quorum stance) is in
+[`ANALYSIS-safety-liveness.md`](ANALYSIS-safety-liveness.md), with property-based regression tests.
+A **machine-checked** proof (TLA+/Coq) remains open (see the paper, §10). The chain is not written
+until the model holds up.
