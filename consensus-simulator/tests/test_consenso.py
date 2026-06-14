@@ -111,6 +111,21 @@ def test_adversario_adaptativo_no_rompe_seguridad():
     assert captura == 0.0, "el adaptativo no deberia capturar (solo atascar)"
 
 
+def test_perdida_degrada_liveness_no_safety():
+    """
+    Pérdida de mensajes (latencia/red poco fiable): un adversario por debajo del umbral (25%) NUNCA
+    captura aunque la pérdida sea alta (safety preservada); la pérdida solo añade atasco (liveness).
+    """
+    rep, adv = poblacion_fraccion_rep(0.25)
+    for perd in (0.0, 0.4, 0.6):
+        rng = random.Random(1984)
+        cap = 0
+        for _ in range(40):
+            r = run_once(rep, adv, PARAMS, rng, ponderado=True, perdida=perd)
+            cap += r["captura"]
+        assert cap == 0, f"pérdida {perd}: no debería capturar (safety), fue {cap}"
+
+
 def test_particion_larga_forkea_sin_mitigacion():
     """
     Ataque de partición: un adversario inofensivo global (15%) concentrado en el grupo pequeño, con

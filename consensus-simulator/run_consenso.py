@@ -31,13 +31,14 @@ SEMILLA = 1984
 
 
 def agrega(reputacion, adversarios, ponderado, trials=TRIALS,
-           clusters=None, cap_cluster=None, adversario="fijo"):
+           clusters=None, cap_cluster=None, adversario="fijo", perdida=0.0):
     """Ejecuta `trials` veces y promedia las banderas (en %)."""
     rng = random.Random(SEMILLA)
     seg = cap = bif = stall = 0
     for _ in range(trials):
         r = run_once(reputacion, adversarios, PARAMS, rng, ponderado=ponderado,
-                     clusters=clusters, cap_cluster=cap_cluster, adversario=adversario)
+                     clusters=clusters, cap_cluster=cap_cluster, adversario=adversario,
+                     perdida=perdida)
         seg += r["seguro"]; cap += r["captura"]; bif += r["bifurcacion"]
         stall += 1 if r["indecisos"] > 0 else 0
     n = float(trials)
@@ -168,6 +169,22 @@ def construir_informe() -> str:
       "cae de ~100% a ~0–2%. Es la regla esperable de un BFT robusto: **ante duda de partición, preferir "
       "parar (liveness) antes que decidir mal (safety)**. Pendiente: detección dinámica de la fracción "
       "vista (aquí se modela con el grupo) y latencia/pérdida de mensajes.\n")
+
+    # 6. pérdida de mensajes (latencia/red poco fiable)
+    w("\n## 6. Pérdida de mensajes: latencia / red poco fiable\n")
+    w("Cada respuesta consultada se pierde con probabilidad `p` (modela latencia y pérdida de red). "
+      "Mide si la red poco fiable rompe la seguridad o solo ralentiza.\n\n")
+    w("| pérdida p | sin adversario: seguro / atasco | adversario 25%: captura / atasco |\n|---:|---:|---:|\n")
+    for p in (0.0, 0.2, 0.4, 0.6):
+        rng_a = poblacion_fraccion_rep(0.0); rng_b = poblacion_fraccion_rep(0.25)
+        a = agrega(rng_a[0], rng_a[1], ponderado=True, perdida=p)
+        b = agrega(rng_b[0], rng_b[1], ponderado=True, perdida=p)
+        w(f"| {int(p*100)} % | {a['seguro']:.0f} % / {a['stall']:.0f} % | {b['captura']:.0f} % / {b['stall']:.0f} % |\n")
+    w("\n**Lectura:** la pérdida degrada la **vivacidad** (más atasco) pero **nunca rompe la seguridad** "
+      "(captura 0 % a cualquier pérdida): el umbral α no cambia. Implicación de parámetro: para progresar "
+      "bajo pérdida `p` hacen falta suficientes respuestas vivas, **α ≤ k·(1−p)**; con k=20, α=14 se "
+      "tolera pérdida hasta ~30 % antes de atascarse del todo. La elección de α/k acota la pérdida "
+      "tolerable — un parámetro a fijar con el modelado de red real.\n")
 
     w("\n## Conclusión\n")
     w("El simulador confirma y endurece las piezas del paper: (1) el **umbral de seguridad se mide en "

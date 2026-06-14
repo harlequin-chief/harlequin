@@ -14,7 +14,7 @@ instead of uniform. Python standard library only.
 
 ```bash
 python3 run_consenso.py            # generates RESULTADOS-consenso.md
-python3 tests/test_consenso.py     # self-audit (10 tests)
+python3 tests/test_consenso.py     # self-audit (11 tests)
 ```
 
 Findings (see `RESULTADOS-consenso.md`):
@@ -43,9 +43,12 @@ Findings (see `RESULTADOS-consenso.md`):
   found in simulation). Mitigation: gate finality on seeing a **quorum of total reputation** — under
   partition the isolated group never reaches quorum, so it **stalls instead of forking** and recovers
   on heal. Fork drops from ~100% to ~0–2% (safety over liveness, as a robust BFT should).
+- **Message loss / latency.** Each queried response is dropped with probability `p`. Loss degrades
+  **liveness** (more stalls) but **never breaks safety** (capture stays 0% at any loss): the quorum α
+  is unchanged. Parameter implication: progress needs **α ≤ k·(1−p)**; with k=20, α=14 the network
+  tolerates up to ~30% loss before stalling — the α/k ratio bounds the tolerable loss.
 
 ## Honesty
 
-This is a binary-decision model; message latency/loss is not yet modelled, and a **formal**
-safety/liveness proof is still open (see the paper, §10). The chain is not written until the model
-holds up.
+This is a binary-decision model and a **formal** safety/liveness proof is still open (see the paper,
+§10). The chain is not written until the model holds up.

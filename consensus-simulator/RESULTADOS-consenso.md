@@ -80,5 +80,17 @@ Se rompe el supuesto de red completa: los honestos se parten en un grupo grande 
 
 **Mitigación:** condicionar la **finalidad** a ver un **quórum de la reputación total** (un nodo no decide si alcanza a ver <60% de la red). Bajo partición, B (25% de la rep) no llega al quórum → **no finaliza, se atasca** (coste de liveness) en vez de forkear, y **recupera al sanar**. El fork cae de ~100% a ~0–2%. Es la regla esperable de un BFT robusto: **ante duda de partición, preferir parar (liveness) antes que decidir mal (safety)**. Pendiente: detección dinámica de la fracción vista (aquí se modela con el grupo) y latencia/pérdida de mensajes.
 
+## 6. Pérdida de mensajes: latencia / red poco fiable
+Cada respuesta consultada se pierde con probabilidad `p` (modela latencia y pérdida de red). Mide si la red poco fiable rompe la seguridad o solo ralentiza.
+
+| pérdida p | sin adversario: seguro / atasco | adversario 25%: captura / atasco |
+|---:|---:|---:|
+| 0 % | 100 % / 0 % | 0 % / 100 % |
+| 20 % | 53 % / 47 % | 0 % / 100 % |
+| 40 % | 0 % / 100 % | 0 % / 100 % |
+| 60 % | 0 % / 100 % | 0 % / 100 % |
+
+**Lectura:** la pérdida degrada la **vivacidad** (más atasco) pero **nunca rompe la seguridad** (captura 0 % a cualquier pérdida): el umbral α no cambia. Implicación de parámetro: para progresar bajo pérdida `p` hacen falta suficientes respuestas vivas, **α ≤ k·(1−p)**; con k=20, α=14 se tolera pérdida hasta ~30 % antes de atascarse del todo. La elección de α/k acota la pérdida tolerable — un parámetro a fijar con el modelado de red real.
+
 ## Conclusión
 El simulador confirma y endurece las piezas del paper: (1) el **umbral de seguridad se mide en fracción de REPUTACIÓN**, no de nodos; (2) el **muestreo por independencia** (PAPER §5.4) eleva ese umbral frente a un adversario **correlacionado** — vencerlo exige fragmentar en clústeres que parezcan independientes, lo que el motor de reputación resiste (*los dos prototipos componen*); (3) un adversario **adaptativo** solo ataca la **vivacidad**, nunca la seguridad; (4) bajo **partición** aparece un fork real si se finaliza a ciegas, **mitigado** condicionando la finalidad a un quórum de red (safety sobre liveness). Limitación honesta restante: modelo binario, latencia/pérdida de mensajes no modeladas, y prueba **formal** de safety/liveness (PAPER §10).

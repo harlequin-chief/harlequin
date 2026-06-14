@@ -54,6 +54,7 @@ def run_once(
     grupo: dict[str, int] | None = None,
     rondas_particion: int = 0,
     quorum_red: float = 0.0,
+    perdida: float = 0.0,
 ) -> dict[str, int]:
     """
     Una ejecución del consenso. Devuelve un recuento de resultados entre los HONESTOS:
@@ -71,6 +72,9 @@ def run_once(
     `quorum_red`: MITIGACIÓN anti-partición. Un nodo no FINALIZA (decide) si la reputación que alcanza
     a ver es < `quorum_red` del total. Bajo partición, el grupo aislado no llega al quórum -> no
     finaliza (se atasca, no forkea) -> recupera al sanar. 0.0 = sin mitigación (comportamiento base).
+    `perdida`: prob. de que CADA respuesta consultada se pierda (latencia/pérdida de red). Reduce los
+    votos efectivos por ronda -> convergencia más lenta (coste de liveness), pero el umbral α no cambia
+    -> safety preservada. 0.0 = red fiable (comportamiento base).
     """
     ids = list(reputacion)
     if ponderado:
@@ -154,8 +158,10 @@ def run_once(
             if n in decision:
                 continue
             m = muestra(n, ronda)
+            if perdida > 0.0:
+                m = [s for s in m if rng.random() >= perdida]   # respuestas que se pierden
             unos = sum(1 for s in m if reporta(s) == 1)
-            ceros = params.k - unos
+            ceros = len(m) - unos
             color, cuenta = (1, unos) if unos >= ceros else (0, ceros)
             if cuenta >= params.alpha:
                 if color == pref[n]:
