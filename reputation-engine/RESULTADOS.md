@@ -117,6 +117,22 @@ El motor base es una foto fija; aquí se modela el TIEMPO en épocas envejeciend
 
 **Resultado:** quien **sigue aportando** se sostiene y crece; quien se **retira** decae (~46% desde su pico) → anti-atrincheramiento (Art. VI). Un **pionero** de una obra única se desinfla (~87%) → defensa **anti-long-range** gratis: una historia vieja no se reactiva a poder. Y una **granja** que farmea y se sienta ve a sus títeres evaporarse: la colusión tiene que ser SOSTENIDA, no un sprint.
 
+## 7. Graduación de ahijados: el apadrinamiento es andamiaje (§1.5c)
+Un ahijado entra apadrinado (su reputación se apoya en el aval del mentor) y, al hacer obra real y recibir avales independientes, gradúa: el aval del mentor se libera y deja de ocupar su cupo. La responsabilidad persiste (slashing en cascada). Se mide la reputación de A CON vs SIN el aval del mentor (la independiente).
+
+| época | rep total A | rep independiente A | % independiente | cupo libre M | graduado |
+|---:|---:|---:|---:|---:|:--:|
+| 0 | 162 | 0 | 0% | 22 | — |
+| 1 | 216 | 76 | 35% | 22 | — |
+| 2 | 276 | 158 | 57% | 21 | — |
+| 3 | 315 | 219 | 70% | 22 | sí |
+| 4 | 371 | 290 | 78% | 21 | sí |
+| 5 | 425 | 357 | 84% | 21 | sí |
+| 6 | 468 | 414 | 88% | 20 | sí |
+| 7 | 512 | 464 | 91% | 20 | sí |
+
+**Resultado:** A arranca dependiente del andamiaje (rep independiente ~0) y en la **época 3** se sostiene solo (≥60% independiente) → **gradúa**, liberando el cupo del mentor (21→22). El apadrinamiento bien hecho invierte en que el ahijado se **independice**, no en atarlo; el andamiaje se diseña para diluirse (coherente con la semilla génesis y el Art. VI).
+
 ## Conclusión
 El prototipo confirma, en cifras, la apuesta central de la SPEC: **el poder estructural no se
 compra con identidades ni con avales endogámicos**. Sybils y anillos de colusión quedan cerca

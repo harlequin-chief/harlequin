@@ -44,6 +44,7 @@ prototipos/reputacion/
 ├── escenarios.py           # poblaciones de red + ataques
 ├── adaptativo.py           # barrido de colusión adaptativa (fragmentar para evadir, §1.6)
 ├── temporal.py             # dinámica multi-época: decaimiento §1.7 / anti-atrincheramiento Art. VI
+├── graduacion.py           # graduación de ahijados: el apadrinamiento se diluye (§1.5c)
 ├── run_all.py              # runner -> RESULTADOS.md
 ├── tests/test_motor.py     # tests de autoauditoría
 └── RESULTADOS.md           # informe generado
@@ -81,7 +82,11 @@ El **consenso** (§2.2) sortea comités con probabilidad ∝ agregado **conserva
 - **Dinámica temporal — abordada (§6 del informe, `temporal.py`).** Simulación multi-época con
   envejecimiento del ancla de evidencia: quien deja de aportar decae (anti-atrincheramiento, Art.
   VI), un pionero de obra única no conserva poder (anti-long-range gratis), una granja que farmea y
-  se sienta se desinfla. *Pendiente:* envejecer también las aristas y graduar ahijados por época.
+  se sienta se desinfla.
+- **Graduación de ahijados — abordada (§7 del informe, `graduacion.py`).** Un ahijado entra apoyado
+  en el aval del mentor y, al ganar reputación independiente, gradúa: el aval se libera y deja de
+  ocupar el cupo del mentor (la responsabilidad persiste). El andamiaje se diseña para diluirse.
+  *Pendiente:* envejecer también las aristas (avales) por época, no solo la evidencia.
 - El VRF se simula con un PRNG sembrado; en producción es una función aleatoria verificable real.
 - Las cifras son **relativas** (reparto de poder), no parámetros de producción (esos son `[PARÁMETRO]`
   en la SPEC, a derivar con modelado).

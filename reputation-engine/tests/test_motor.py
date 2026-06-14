@@ -132,6 +132,23 @@ def test_temporal_decae_inactivos():
     assert titeres[-1] < titeres[1], "los títeres del anillo deberían desinflarse"
 
 
+def test_graduacion_libera_cupo_del_mentor():
+    """
+    Graduación de ahijados (§1.5c): el ahijado empieza dependiendo del aval del mentor (rep
+    independiente ~0) y, al ganar obra+avales propios, gradúa → su rep independiente domina y el
+    cupo del mentor se libera (un aval vivo menos). El andamiaje se diluye.
+    """
+    import graduacion
+    tray = graduacion.simular()
+    # arranca dependiente (poca o nula reputación independiente) y termina sosteniéndose solo
+    assert tray["independiente"][0] < 0.2 * max(tray["total"][0], 1e-9), "A no debería empezar independiente"
+    assert tray["graduado"][-1], "A debería haber graduado dentro del horizonte"
+    assert tray["independiente"][-1] > 0.8 * tray["total"][-1], "tras graduar, A se sostiene solo"
+    # al graduar, el cupo libre del mentor aumenta (se liberó el aval vivo)
+    ep = next(t for t in range(len(tray["graduado"])) if tray["graduado"][t])
+    assert tray["cupo_libre_M"][ep] > tray["cupo_libre_M"][ep - 1], "graduar debería liberar cupo del mentor"
+
+
 def test_blanqueo_pierde_todo():
     """El seudónimo nuevo (whitewashing) no hereda reputación: ~0 frente al consolidado."""
     esc = escenarios.escenario_blanqueo()

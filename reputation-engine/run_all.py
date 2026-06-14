@@ -339,6 +339,29 @@ def construir_informe() -> str:
       "gratis: una historia vieja no se reactiva a poder. Y una **granja** que farmea y se sienta ve a "
       "sus títeres evaporarse: la colusión tiene que ser SOSTENIDA, no un sprint.\n")
 
+    # graduación de ahijados (§1.5c): el andamiaje se diluye
+    import graduacion
+    gt = graduacion.simular()
+    ep_g = next((t for t in range(len(gt["graduado"])) if gt["graduado"][t]), None)
+    w("\n## 7. Graduación de ahijados: el apadrinamiento es andamiaje (§1.5c)\n")
+    w("Un ahijado entra apadrinado (su reputación se apoya en el aval del mentor) y, al hacer obra real "
+      "y recibir avales independientes, gradúa: el aval del mentor se libera y deja de ocupar su cupo. "
+      "La responsabilidad persiste (slashing en cascada). Se mide la reputación de A CON vs SIN el aval "
+      "del mentor (la independiente).\n\n")
+    w("| época | rep total A | rep independiente A | % independiente | cupo libre M | graduado |\n")
+    w("|---:|---:|---:|---:|---:|:--:|\n")
+    for t in range(graduacion.N_EPOCAS):
+        rt, ri = gt["total"][t], gt["independiente"][t]
+        pct = 100 * ri / rt if rt else 0.0
+        w(f"| {t} | {rt:.0f} | {ri:.0f} | {pct:.0f}% | {gt['cupo_libre_M'][t]} | "
+          f"{'sí' if gt['graduado'][t] else '—'} |\n")
+    if ep_g is not None:
+        w(f"\n**Resultado:** A arranca dependiente del andamiaje (rep independiente ~0) y en la **época "
+          f"{ep_g}** se sostiene solo (≥{int(graduacion.UMBRAL_GRADUACION*100)}% independiente) → "
+          f"**gradúa**, liberando el cupo del mentor ({gt['cupo_libre_M'][ep_g-1]}→{gt['cupo_libre_M'][ep_g]}). "
+          "El apadrinamiento bien hecho invierte en que el ahijado se **independice**, no en atarlo; el "
+          "andamiaje se diseña para diluirse (coherente con la semilla génesis y el Art. VI).\n")
+
     w("\n## Conclusión\n")
     w("El prototipo confirma, en cifras, la apuesta central de la SPEC: **el poder estructural no se\n"
       "compra con identidades ni con avales endogámicos**. Sybils y anillos de colusión quedan cerca\n"

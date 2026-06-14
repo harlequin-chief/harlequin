@@ -41,6 +41,20 @@ class RegistroAvales:
     def avales_vivos(self, padrino: str) -> int:
         return sum(1 for v in self.vinculos if v.padrino == padrino and v.vivo)
 
+    def graduar(self, padrino: str, ahijado: str) -> bool:
+        """
+        Gradúa al ahijado (§1.5c): libera el vínculo VIVO (deja de ocupar cupo del padrino) cuando el
+        ahijado ya se sostiene con reputación independiente propia. La RESPONSABILIDAD no caduca: el
+        vínculo sigue en el registro (slashing en cascada lo seguirá alcanzando), solo deja de estar
+        `vivo`. Devuelve True si graduó alguno.
+        """
+        graduado = False
+        for v in self.vinculos:
+            if v.padrino == padrino and v.ahijado == ahijado and v.vivo:
+                v.vivo = False
+                graduado = True
+        return graduado
+
 
 def cupo_de_avales(reputacion_agregada: float, k: float = 3.0) -> int:
     """
