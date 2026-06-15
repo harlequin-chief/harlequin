@@ -432,6 +432,39 @@ pub fn reputation_dimension(
     t.into_iter().map(|(k, v)| (k, v * p.scale)).collect()
 }
 
+/// EARNED reputation as a VECTOR over all four suits (§1.2b).
+pub fn reputation_vector(
+    agents: &[Agent],
+    graph: &TrustGraph,
+    p: &Params,
+) -> HashMap<String, HashMap<String, f64>> {
+    let mut per_dim: HashMap<&str, HashMap<String, f64>> = HashMap::new();
+    for d in DIMENSIONS {
+        per_dim.insert(d, reputation_dimension(agents, graph, d, p));
+    }
+    let mut out: HashMap<String, HashMap<String, f64>> = HashMap::new();
+    for a in agents {
+        let v: HashMap<String, f64> =
+            DIMENSIONS.iter().map(|d| (d.to_string(), per_dim[d][&a.id])).collect();
+        out.insert(a.id.clone(), v);
+    }
+    out
+}
+
+/// Conservative aggregation of the vector (§1.2b): min (default) or mean — NEVER a sum. For powers
+/// that need global reliability (consensus, vouching) a high suit does not buy a low one: you cannot
+/// buy authority in one suit with another.
+pub fn conservative_aggregate(vector: &HashMap<String, f64>, min: bool) -> f64 {
+    if vector.is_empty() {
+        return 0.0;
+    }
+    if min {
+        vector.values().cloned().fold(f64::INFINITY, f64::min)
+    } else {
+        vector.values().sum::<f64>() / vector.len() as f64
+    }
+}
+
 /// Decay by inactivity (§1.7): uncontributed reputation evaporates. Farming then sitting still does
 /// not pay off long-term (extra anti-collusion defence). `r <- r * factor`.
 pub fn decay(reputation: &HashMap<String, f64>, factor: f64) -> HashMap<String, f64> {

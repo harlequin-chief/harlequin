@@ -23,6 +23,12 @@ faith.
   voting engine (Snowball + partition/quorum) is a later increment; the test-rig stays the reference.
   - Run: `cd consensus-core && cargo test`.
 
+- **`composition/`** — the end-to-end claim, in Rust: `reputation-core` derives each pseudonym's
+  vectorial reputation, it is aggregated conservatively (min over the four suits), and that scalar
+  weights the `consensus-core` VRF sortition. Test: a collusion ring and 50 Sybils earn ~0 reputation
+  → **0 committee seats**; honest members hold the committee. *Power is earned reputation — the two
+  prototypes compose.* (Cargo workspace ties the three crates: `cargo test` from `chain/`.)
+
 ## Path ahead (`DECISION-STACK-CADENA.md §5`)
 1. ~~Faithful consensus test-rig~~ — done (`../prototipos/consenso/testrig/`).
 2. **Done — full parity:** the engine is ported to Rust (`reputation-core/`), every piece

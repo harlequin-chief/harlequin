@@ -1,0 +1,10 @@
+[package]
+name = "composition"
+version = "0.1.0"
+edition = "2021"
+description = "Harlequin: reputation engine ⨉ consensus sortition compose — earned reputation is the only path to committee power."
+license = "AGPL-3.0-or-later"
+
+[dependencies]
+reputation-core = { path = "../reputation-core" }
+consensus-core = { path = "../consensus-core" }
