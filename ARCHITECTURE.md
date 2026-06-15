@@ -64,6 +64,13 @@ A **PWA** that is a **light client to the network**, not a front-end to a centra
 no single point the State can seize or censor. The market and the forum live on the chain / P2P; the
 app is only the window. Packageable as a native shell, never dependent on an app store.
 
+Crucially, the client bundle is **served by the node network itself**: every Harlequin node hosts a
+copy of the (static) client, **content-addressed and signed** so it can be fetched from any node and
+verified by hash — a hostile node cannot serve a poisoned client. To silence Harlequin you would have
+to shut down *every* node at once. Early on there are few nodes (perhaps one); the design treats that
+first server as "the first node that also serves the client," not a special host, so hosting
+decentralises on its own as the network grows.
+
 ## How they compose
 Reputation feeds everything: the consensus committee, the justice jury, market trust, and the right to
 vouch all read the same reputation, aggregated conservatively (the minimum over the four suits — you
