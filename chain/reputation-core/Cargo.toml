@@ -7,6 +7,13 @@ license = "AGPL-3.0-or-later"
 
 [dependencies]
 
+[features]
+# `std` (default) pulls in the f64 oracle/prototype path + vouch scoring (uses libm: log2/floor/round/abs).
+# Without it the crate is `no_std` (alloc only): the deterministic fixed-point reputation path + the vouch
+# registry storage — exactly what the Substrate runtime/pallet links against (`default-features = false`).
+default = ["std"]
+std = []
+
 [lib]
 name = "reputation_core"
 path = "src/lib.rs"

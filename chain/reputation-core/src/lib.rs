@@ -7,11 +7,21 @@
 //! governance ♥.
 //!
 //! Uses `BTreeMap` (not `HashMap`) so iteration — and therefore the EigenTrust summation order — is
-//! DETERMINISTIC, a prerequisite for consensus reproducibility. Still on `std` f64 for now; full
-//! `no_std` + deterministic fixed-point arithmetic (f64 is not reproducible across architectures) is
-//! the next milestone before this becomes a pallet (see `../PALLET-DESIGN.md`).
+//! DETERMINISTIC, a prerequisite for consensus reproducibility.
+//!
+//! **`no_std`-ready.** Default build (`std` feature) keeps the f64 oracle/prototype path for
+//! cross-validation. With `default-features = false` the crate is `no_std` (alloc only) and exposes just
+//! the deterministic fixed-point path — `reputation_dimension_fully_fixed` and the `*_fp` factor math,
+//! all in integer i128 so the result is bit-identical across architectures. That is what the Substrate
+//! reputation pallet links against (the f64 path uses libm methods a runtime cannot rely on).
 
-use std::collections::BTreeMap;
+#![cfg_attr(not(feature = "std"), no_std)]
+
+extern crate alloc;
+
+use alloc::collections::{BTreeMap, BTreeSet};
+use alloc::string::String;
+use alloc::vec::Vec;
 
 pub mod vouch;
 
@@ -102,6 +112,7 @@ impl TrustGraph {
 
     /// Independence of the vouch i->j in [0,1] (§1.6): penalises reciprocity and neighbour overlap.
     /// `independence = 1/(1 + beta*reciprocal + gamma*overlap)`. An inbred ring vouch -> ~0.11.
+    #[cfg(feature = "std")]
     pub fn independence(&self, i: &str, j: &str, dim: &str, beta: f64, gamma: f64) -> f64 {
         let reciprocal = if self.has_edge(j, i, dim) { 1.0 } else { 0.0 };
 
@@ -148,8 +159,8 @@ impl TrustGraph {
     /// Community detection by label propagation over the undirected projection (§1.6). Deterministic
     /// (sorted order + smallest-label tie-break) so it is reproducible — matches the Python prototype.
     pub fn communities(&self, dim: &str, nodes: &[String]) -> BTreeMap<String, String> {
-        let node_set: std::collections::BTreeSet<&String> = nodes.iter().collect();
-        let mut adj: BTreeMap<String, std::collections::BTreeSet<String>> = BTreeMap::new();
+        let node_set: BTreeSet<&String> = nodes.iter().collect();
+        let mut adj: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
         for i in nodes {
             for (j, _) in self.outgoing(i, dim) {
                 if node_set.contains(&j) {
@@ -200,6 +211,7 @@ impl TrustGraph {
 
     /// Community suspicion = internal edges / (1 + community evidence) (§1.6): high when lots of mutual
     /// vouching and little real work (collusion signature, dense AND scattered rings).
+    #[cfg(feature = "std")]
     pub fn community_suspicion(
         &self,
         dim: &str,
@@ -207,7 +219,7 @@ impl TrustGraph {
         label: &BTreeMap<String, String>,
         evidence: &BTreeMap<String, f64>,
     ) -> BTreeMap<String, f64> {
-        let node_set: std::collections::BTreeSet<&String> = nodes.iter().collect();
+        let node_set: BTreeSet<&String> = nodes.iter().collect();
         let mut internal: BTreeMap<String, f64> = BTreeMap::new();
         for i in nodes {
             for (j, _) in self.outgoing(i, dim) {
@@ -220,7 +232,7 @@ impl TrustGraph {
         for n in nodes {
             *ev.entry(label[n].clone()).or_insert(0.0) += *evidence.get(n).unwrap_or(&0.0);
         }
-        let comms: std::collections::BTreeSet<&String> = label.values().collect();
+        let comms: BTreeSet<&String> = label.values().collect();
         comms
             .into_iter()
             .map(|c| {
@@ -239,7 +251,7 @@ impl TrustGraph {
         label: &BTreeMap<String, String>,
         evidence_fp: &BTreeMap<String, i128>,
     ) -> BTreeMap<String, i128> {
-        let node_set: std::collections::BTreeSet<&String> = nodes.iter().collect();
+        let node_set: BTreeSet<&String> = nodes.iter().collect();
         let mut internal: BTreeMap<String, i128> = BTreeMap::new();
         for i in nodes {
             for (j, _) in self.outgoing(i, dim) {
@@ -252,7 +264,7 @@ impl TrustGraph {
         for n in nodes {
             *ev.entry(label[n].clone()).or_insert(0) += *evidence_fp.get(n).unwrap_or(&0);
         }
-        let comms: std::collections::BTreeSet<&String> = label.values().collect();
+        let comms: BTreeSet<&String> = label.values().collect();
         comms
             .into_iter()
             .map(|c| {
@@ -272,9 +284,9 @@ impl TrustGraph {
         label: &BTreeMap<String, String>,
         k0_fp: i128,
     ) -> BTreeMap<String, (i128, i128, BTreeMap<String, i128>)> {
-        let node_set: std::collections::BTreeSet<&String> = nodes.iter().collect();
+        let node_set: BTreeSet<&String> = nodes.iter().collect();
         let mut incoming: BTreeMap<String, BTreeMap<String, i128>> = BTreeMap::new();
-        let mut in_count: BTreeMap<String, std::collections::BTreeSet<String>> = BTreeMap::new();
+        let mut in_count: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
         for src in nodes {
             for (tgt, w) in self.outgoing(src, dim) {
                 if node_set.contains(&tgt) && w > 0.0 {
@@ -307,6 +319,7 @@ impl TrustGraph {
 
     /// Asymmetric-funnel signal (§2d): per target, (concentration HHI over source communities, volume
     /// gate, shares per community). Cuts a directed PageRank funnel local independence misses.
+    #[cfg(feature = "std")]
     pub fn in_concentration_signals(
         &self,
         dim: &str,
@@ -314,9 +327,9 @@ impl TrustGraph {
         label: &BTreeMap<String, String>,
         k0: f64,
     ) -> BTreeMap<String, (f64, f64, BTreeMap<String, f64>)> {
-        let node_set: std::collections::BTreeSet<&String> = nodes.iter().collect();
+        let node_set: BTreeSet<&String> = nodes.iter().collect();
         let mut incoming: BTreeMap<String, BTreeMap<String, f64>> = BTreeMap::new();
-        let mut in_count: BTreeMap<String, std::collections::BTreeSet<String>> = BTreeMap::new();
+        let mut in_count: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
         for src in nodes {
             for (tgt, w) in self.outgoing(src, dim) {
                 if node_set.contains(&tgt) && w > 0.0 {
@@ -349,6 +362,7 @@ impl TrustGraph {
     /// Row-stochastic local trust matrix C with anti-collusion damping (§1.6): independence + (opt-in)
     /// community-suspicion brake + (opt-in) in-concentration funnel damping. Normalised by the sum of
     /// the UNDAMPED weights, so an inbred row leaks mass out (sub-stochastic) instead of propagating it.
+    #[cfg(feature = "std")]
     #[allow(clippy::too_many_arguments)]
     fn damped_local_matrix(
         &self,
@@ -358,7 +372,7 @@ impl TrustGraph {
         evidence: &BTreeMap<String, f64>,
         dim_evidence: &BTreeMap<String, f64>,
     ) -> BTreeMap<String, BTreeMap<String, f64>> {
-        let node_set: std::collections::BTreeSet<&String> = nodes.iter().collect();
+        let node_set: BTreeSet<&String> = nodes.iter().collect();
 
         let use_comm = p.damping && p.community;
         let use_inc = p.damping && p.in_concentration;
@@ -434,7 +448,7 @@ impl TrustGraph {
         evidence_fp: &BTreeMap<String, i128>,
         dim_evidence_fp: &BTreeMap<String, i128>,
     ) -> BTreeMap<String, BTreeMap<String, i128>> {
-        let node_set: std::collections::BTreeSet<&String> = nodes.iter().collect();
+        let node_set: BTreeSet<&String> = nodes.iter().collect();
         let (beta_fp, gamma_fp) = (to_fp(p.beta), to_fp(p.gamma));
         let (kappa_fp, mu_fp, rho_fp) = (to_fp(p.kappa), to_fp(p.mu), to_fp(p.rho));
 
@@ -575,6 +589,7 @@ impl Default for Params {
 
 /// EARNED reputation per agent in one dimension (gate 2, §1.4): EigenTrust with teleport to the
 /// pre-trust (the evidence anchor) and the row-deficit reinjected towards the pre-trust.
+#[cfg(feature = "std")]
 pub fn reputation_dimension(
     agents: &[Agent],
     graph: &TrustGraph,
@@ -627,7 +642,11 @@ pub const FP_SCALE: i128 = 1_000_000_000;
 
 #[inline]
 fn to_fp(x: f64) -> i128 {
-    (x * FP_SCALE as f64).round() as i128
+    // Manual round-half-away-from-zero so this works in `no_std` (f64::round is a libm method the
+    // runtime cannot use). f64 arithmetic and the float->int cast are available in `core`.
+    let scaled = x * FP_SCALE as f64;
+    let rounded = if scaled >= 0.0 { scaled + 0.5 } else { scaled - 0.5 };
+    rounded as i128
 }
 
 /// Fixed-point multiply: (a·b) / SCALE. Inputs and output are FP_SCALE-scaled.
@@ -650,6 +669,7 @@ fn fp_div(a: i128, b: i128) -> i128 {
 /// NOTE (honest, milestone in progress): the local trust matrix C is still computed in f64 and then
 /// quantised; converting the FACTOR math (independence/community/in-concentration) to fixed-point is
 /// the next step toward full cross-architecture determinism (see `../PALLET-DESIGN.md`).
+#[cfg(feature = "std")]
 pub fn reputation_dimension_fixed(
     agents: &[Agent],
     graph: &TrustGraph,
@@ -759,6 +779,7 @@ pub fn reputation_dimension_fully_fixed(
 }
 
 /// EARNED reputation as a VECTOR over all four suits (§1.2b).
+#[cfg(feature = "std")]
 pub fn reputation_vector(
     agents: &[Agent],
     graph: &TrustGraph,
@@ -780,6 +801,7 @@ pub fn reputation_vector(
 /// Conservative aggregation of the vector (§1.2b): min (default) or mean — NEVER a sum. For powers
 /// that need global reliability (consensus, vouching) a high suit does not buy a low one: you cannot
 /// buy authority in one suit with another.
+#[cfg(feature = "std")]
 pub fn conservative_aggregate(vector: &BTreeMap<String, f64>, min: bool) -> f64 {
     if vector.is_empty() {
         return 0.0;
@@ -797,7 +819,7 @@ pub fn decay(reputation: &BTreeMap<String, f64>, factor: f64) -> BTreeMap<String
     reputation.iter().map(|(k, v)| (k.clone(), v * factor)).collect()
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
 

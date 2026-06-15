@@ -7,7 +7,11 @@
 //! - positive: the mentor dividend is a small echo of the protege's INDEPENDENT reputation, so
 //!   sponsoring puppets (reputation dependent on one's own cluster) does not pay off.
 
-use std::collections::BTreeMap;
+use alloc::string::String;
+use alloc::vec::Vec;
+// Used only by the std-gated f64 scoring (cascade_slashing); the registry itself is alloc-only.
+#[cfg(feature = "std")]
+use alloc::collections::BTreeMap;
 
 /// A persistent sponsor->protege link. `live` is released on graduation, but the liability does not
 /// expire (the link stays for cascade slashing).
@@ -57,6 +61,7 @@ impl VouchRegistry {
 
 /// Live-vouch quota = sublinear in reputation (§1.5c): `floor(k * log2(1 + rep))`. Decreasing returns,
 /// so nobody monopolises sponsorship.
+#[cfg(feature = "std")]
 pub fn vouch_quota(aggregate_reputation: f64, k: f64) -> u64 {
     let r = aggregate_reputation.max(0.0);
     (k * (1.0 + r).log2()).floor() as u64
@@ -64,6 +69,7 @@ pub fn vouch_quota(aggregate_reputation: f64, k: f64) -> u64 {
 
 /// Mentor dividend (§1.5c, positive side): a small echo of the protege's INDEPENDENT reputation.
 /// Sponsoring puppets (independent reputation ~0) pays ~0.
+#[cfg(feature = "std")]
 pub fn mentor_dividend(protege_independent_rep: f64, echo: f64) -> f64 {
     echo * protege_independent_rep.max(0.0)
 }
@@ -71,6 +77,7 @@ pub fn mentor_dividend(protege_independent_rep: f64, echo: f64) -> f64 {
 /// Slashing for proven fraud (§1.7) with PERSISTENT LIABILITY in cascade (§1.5c). The culprit loses
 /// `loss`; each sponsor up the chain loses `sponsor_fraction` of what their protege lost, up to
 /// `depth` hops. Returns a NEW reputation map (does not mutate the input).
+#[cfg(feature = "std")]
 pub fn cascade_slashing(
     reputation: &BTreeMap<String, f64>,
     registry: &VouchRegistry,
@@ -102,7 +109,7 @@ pub fn cascade_slashing(
     updated
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
 
