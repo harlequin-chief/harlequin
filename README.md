@@ -33,6 +33,7 @@ it **Woven Trust Consensus**, and the unit of attack cost **reputation-time**.
 
 | Path | What it is |
 |---|---|
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | **Start here** — how the pieces fit: manifesto → reputation → consensus → chain → layers. |
 | [`docs/woven-trust-consensus.md`](docs/woven-trust-consensus.md) | The consensus paper (English). |
 | [`docs/consenso-confianza-tejida.md`](docs/consenso-confianza-tejida.md) | The consensus paper (Spanish). |
 | [`reputation-engine/`](reputation-engine/) | Runnable prototype of the reputation core + attack simulations. |
@@ -90,6 +91,7 @@ tiempo** — un bien que *no se compra, no se computa y no se atesora*. Al conse
 | Ruta | Qué es |
 |---|---|
 | [`docs/consenso-confianza-tejida.md`](docs/consenso-confianza-tejida.md) | El paper del consenso (español). |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | **Empieza aquí** — cómo encaja todo: manifiesto → reputación → consenso → cadena → capas. |
 | [`docs/woven-trust-consensus.md`](docs/woven-trust-consensus.md) | El paper del consenso (inglés). |
 | [`reputation-engine/`](reputation-engine/) | Prototipo ejecutable del núcleo de reputación + simulaciones de ataque. |
 | [`consensus-simulator/`](consensus-simulator/) | Simulador ejecutable: el umbral de seguridad se mide en reputación, no en número de nodos. + un `testrig/` fiel (comités por sorteo VRF, red asíncrona, partición). |
