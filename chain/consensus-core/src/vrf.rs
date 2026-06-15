@@ -37,6 +37,13 @@ fn poisson_cdf(j: u32, lam: f64) -> f64 {
     cdf.min(1.0)
 }
 
+/// Test-only accessor to the f64 Poisson CDF, so `sortition_fp` can cross-validate its fixed-point
+/// version against the original.
+#[doc(hidden)]
+pub fn poisson_cdf_f64_for_test(j: u32, lam: f64) -> f64 {
+    poisson_cdf(j, lam)
+}
+
 /// Inverse Poisson CDF: number of committee seats for a node with expected `lam`, from its VRF value.
 /// lam=0 -> 0 seats. Capped at `max_seats`.
 pub fn sortition_seats(value: f64, lam: f64, max_seats: u32) -> u32 {

@@ -9,6 +9,10 @@
 //! `prototipos/consenso/ANALYSIS-safety-liveness.md` and `PARAMETERS.md`.
 
 pub mod sha256;
+pub mod sortition_fp;
 pub mod vrf;
 
+pub use sortition_fp::{
+    elect_committee_fp, exp_neg_fp, poisson_cdf_fp, sortition_seats_fp, vrf_value_fp,
+};
 pub use vrf::{elect_committee, sortition_seats, vrf, vrf_verify};
