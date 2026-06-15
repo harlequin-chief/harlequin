@@ -31,15 +31,26 @@ faith.
   - Runnable demo: `cargo run -p composition` — prints the committee by class (55 of 80 agents are
     colluders/Sybils and hold 0 seats; honest + genesis hold 100%).
 
+- **`protocol-core/`** — the **epoch state machine**: the living chain that ties the two engines
+  together. `genesis(cohort)` seeds the founding members (§1.4); `advance_epoch(beacon)` recomputes
+  every member's reputation (deterministic fixed-point), elects the committee by reputation-weighted
+  sortition, and returns the **telemetry the nodes publish** (`EpochReport`) — node count, committee,
+  reputation per suit, and a **Gini coefficient** of reputation: the network's own *"is an elite
+  forming?"* alarm (SPEC §5c, served by the nodes, no central dashboard to switch off). 6/6 tests.
+  - Runnable demo: `cargo run -p protocol-core --example epochs` — 50 founders + 1000 Sybils over 3
+    epochs; the Sybils never enter the committee and the telemetry JSON is printed each epoch.
+
 ## Design
 - **`PALLET-DESIGN.md`** — how `reputation-core` becomes an on-chain reputation pallet: inputs on-chain
   (evidence + vouch graph), reputation **derived** and recomputed each epoch by an offchain worker
-  (verify-by-recompute, no trusted oracle); committee/jury read the previous epoch's snapshot. Flags
-  the work before compiling: `no_std` + **deterministic fixed-point arithmetic** (f64 is not
-  reproducible across architectures, unacceptable for consensus). **Started:**
-  `reputation_dimension_fixed` runs the EigenTrust iteration in i128 fixed-point — deterministic and
-  matching the f64 path (12/12). Remaining: the factor math (independence/community/in-concentration)
-  in fixed-point too, and the `no_std` feature-gate.
+  (verify-by-recompute, no trusted oracle); committee/jury read the previous epoch's snapshot. The two
+  prerequisites it flagged are **done**: **deterministic fixed-point arithmetic** (the whole
+  factor math — independence/community/in-concentration — and the EigenTrust iteration run in i128,
+  bit-identical across architectures, cross-validated against f64) and the **`no_std` feature-gate**.
+  `reputation-core` now builds for `wasm32-unknown-unknown` with `default-features = false`: the f64
+  oracle/prototype path sits behind the `std` feature; the runtime links only the fixed-point path plus
+  the vouch registry. Remaining for the pallet: port the sortition (consensus-core) and vouch scoring
+  (`log2`) to fixed-point so the whole epoch machine is `no_std`.
 
 ## Path ahead (`DECISION-STACK-CADENA.md §5`)
 1. ~~Faithful consensus test-rig~~ — done (`../prototipos/consenso/testrig/`).
@@ -47,14 +58,15 @@ faith.
    cross-validated against the Python prototype: trust graph + independence damping, EigenTrust
    anchored in evidence, community suspicion, per-suit in-concentration, inactivity decay, the
    sponsorship economy (quota, mentor dividend, graduation) and cascade slashing. **10/10 tests.**
-3. Wrap it as a **reputation pallet**; minimal Substrate solochain + genesis seed cohort (§1.4).
-4. Implement the reputation-weighted VRF sortition consensus (the test-rig is the reference).
-5. Sub-sampled finality + light clients.
-
-The full Substrate node toolchain (rustup nightly + wasm, multi-GB) is **not** installed yet; only
-Debian's stable `rustc`/`cargo`, enough for the library crate. Installing the full node environment
-(here vs a separate dev machine) is an open infra decision.
+3. **Done:** `reputation-core` is `no_std` / `wasm32`-ready (fixed-point path + vouch registry).
+4. **Done:** the **epoch state machine** (`protocol-core/`) composes reputation + sortition into a
+   living chain (genesis → epochs → committee → telemetry).
+5. Wrap it as a **reputation pallet** + a minimal Substrate solochain with the genesis cohort (§1.4).
+6. Port sortition + vouch scoring to fixed-point so the whole epoch machine is `no_std`.
+7. Sub-sampled finality + light clients.
 
 ## Toolchain
-Debian `rustc`/`cargo` (`apt`, stable). No external/third-party installers (OPSEC: this is the isolated
-admin station). License: AGPL-3.0-or-later, like the rest of the project.
+`rustup` (stable + nightly + `wasm32-unknown-unknown`) is installed on the station — enough to build the
+library crates **and** the runtime wasm. No external/third-party application installers beyond the Rust
+toolchain (OPSEC: this is the isolated admin station). License: AGPL-3.0-or-later, like the rest of the
+project.

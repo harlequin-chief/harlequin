@@ -1,0 +1,14 @@
+[package]
+name = "protocol-core"
+version = "0.1.0"
+edition = "2021"
+description = "Harlequin epoch state machine — composes the deterministic reputation engine and the reputation-weighted sortition into a living chain: genesis cohort, per-epoch reputation recompute, committee election, and the telemetry the nodes emit."
+license = "AGPL-3.0-or-later"
+
+[dependencies]
+reputation-core = { path = "../reputation-core" }
+consensus-core = { path = "../consensus-core" }
+
+[lib]
+name = "protocol_core"
+path = "src/lib.rs"

@@ -15,5 +15,13 @@ name = "consensus-core"
 version = "0.1.0"
 
 [[package]]
+name = "protocol-core"
+version = "0.1.0"
+dependencies = [
+ "consensus-core",
+ "reputation-core",
+]
+
+[[package]]
 name = "reputation-core"
 version = "0.1.0"
