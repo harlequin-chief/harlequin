@@ -1,0 +1,19 @@
+[package]
+name = "harlequin-runtime"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+description = "Harlequin solochain runtime — frame_system + the reputation pallet, the runtime a node executes. Sovereign chain, Woven-Trust consensus (committee by reputation)."
+
+[dependencies]
+codec = { version = "3.7.5", package = "parity-scale-codec", default-features = false, features = ["derive"] }
+scale-info = { version = "2.11.6", default-features = false, features = ["derive"] }
+frame = { version = "0.17.0", package = "polkadot-sdk-frame", default-features = false, features = ["runtime"] }
+pallet-reputation = { path = "../pallet-reputation", default-features = false }
+
+[features]
+default = ["std"]
+std = ["codec/std", "scale-info/std", "frame/std", "pallet-reputation/std"]
+
+# Own workspace — the runtime/node dependency tree stays out of the lean cores.
+[workspace]
