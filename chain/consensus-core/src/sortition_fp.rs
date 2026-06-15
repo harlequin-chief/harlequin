@@ -8,7 +8,8 @@
 //! libm — `no_std`-ready, dependency-free (OPSEC: nothing pulled onto the isolated station).
 
 use crate::sha256::sha256;
-use std::collections::BTreeMap;
+use alloc::collections::BTreeMap;
+use alloc::string::String;
 
 /// Fixed-point scale, 1e9 — matches `reputation-core` so reputation values feed straight in.
 pub const FP: i128 = 1_000_000_000;

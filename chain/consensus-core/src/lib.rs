@@ -8,11 +8,22 @@
 //! the test-rig stays the behavioural reference and the analytical bounds live in
 //! `prototipos/consenso/ANALYSIS-safety-liveness.md` and `PARAMETERS.md`.
 
+//! **`no_std`-ready.** Default build (`std` feature) keeps the f64 VRF oracle (`vrf.rs`) for the host
+//! and cross-validation. With `default-features = false` the crate is `no_std` (alloc only) and exposes
+//! the deterministic fixed-point sortition (`sortition_fp.rs`) plus the SHA-256 — what a Substrate
+//! runtime links against (f64 `exp` is not reproducible across architectures).
+
+#![cfg_attr(not(feature = "std"), no_std)]
+
+extern crate alloc;
+
 pub mod sha256;
 pub mod sortition_fp;
+#[cfg(feature = "std")]
 pub mod vrf;
 
 pub use sortition_fp::{
     elect_committee_fp, exp_neg_fp, poisson_cdf_fp, sortition_seats_fp, vrf_value_fp,
 };
+#[cfg(feature = "std")]
 pub use vrf::{elect_committee, sortition_seats, vrf, vrf_verify};

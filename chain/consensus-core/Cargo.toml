@@ -7,6 +7,13 @@ license = "AGPL-3.0-or-later"
 
 [dependencies]
 
+[features]
+# `std` (default) keeps the f64 VRF oracle (`vrf.rs`, used by the host/tests). Without it the crate is
+# `no_std` (alloc only) and exposes the deterministic fixed-point sortition (`sortition_fp.rs`) + the
+# hand-rolled SHA-256 — what the runtime/pallet links against.
+default = ["std"]
+std = []
+
 [lib]
 name = "consensus_core"
 path = "src/lib.rs"

@@ -1,6 +1,11 @@
 //! SHA-256, dependency-free (FIPS 180-4). Matches Python's `hashlib.sha256` byte-for-byte, so the
 //! simulated VRF in `vrf.rs` cross-validates exactly against the Python test-rig. No external crates
 //! (OPSEC: nothing pulled onto the isolated station). Replaced by a real ECVRF in production.
+//!
+//! `no_std` (alloc only).
+
+use alloc::format;
+use alloc::string::String;
 
 const K: [u32; 64] = [
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
