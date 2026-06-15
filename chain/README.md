@@ -31,6 +31,13 @@ faith.
   - Runnable demo: `cargo run -p composition` — prints the committee by class (55 of 80 agents are
     colluders/Sybils and hold 0 seats; honest + genesis hold 100%).
 
+## Design
+- **`PALLET-DESIGN.md`** — how `reputation-core` becomes an on-chain reputation pallet: inputs on-chain
+  (evidence + vouch graph), reputation **derived** and recomputed each epoch by an offchain worker
+  (verify-by-recompute, no trusted oracle); committee/jury read the previous epoch's snapshot. Flags
+  the work before compiling: `no_std` + **deterministic fixed-point arithmetic** (f64 is not
+  reproducible across architectures, unacceptable for consensus).
+
 ## Path ahead (`DECISION-STACK-CADENA.md §5`)
 1. ~~Faithful consensus test-rig~~ — done (`../prototipos/consenso/testrig/`).
 2. **Done — full parity:** the engine is ported to Rust (`reputation-core/`), every piece
