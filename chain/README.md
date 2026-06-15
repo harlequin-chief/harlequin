@@ -18,8 +18,10 @@ faith.
 
 ## Path ahead (`DECISION-STACK-CADENA.md §5`)
 1. ~~Faithful consensus test-rig~~ — done (`../prototipos/consenso/testrig/`).
-2. **In progress:** port the engine to Rust (`reputation-core/`) → grow it to full parity with the
-   prototype (community + in-concentration signals, decay, slashing), each step cross-validated.
+2. **In progress:** port the engine to Rust (`reputation-core/`) → full parity with the prototype,
+   each step cross-validated. **Done:** trust graph, independence damping, EigenTrust, community
+   suspicion, per-suit in-concentration (6/6 tests, all matching Python numbers). **Left:** inactivity
+   decay + cascade slashing.
 3. Wrap it as a **reputation pallet**; minimal Substrate solochain + genesis seed cohort (§1.4).
 4. Implement the reputation-weighted VRF sortition consensus (the test-rig is the reference).
 5. Sub-sampled finality + light clients.

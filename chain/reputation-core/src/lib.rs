@@ -116,17 +116,164 @@ impl TrustGraph {
         1.0 / (1.0 + beta * reciprocal + gamma * overlap)
     }
 
-    /// Row-stochastic local trust matrix C with anti-collusion damping (§1.6). Normalised by the sum of
+    /// Community detection by label propagation over the undirected projection (§1.6). Deterministic
+    /// (sorted order + smallest-label tie-break) so it is reproducible — matches the Python prototype.
+    pub fn communities(&self, dim: &str, nodes: &[String]) -> HashMap<String, String> {
+        let node_set: std::collections::HashSet<&String> = nodes.iter().collect();
+        let mut adj: HashMap<String, std::collections::HashSet<String>> = HashMap::new();
+        for i in nodes {
+            for (j, _) in self.outgoing(i, dim) {
+                if node_set.contains(&j) {
+                    adj.entry(i.clone()).or_default().insert(j.clone());
+                    adj.entry(j.clone()).or_default().insert(i.clone());
+                }
+            }
+        }
+        let mut label: HashMap<String, String> =
+            nodes.iter().map(|n| (n.clone(), n.clone())).collect();
+        let mut order = nodes.to_vec();
+        order.sort();
+        for _ in 0..15 {
+            let mut changed = false;
+            for n in &order {
+                let neigh = match adj.get(n) {
+                    Some(s) if !s.is_empty() => s,
+                    _ => continue,
+                };
+                let mut count: HashMap<String, usize> = HashMap::new();
+                for m in neigh {
+                    *count.entry(label[m].clone()).or_insert(0) += 1;
+                }
+                // max count, tie-break = smallest label (Python: max(sorted(count), key=count))
+                let mut keys: Vec<&String> = count.keys().collect();
+                keys.sort();
+                let mut best: Option<(&String, usize)> = None;
+                for k in keys {
+                    let c = count[k];
+                    match best {
+                        None => best = Some((k, c)),
+                        Some((_, bc)) if c > bc => best = Some((k, c)),
+                        _ => {}
+                    }
+                }
+                let best = best.unwrap().0.clone();
+                if label[n] != best {
+                    label.insert(n.clone(), best);
+                    changed = true;
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+        label
+    }
+
+    /// Community suspicion = internal edges / (1 + community evidence) (§1.6): high when lots of mutual
+    /// vouching and little real work (collusion signature, dense AND scattered rings).
+    pub fn community_suspicion(
+        &self,
+        dim: &str,
+        nodes: &[String],
+        label: &HashMap<String, String>,
+        evidence: &HashMap<String, f64>,
+    ) -> HashMap<String, f64> {
+        let node_set: std::collections::HashSet<&String> = nodes.iter().collect();
+        let mut internal: HashMap<String, f64> = HashMap::new();
+        for i in nodes {
+            for (j, _) in self.outgoing(i, dim) {
+                if node_set.contains(&j) && label[i] == label[&j] {
+                    *internal.entry(label[i].clone()).or_insert(0.0) += 1.0;
+                }
+            }
+        }
+        let mut ev: HashMap<String, f64> = HashMap::new();
+        for n in nodes {
+            *ev.entry(label[n].clone()).or_insert(0.0) += *evidence.get(n).unwrap_or(&0.0);
+        }
+        let comms: std::collections::HashSet<&String> = label.values().collect();
+        comms
+            .into_iter()
+            .map(|c| {
+                let e = *internal.get(c).unwrap_or(&0.0) / (1.0 + *ev.get(c).unwrap_or(&0.0));
+                (c.clone(), e)
+            })
+            .collect()
+    }
+
+    /// Asymmetric-funnel signal (§2d): per target, (concentration HHI over source communities, volume
+    /// gate, shares per community). Cuts a directed PageRank funnel local independence misses.
+    pub fn in_concentration_signals(
+        &self,
+        dim: &str,
+        nodes: &[String],
+        label: &HashMap<String, String>,
+        k0: f64,
+    ) -> HashMap<String, (f64, f64, HashMap<String, f64>)> {
+        let node_set: std::collections::HashSet<&String> = nodes.iter().collect();
+        let mut incoming: HashMap<String, HashMap<String, f64>> = HashMap::new();
+        let mut in_count: HashMap<String, std::collections::HashSet<String>> = HashMap::new();
+        for src in nodes {
+            for (tgt, w) in self.outgoing(src, dim) {
+                if node_set.contains(&tgt) && w > 0.0 {
+                    let lab = label.get(src).cloned().unwrap_or_else(|| src.clone());
+                    *incoming.entry(tgt.clone()).or_default().entry(lab).or_insert(0.0) += w;
+                    in_count.entry(tgt.clone()).or_default().insert(src.clone());
+                }
+            }
+        }
+        let mut out: HashMap<String, (f64, f64, HashMap<String, f64>)> = HashMap::new();
+        for tgt in nodes {
+            match incoming.get(tgt) {
+                None => {
+                    out.insert(tgt.clone(), (0.0, 0.0, HashMap::new()));
+                }
+                Some(comm_w) => {
+                    let total: f64 = comm_w.values().sum();
+                    let shares: HashMap<String, f64> =
+                        comm_w.iter().map(|(c, w)| (c.clone(), w / total)).collect();
+                    let conc: f64 = shares.values().map(|s| s * s).sum();
+                    let n = in_count[tgt].len() as f64;
+                    let gate = n / (n + k0);
+                    out.insert(tgt.clone(), (conc, gate, shares));
+                }
+            }
+        }
+        out
+    }
+
+    /// Row-stochastic local trust matrix C with anti-collusion damping (§1.6): independence + (opt-in)
+    /// community-suspicion brake + (opt-in) in-concentration funnel damping. Normalised by the sum of
     /// the UNDAMPED weights, so an inbred row leaks mass out (sub-stochastic) instead of propagating it.
+    #[allow(clippy::too_many_arguments)]
     fn damped_local_matrix(
         &self,
         dim: &str,
         nodes: &[String],
-        damping: bool,
-        beta: f64,
-        gamma: f64,
+        p: &Params,
+        evidence: &HashMap<String, f64>,
+        dim_evidence: &HashMap<String, f64>,
     ) -> HashMap<String, HashMap<String, f64>> {
         let node_set: std::collections::HashSet<&String> = nodes.iter().collect();
+
+        let use_comm = p.damping && p.community;
+        let use_inc = p.damping && p.in_concentration;
+        let label = if use_comm || use_inc {
+            self.communities(dim, nodes)
+        } else {
+            HashMap::new()
+        };
+        let suspicion = if use_comm {
+            self.community_suspicion(dim, nodes, &label, evidence)
+        } else {
+            HashMap::new()
+        };
+        let in_conc = if use_inc {
+            self.in_concentration_signals(dim, nodes, &label, p.k0)
+        } else {
+            HashMap::new()
+        };
+
         let mut c: HashMap<String, HashMap<String, f64>> = HashMap::new();
         for i in nodes {
             let outgoing: HashMap<String, f64> = self
@@ -141,7 +288,29 @@ impl TrustGraph {
             }
             let mut row = HashMap::new();
             for (j, w) in outgoing {
-                let f = if damping { self.independence(i, &j, dim, beta, gamma) } else { 1.0 };
+                let mut f = if p.damping {
+                    self.independence(i, &j, dim, p.beta, p.gamma)
+                } else {
+                    1.0
+                };
+                if use_comm {
+                    if let (Some(li), Some(lj)) = (label.get(i), label.get(&j)) {
+                        if li == lj {
+                            f *= 1.0 / (1.0 + p.kappa * *suspicion.get(li).unwrap_or(&0.0));
+                        }
+                    }
+                }
+                if use_inc {
+                    if let Some((conc, gate, shares)) = in_conc.get(&j) {
+                        let dom = label
+                            .get(i)
+                            .and_then(|li| shares.get(li))
+                            .copied()
+                            .unwrap_or(0.0);
+                        let deficit = 1.0 / (1.0 + p.rho * *dim_evidence.get(&j).unwrap_or(&0.0));
+                        f *= 1.0 / (1.0 + p.mu * conc * conc * dom * gate * deficit);
+                    }
+                }
                 row.insert(j, w * f / raw_sum);
             }
             c.insert(i.clone(), row);
@@ -180,8 +349,14 @@ pub struct Params {
     pub tol: f64,
     pub scale: f64,
     pub damping: bool,
+    pub community: bool,        // opt-in community-suspicion brake (§1.6, scattered rings)
+    pub in_concentration: bool, // opt-in asymmetric-funnel damping (§2d)
     pub beta: f64,        // reciprocity penalty
     pub gamma: f64,       // overlap penalty
+    pub kappa: f64,       // community-suspicion strength
+    pub mu: f64,          // in-concentration strength
+    pub k0: f64,          // in-concentration volume gate
+    pub rho: f64,         // in-concentration evidence-deficit strength
     pub genesis_weight: f64,
 }
 
@@ -193,8 +368,14 @@ impl Default for Params {
             tol: 1e-12,
             scale: 1000.0,
             damping: true,
+            community: false,
+            in_concentration: false,
             beta: 4.0,
             gamma: 4.0,
+            kappa: 0.5,
+            mu: 8.0,
+            k0: 26.0,
+            rho: 2.0,
             genesis_weight: 1.0,
         }
     }
@@ -210,7 +391,12 @@ pub fn reputation_dimension(
 ) -> HashMap<String, f64> {
     let nodes: Vec<String> = agents.iter().map(|a| a.id.clone()).collect();
     let pre = pretrust(agents, dim, p.genesis_weight);
-    let c = graph.damped_local_matrix(dim, &nodes, p.damping, p.beta, p.gamma);
+    // TOTAL evidence per node (community suspicion) + PER-DIM evidence (funnel deficit, cross-dim).
+    let total_evidence: HashMap<String, f64> =
+        agents.iter().map(|a| (a.id.clone(), a.evidence.values().sum())).collect();
+    let dim_evidence: HashMap<String, f64> =
+        agents.iter().map(|a| (a.id.clone(), a.evidence_in(dim))).collect();
+    let c = graph.damped_local_matrix(dim, &nodes, p, &total_evidence, &dim_evidence);
     let row_sum: HashMap<String, f64> =
         nodes.iter().map(|i| (i.clone(), c[i].values().sum())).collect();
 
@@ -295,6 +481,52 @@ mod tests {
         assert!((rep["g0"] - 297.0297).abs() < 0.01, "g0 diverged: {}", rep["g0"]);
         assert!((rep["h0"] - 702.9703).abs() < 0.01, "h0 diverged: {}", rep["h0"]);
         assert!(rep["sybil"].abs() < 0.01, "sybil should be 0: {}", rep["sybil"]);
+    }
+
+    #[test]
+    fn community_crushes_collusion_ring_matches_python() {
+        // ring c0->c1->c2->c0 (no evidence) with community damping -> all ~0; honest keeps its power.
+        // Python: h0=699.2925, c0=c1=c2=0.0.
+        let agents = vec![
+            Agent::new("g0").genesis().with_evidence("commerce", 2.0),
+            Agent::new("h0").with_evidence("commerce", 5.0),
+            Agent::new("c0"),
+            Agent::new("c1"),
+            Agent::new("c2"),
+        ];
+        let mut g = TrustGraph::new();
+        g.attest("g0", "h0", "commerce", 1.0);
+        g.attest("c0", "c1", "commerce", 1.0);
+        g.attest("c1", "c2", "commerce", 1.0);
+        g.attest("c2", "c0", "commerce", 1.0);
+        let p = Params { community: true, ..Default::default() };
+        let rep = reputation_dimension(&agents, &g, "commerce", &p);
+        assert!((rep["h0"] - 699.2925).abs() < 0.01, "h0 diverged: {}", rep["h0"]);
+        for c in ["c0", "c1", "c2"] {
+            assert!(rep[c].abs() < 0.01, "{c} should be ~0, was {}", rep[c]);
+        }
+    }
+
+    #[test]
+    fn in_concentration_cuts_funnel_matches_python() {
+        // 5 feeders funnel onto c0 (no evidence). With the in-concentration signal Python gives
+        // c0=67.4052, h0=432.6991.
+        let mut agents = vec![
+            Agent::new("g0").genesis().with_evidence("commerce", 2.0),
+            Agent::new("h0").with_evidence("commerce", 5.0),
+            Agent::new("c0"),
+        ];
+        let mut g = TrustGraph::new();
+        g.attest("g0", "h0", "commerce", 1.0);
+        for i in 0..5 {
+            let fid = format!("f{i}");
+            agents.push(Agent::new(&fid).with_evidence("commerce", 1.0));
+            g.attest(&fid, "c0", "commerce", 1.0);
+        }
+        let p = Params { community: true, in_concentration: true, ..Default::default() };
+        let rep = reputation_dimension(&agents, &g, "commerce", &p);
+        assert!((rep["c0"] - 67.4052).abs() < 0.01, "c0 diverged: {}", rep["c0"]);
+        assert!((rep["h0"] - 432.6991).abs() < 0.01, "h0 diverged: {}", rep["h0"]);
     }
 
     #[test]
