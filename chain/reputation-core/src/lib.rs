@@ -122,6 +122,29 @@ impl TrustGraph {
         1.0 / (1.0 + beta * reciprocal + gamma * overlap)
     }
 
+    /// Deterministic fixed-point `independence` (i128, FP_SCALE-scaled). `beta_fp`/`gamma_fp` are
+    /// FP_SCALE-scaled. The overlap is a rational (inter/union) so it converts exactly; no floats. First
+    /// factor converted toward a fully-deterministic trust matrix (the rest — community / in-concentration
+    /// — follow the same fp_mul/fp_div pattern; tracked in PALLET-DESIGN).
+    pub fn independence_fp(&self, i: &str, j: &str, dim: &str, beta_fp: i128, gamma_fp: i128) -> i128 {
+        let reciprocal = if self.has_edge(j, i, dim) { FP_SCALE } else { 0 };
+        let ni: Vec<String> = self.out_neighbors(i, dim).into_iter().filter(|x| x != j).collect();
+        let nj: Vec<String> = self.out_neighbors(j, dim).into_iter().filter(|x| x != i).collect();
+        let inter = ni.iter().filter(|x| nj.contains(x)).count() as i128;
+        let union = {
+            let mut u = ni.clone();
+            for x in &nj {
+                if !u.contains(x) {
+                    u.push(x.clone());
+                }
+            }
+            u.len() as i128
+        };
+        let overlap = if union > 0 { inter * FP_SCALE / union } else { 0 };
+        let denom = FP_SCALE + fp_mul(beta_fp, reciprocal) + fp_mul(gamma_fp, overlap);
+        fp_div(FP_SCALE, denom)
+    }
+
     /// Community detection by label propagation over the undirected projection (§1.6). Deterministic
     /// (sorted order + smallest-label tie-break) so it is reproducible — matches the Python prototype.
     pub fn communities(&self, dim: &str, nodes: &[String]) -> BTreeMap<String, String> {
@@ -436,12 +459,24 @@ pub fn reputation_dimension(
     t.into_iter().map(|(k, v)| (k, v * p.scale)).collect()
 }
 
-/// Fixed-point scale for the deterministic EigenTrust (`reputation_dimension_fixed`). 1e9 in i128.
+/// Fixed-point scale for the deterministic arithmetic. 1e9 in i128.
 pub const FP_SCALE: i128 = 1_000_000_000;
 
 #[inline]
 fn to_fp(x: f64) -> i128 {
     (x * FP_SCALE as f64).round() as i128
+}
+
+/// Fixed-point multiply: (a·b) / SCALE. Inputs and output are FP_SCALE-scaled.
+#[inline]
+fn fp_mul(a: i128, b: i128) -> i128 {
+    a * b / FP_SCALE
+}
+
+/// Fixed-point divide: (a·SCALE) / b. Inputs and output are FP_SCALE-scaled.
+#[inline]
+fn fp_div(a: i128, b: i128) -> i128 {
+    a * FP_SCALE / b
 }
 
 /// DETERMINISTIC EigenTrust in fixed-point (i128). Same algorithm as `reputation_dimension`, but the
@@ -549,6 +584,23 @@ pub fn decay(reputation: &BTreeMap<String, f64>, factor: f64) -> BTreeMap<String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn independence_fp_matches_f64() {
+        let mut g = TrustGraph::new();
+        g.attest("a", "b", "commerce", 1.0);
+        g.attest("b", "a", "commerce", 1.0);
+        g.attest("a", "x", "commerce", 1.0);
+        g.attest("b", "x", "commerce", 1.0);
+        g.attest("p", "m", "commerce", 1.0);
+        g.attest("q", "n", "commerce", 1.0);
+        let (bfp, gfp) = (to_fp(4.0), to_fp(4.0));
+        for (i, j) in [("a", "b"), ("p", "q"), ("a", "x")] {
+            let f = g.independence(i, j, "commerce", 4.0, 4.0);
+            let x = g.independence_fp(i, j, "commerce", bfp, gfp) as f64 / FP_SCALE as f64;
+            assert!((f - x).abs() < 1e-6, "{i}->{j}: f64 {f} vs fp {x}");
+        }
+    }
 
     #[test]
     fn fixed_point_matches_f64() {
