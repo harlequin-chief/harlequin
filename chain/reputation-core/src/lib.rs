@@ -421,6 +421,94 @@ impl TrustGraph {
         }
         c
     }
+
+    /// DETERMINISTIC fixed-point local trust matrix (i128, FP_SCALE-scaled), all factors computed in
+    /// fixed-point (independence + community + in-concentration). The full-determinism counterpart of
+    /// `damped_local_matrix`; feeds `reputation_dimension_fully_fixed`. No floats in the result.
+    #[allow(clippy::too_many_arguments)]
+    fn damped_local_matrix_fp(
+        &self,
+        dim: &str,
+        nodes: &[String],
+        p: &Params,
+        evidence_fp: &BTreeMap<String, i128>,
+        dim_evidence_fp: &BTreeMap<String, i128>,
+    ) -> BTreeMap<String, BTreeMap<String, i128>> {
+        let node_set: std::collections::BTreeSet<&String> = nodes.iter().collect();
+        let (beta_fp, gamma_fp) = (to_fp(p.beta), to_fp(p.gamma));
+        let (kappa_fp, mu_fp, rho_fp) = (to_fp(p.kappa), to_fp(p.mu), to_fp(p.rho));
+
+        let use_comm = p.damping && p.community;
+        let use_inc = p.damping && p.in_concentration;
+        let label = if use_comm || use_inc {
+            self.communities(dim, nodes)
+        } else {
+            BTreeMap::new()
+        };
+        let suspicion = if use_comm {
+            self.community_suspicion_fp(dim, nodes, &label, evidence_fp)
+        } else {
+            BTreeMap::new()
+        };
+        let in_conc = if use_inc {
+            self.in_concentration_signals_fp(dim, nodes, &label, to_fp(p.k0))
+        } else {
+            BTreeMap::new()
+        };
+
+        let mut c: BTreeMap<String, BTreeMap<String, i128>> = BTreeMap::new();
+        for i in nodes {
+            let outgoing: BTreeMap<String, f64> = self
+                .outgoing(i, dim)
+                .into_iter()
+                .filter(|(j, _)| node_set.contains(j))
+                .collect();
+            let raw_sum_fp: i128 = outgoing.values().map(|w| to_fp(*w)).sum();
+            if raw_sum_fp <= 0 {
+                c.insert(i.clone(), BTreeMap::new());
+                continue;
+            }
+            let mut row = BTreeMap::new();
+            for (j, w) in outgoing {
+                let mut f = if p.damping {
+                    self.independence_fp(i, &j, dim, beta_fp, gamma_fp)
+                } else {
+                    FP_SCALE
+                };
+                if use_comm {
+                    if let (Some(li), Some(lj)) = (label.get(i), label.get(&j)) {
+                        if li == lj {
+                            let brake = fp_div(
+                                FP_SCALE,
+                                FP_SCALE + fp_mul(kappa_fp, *suspicion.get(li).unwrap_or(&0)),
+                            );
+                            f = fp_mul(f, brake);
+                        }
+                    }
+                }
+                if use_inc {
+                    if let Some((conc, gate, shares)) = in_conc.get(&j) {
+                        let dom = label.get(i).and_then(|li| shares.get(li)).copied().unwrap_or(0);
+                        let deficit = fp_div(
+                            FP_SCALE,
+                            FP_SCALE + fp_mul(rho_fp, *dim_evidence_fp.get(&j).unwrap_or(&0)),
+                        );
+                        // 1 / (1 + mu·conc²·dom·gate·deficit)
+                        let mut inner = fp_mul(*conc, *conc);
+                        inner = fp_mul(inner, dom);
+                        inner = fp_mul(inner, *gate);
+                        inner = fp_mul(inner, deficit);
+                        let term = fp_div(FP_SCALE, FP_SCALE + fp_mul(mu_fp, inner));
+                        f = fp_mul(f, term);
+                    }
+                }
+                // C[i][j] = (w / raw_sum) · f   (all fixed-point)
+                row.insert(j.clone(), fp_mul(fp_div(to_fp(w), raw_sum_fp), f));
+            }
+            c.insert(i.clone(), row);
+        }
+        c
+    }
 }
 
 /// Pre-trust p per dimension: normalised objective evidence (§1.3a) + genesis seed (§1.4).
@@ -617,6 +705,59 @@ pub fn reputation_dimension_fixed(
     t.into_iter().map(|(k, v)| (k, v as f64 / one as f64 * p.scale)).collect()
 }
 
+/// FULLY DETERMINISTIC reputation in one dimension: every step in fixed-point (factors AND the
+/// EigenTrust iteration), no f64 anywhere in the path. This is the version a runtime can run — same
+/// result on every machine. Cross-validates against the f64 `reputation_dimension` within tolerance.
+pub fn reputation_dimension_fully_fixed(
+    agents: &[Agent],
+    graph: &TrustGraph,
+    dim: &str,
+    p: &Params,
+) -> BTreeMap<String, f64> {
+    let nodes: Vec<String> = agents.iter().map(|a| a.id.clone()).collect();
+    let pre = pretrust(agents, dim, p.genesis_weight);
+    let evidence_fp: BTreeMap<String, i128> =
+        agents.iter().map(|a| (a.id.clone(), to_fp(a.evidence.values().sum()))).collect();
+    let dim_evidence_fp: BTreeMap<String, i128> =
+        agents.iter().map(|a| (a.id.clone(), to_fp(a.evidence_in(dim)))).collect();
+    let c_fp = graph.damped_local_matrix_fp(dim, &nodes, p, &evidence_fp, &dim_evidence_fp);
+
+    let one = FP_SCALE;
+    let alpha = to_fp(p.alpha);
+    let pre_fp: BTreeMap<String, i128> = pre.iter().map(|(k, v)| (k.clone(), to_fp(*v))).collect();
+    let row_sum_fp: BTreeMap<String, i128> =
+        nodes.iter().map(|i| (i.clone(), c_fp[i].values().sum())).collect();
+
+    let mut t = pre_fp.clone();
+    for _ in 0..p.iterations {
+        let mut nt: BTreeMap<String, i128> =
+            nodes.iter().map(|n| (n.clone(), alpha * pre_fp[n] / one)).collect();
+        let mut leak: i128 = 0;
+        for i in &nodes {
+            let ti = t[i];
+            if ti == 0 {
+                continue;
+            }
+            let emitted = (one - alpha) * ti / one;
+            for (j, w) in &c_fp[i] {
+                *nt.get_mut(j).unwrap() += emitted * w / one;
+            }
+            leak += emitted * (one - row_sum_fp[i]) / one;
+        }
+        if leak != 0 {
+            for n in &nodes {
+                *nt.get_mut(n).unwrap() += leak * pre_fp[n] / one;
+            }
+        }
+        let delta: i128 = nodes.iter().map(|n| (nt[n] - t[n]).abs()).sum();
+        t = nt;
+        if delta == 0 {
+            break;
+        }
+    }
+    t.into_iter().map(|(k, v)| (k, v as f64 / one as f64 * p.scale)).collect()
+}
+
 /// EARNED reputation as a VECTOR over all four suits (§1.2b).
 pub fn reputation_vector(
     agents: &[Agent],
@@ -734,6 +875,30 @@ mod tests {
         let x = reputation_dimension_fixed(&agents, &g, "commerce", &p);
         for id in ["g0", "h0", "sybil"] {
             assert!((f[id] - x[id]).abs() < 0.5, "{id}: f64 {} vs fixed {}", f[id], x[id]);
+        }
+    }
+
+    #[test]
+    fn fully_fixed_matches_f64_with_all_defenses() {
+        // funnel + community + in-concentration, the full anti-collusion path. The fully fixed-point
+        // engine must match the f64 one within tolerance.
+        let mut agents = vec![
+            Agent::new("g0").genesis().with_evidence("commerce", 2.0),
+            Agent::new("h0").with_evidence("commerce", 5.0),
+            Agent::new("c0"),
+        ];
+        let mut g = TrustGraph::new();
+        g.attest("g0", "h0", "commerce", 1.0);
+        for i in 0..5 {
+            let fid = format!("f{i}");
+            agents.push(Agent::new(&fid).with_evidence("commerce", 1.0));
+            g.attest(&fid, "c0", "commerce", 1.0);
+        }
+        let p = Params { community: true, in_concentration: true, ..Default::default() };
+        let f = reputation_dimension(&agents, &g, "commerce", &p);
+        let x = reputation_dimension_fully_fixed(&agents, &g, "commerce", &p);
+        for a in &agents {
+            assert!((f[&a.id] - x[&a.id]).abs() < 1.0, "{}: f64 {} vs fully-fixed {}", a.id, f[&a.id], x[&a.id]);
         }
     }
 
