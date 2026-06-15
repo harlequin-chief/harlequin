@@ -1,0 +1,19 @@
+[package]
+name = "pallet-reputation"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+description = "Harlequin reputation pallet — on-chain evidence + vouch graph; reputation DERIVED each epoch by reputation-core (verify-by-recompute, no oracle). Thin wrapper over the validated no_std engine."
+
+[dependencies]
+codec = { version = "3.7.5", package = "parity-scale-codec", default-features = false, features = ["derive"] }
+frame = { version = "0.17.0", package = "polkadot-sdk-frame", default-features = false, features = ["runtime"] }
+reputation-core = { path = "../reputation-core", default-features = false }
+scale-info = { version = "2.11.6", default-features = false, features = ["derive"] }
+
+[features]
+default = ["std"]
+std = ["codec/std", "frame/std", "reputation-core/std", "scale-info/std"]
+
+# Own workspace so the heavy FRAME dependency tree stays out of the lean core workspace (`../Cargo.toml`).
+[workspace]
