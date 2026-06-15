@@ -1,8 +1,15 @@
 # Reputation pallet — design
 
-How the validated `reputation-core` engine becomes an on-chain Substrate pallet. Design first (no
-compile), so that once the node toolchain is in place the implementation is mechanical. Anchors:
+How the validated `reputation-core` engine becomes an on-chain Substrate pallet. Anchors:
 `SPEC §1` (reputation), `§1.4` (two gates / genesis), `§2.2` (sortition), `§4` (justice/slashing).
+
+**Status (2026-06-15): all the engine prerequisites are DONE.** The reputation engine, the sortition
+and the vouch scoring are ported to deterministic fixed-point and build `no_std`/`wasm32`; the epoch
+flow is implemented and tested as a host state machine (`protocol-core`). What remains is purely the
+Substrate scaffolding — which is **gated on one decision for Chief**: pulling the `polkadot-sdk`
+dependency tree onto the isolated station (multi-GB external supply chain — an OPSEC call, not the
+agent's to make unsupervised). Once greenlit, this pallet is a mechanical wrap of code that already
+exists and passes its tests.
 
 ## Core principle: inputs on-chain, reputation DERIVED
 The chain stores the **verifiable inputs** — objective evidence per suit and the vouch graph — never a
@@ -46,26 +53,39 @@ EigenTrust is `O(iterations × edges)` — too heavy to run on-chain every block
 Rationale: this keeps the chain light (Art. VI / "runs on a phone") while the anti-collusion guarantees
 of the engine hold, because they are properties of the inputs, recomputed in the open.
 
-## How `reputation-core` plugs in
-The pallet is a **thin wrapper**: it owns storage + extrinsics + the epoch hook; all reputation math is
-`reputation-core` (already at parity with the validated prototype, 10/10 cross-validated). Required
-refactor before it can be a pallet dependency:
-- **`no_std`**: replace `std::collections::HashMap` with `alloc::collections::BTreeMap` (also makes
-  iteration order deterministic — important for consensus reproducibility), gate `std` behind a feature.
-- **Fixed-point or bounded f64**: floating point is non-deterministic across architectures. For
-  consensus-critical values, port the EigenTrust iteration to **fixed-point** (or a deterministic
-  rational), and cross-validate the fixed-point result against the f64 prototype within a tolerance.
-  *(This is the one numerically delicate task; flagged for its own milestone.)*
-- Sortition (`consensus-core`) is already integer-seat + a hashed VRF; the only float is the Poisson
-  CDF, which must also go deterministic/fixed-point for on-chain use.
+## How `reputation-core` plugs in — prerequisites DONE
+The pallet is a **thin wrapper**: it owns storage + extrinsics + the epoch hook; all the math is in the
+crates, already deterministic and `no_std`. The refactors this section once flagged are complete:
+- ✅ **`no_std`**: `reputation-core` and `consensus-core` build for `wasm32-unknown-unknown` with
+  `default-features = false`. `BTreeMap` throughout (deterministic iteration). The f64 oracle paths sit
+  behind a `std` feature; the runtime links only the integer paths.
+- ✅ **Fixed-point**: the whole EigenTrust path (factors + iteration) runs in i128 fixed-point,
+  bit-identical across architectures, cross-validated against f64. The pallet calls
+  **`reputation_dimension_fully_fixed_fp`** (raw i128 reputation vector).
+- ✅ **Sortition fixed-point**: `consensus-core::elect_committee_fp` + `sortition_fp` (the Poisson CDF's
+  `e^{-lam}` done by integer range-reduction). **`vouch_quota_fp` / `mentor_dividend_fp` /
+  `cascade_slashing_fp`** likewise (the `log2` done in integers). No floats, no libm anywhere on the
+  runtime path.
+- ✅ **Epoch flow implemented**: `protocol-core` is the host reference state machine — genesis cohort →
+  per-epoch fixed-point recompute → `elect_committee_fp` → telemetry. The pallet mirrors this exactly
+  (the difference is only WHERE state lives: pallet storage vs in-memory). It even elects the **same
+  deterministic committee** the chain will (test: `committee_is_deterministic_across_runs`).
 
 ## Privacy / OPSEC
 Accounts are **pseudonyms** (Art. VII); the chain never stores legal identity. The public reputation
 profile (§4b) is per-pseudonym. Evidence proofs must not leak identity — the `EvidenceProof` trait is
 where zero-knowledge / minimal-disclosure proofs plug in later (§1.8 open).
 
-## Milestones (once toolchain is in)
-1. `reputation-core` → `no_std` + deterministic arithmetic (fixed-point), cross-validated.
-2. Minimal Substrate solochain (node template) + this pallet, genesis cohort seeded (§1.4).
-3. Wire `consensus-core` sortition as the committee/validator selection.
-4. Sub-sampled finality + light clients (§2.3).
+## Milestones
+1. ✅ `reputation-core` + `consensus-core` → `no_std`/`wasm32` + deterministic fixed-point (engine,
+   sortition, vouch scoring), all cross-validated against the f64 prototype.
+2. ✅ Epoch state machine (`protocol-core`) — genesis → recompute → committee → telemetry, deterministic.
+3. ⛔ **DECISION FOR CHIEF:** pull `polkadot-sdk` onto the station (OPSEC — external supply chain on the
+   isolated admin disk). Until then the pallet code can be written but not compiled.
+4. Minimal Substrate solochain (node template) + this pallet, genesis cohort seeded (§1.4), reusing the
+   `*_fp` APIs above (wrap, don't reimplement).
+5. Wire `elect_committee_fp` as committee/validator selection; offchain-worker recompute per the epoch
+   flow above.
+6. Sub-sampled finality + light clients (§2.3). The async voting behaviour is already validated in the
+   Python test-rig (`prototipos/consenso/testrig/`, 11/11); the production transport is Substrate/libp2p,
+   not a re-port of the simulator.
