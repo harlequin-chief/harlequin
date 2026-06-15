@@ -28,6 +28,8 @@ faith.
   weights the `consensus-core` VRF sortition. Test: a collusion ring and 50 Sybils earn ~0 reputation
   → **0 committee seats**; honest members hold the committee. *Power is earned reputation — the two
   prototypes compose.* (Cargo workspace ties the three crates: `cargo test` from `chain/`.)
+  - Runnable demo: `cargo run -p composition` — prints the committee by class (55 of 80 agents are
+    colluders/Sybils and hold 0 seats; honest + genesis hold 100%).
 
 ## Path ahead (`DECISION-STACK-CADENA.md §5`)
 1. ~~Faithful consensus test-rig~~ — done (`../prototipos/consenso/testrig/`).
