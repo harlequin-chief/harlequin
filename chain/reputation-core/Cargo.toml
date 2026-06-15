@@ -1,0 +1,12 @@
+[package]
+name = "reputation-core"
+version = "0.1.0"
+edition = "2021"
+description = "Harlequin reputation engine — Rust port of the validated prototype (prototipos/reputacion). Foundation of the Substrate reputation pallet."
+license = "AGPL-3.0-or-later"
+
+[dependencies]
+
+[lib]
+name = "reputation_core"
+path = "src/lib.rs"

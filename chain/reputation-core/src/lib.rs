@@ -1,0 +1,314 @@
+//! Harlequin reputation engine — Rust port of the validated Python prototype
+//! (`prototipos/reputacion/`, 17/17 tests). This is the foundation the Substrate **reputation pallet**
+//! will build on: the same EigenTrust-with-anti-collusion-damping core, in `no_std`-friendly Rust.
+//!
+//! SPEC.md anchors: §1 (reputation), §1.6 (anti-collusion damping). The four reputation dimensions are
+//! the four suits of Harlequin (LORE.md): commerce ♦, technical_contribution ♣, judicial_function ♠,
+//! governance ♥. This v0 ports the BASE engine (independence damping + EigenTrust anchored in
+//! evidence); the community / in-concentration signals (RESULTS §2b–2d) land in later increments.
+
+use std::collections::HashMap;
+
+/// The four reputation dimensions = the four suits (LORE.md, canon).
+pub const DIMENSIONS: [&str; 4] = [
+    "commerce",              // ♦ ambition
+    "technical_contribution",// ♣ freedom
+    "judicial_function",     // ♠ struggle
+    "governance",            // ♥ love/family
+];
+
+/// A pseudonym. The physical identity is never modelled (Art. VII).
+#[derive(Clone, Debug)]
+pub struct Agent {
+    pub id: String,
+    pub unique_human: bool,
+    pub genesis: bool,
+    /// objective verifiable evidence per dimension (settled deals, proven work, §1.3a).
+    pub evidence: HashMap<String, f64>,
+}
+
+impl Agent {
+    pub fn new(id: &str) -> Self {
+        Agent { id: id.into(), unique_human: true, genesis: false, evidence: HashMap::new() }
+    }
+    pub fn with_evidence(mut self, dim: &str, v: f64) -> Self {
+        self.evidence.insert(dim.into(), v);
+        self
+    }
+    pub fn genesis(mut self) -> Self {
+        self.genesis = true;
+        self
+    }
+    fn evidence_in(&self, dim: &str) -> f64 {
+        *self.evidence.get(dim).unwrap_or(&0.0)
+    }
+}
+
+/// Attestation edges per dimension: (source -> target -> weight).
+#[derive(Default)]
+pub struct TrustGraph {
+    edges: HashMap<String, HashMap<String, HashMap<String, f64>>>,
+}
+
+impl TrustGraph {
+    pub fn new() -> Self {
+        TrustGraph { edges: HashMap::new() }
+    }
+
+    /// `source` vouches for `target` in `dim` (§1.3b). Adds to any existing weight.
+    pub fn attest(&mut self, source: &str, target: &str, dim: &str, weight: f64) {
+        if source == target {
+            return; // nobody vouches for themselves
+        }
+        *self
+            .edges
+            .entry(dim.into())
+            .or_default()
+            .entry(source.into())
+            .or_default()
+            .entry(target.into())
+            .or_insert(0.0) += weight;
+    }
+
+    fn outgoing(&self, source: &str, dim: &str) -> HashMap<String, f64> {
+        self.edges
+            .get(dim)
+            .and_then(|m| m.get(source))
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    fn out_neighbors(&self, node: &str, dim: &str) -> Vec<String> {
+        self.edges
+            .get(dim)
+            .and_then(|m| m.get(node))
+            .map(|m| m.keys().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    fn has_edge(&self, source: &str, target: &str, dim: &str) -> bool {
+        self.edges
+            .get(dim)
+            .and_then(|m| m.get(source))
+            .map(|m| m.contains_key(target))
+            .unwrap_or(false)
+    }
+
+    /// Independence of the vouch i->j in [0,1] (§1.6): penalises reciprocity and neighbour overlap.
+    /// `independence = 1/(1 + beta*reciprocal + gamma*overlap)`. An inbred ring vouch -> ~0.11.
+    pub fn independence(&self, i: &str, j: &str, dim: &str, beta: f64, gamma: f64) -> f64 {
+        let reciprocal = if self.has_edge(j, i, dim) { 1.0 } else { 0.0 };
+
+        let ni: Vec<String> = self.out_neighbors(i, dim).into_iter().filter(|x| x != j).collect();
+        let nj: Vec<String> = self.out_neighbors(j, dim).into_iter().filter(|x| x != i).collect();
+        let inter = ni.iter().filter(|x| nj.contains(x)).count();
+        let union = {
+            let mut u = ni.clone();
+            for x in &nj {
+                if !u.contains(x) {
+                    u.push(x.clone());
+                }
+            }
+            u.len()
+        };
+        let overlap = if union > 0 { inter as f64 / union as f64 } else { 0.0 };
+
+        1.0 / (1.0 + beta * reciprocal + gamma * overlap)
+    }
+
+    /// Row-stochastic local trust matrix C with anti-collusion damping (§1.6). Normalised by the sum of
+    /// the UNDAMPED weights, so an inbred row leaks mass out (sub-stochastic) instead of propagating it.
+    fn damped_local_matrix(
+        &self,
+        dim: &str,
+        nodes: &[String],
+        damping: bool,
+        beta: f64,
+        gamma: f64,
+    ) -> HashMap<String, HashMap<String, f64>> {
+        let node_set: std::collections::HashSet<&String> = nodes.iter().collect();
+        let mut c: HashMap<String, HashMap<String, f64>> = HashMap::new();
+        for i in nodes {
+            let outgoing: HashMap<String, f64> = self
+                .outgoing(i, dim)
+                .into_iter()
+                .filter(|(j, _)| node_set.contains(j))
+                .collect();
+            let raw_sum: f64 = outgoing.values().sum();
+            if raw_sum <= 0.0 {
+                c.insert(i.clone(), HashMap::new());
+                continue;
+            }
+            let mut row = HashMap::new();
+            for (j, w) in outgoing {
+                let f = if damping { self.independence(i, &j, dim, beta, gamma) } else { 1.0 };
+                row.insert(j, w * f / raw_sum);
+            }
+            c.insert(i.clone(), row);
+        }
+        c
+    }
+}
+
+/// Pre-trust p per dimension: normalised objective evidence (§1.3a) + genesis seed (§1.4).
+/// Falls back to uniform among unique humans if there is no anchor at all (degenerate, avoids /0).
+fn pretrust(agents: &[Agent], dim: &str, genesis_weight: f64) -> HashMap<String, f64> {
+    let mut raw: HashMap<String, f64> = HashMap::new();
+    for a in agents {
+        let seed = if a.genesis { genesis_weight } else { 0.0 };
+        raw.insert(a.id.clone(), a.evidence_in(dim) + seed);
+    }
+    let total: f64 = raw.values().sum();
+    if total <= 0.0 {
+        let humans: Vec<&Agent> = agents.iter().filter(|a| a.unique_human).collect();
+        if humans.is_empty() {
+            return agents.iter().map(|a| (a.id.clone(), 0.0)).collect();
+        }
+        let u = 1.0 / humans.len() as f64;
+        return agents
+            .iter()
+            .map(|a| (a.id.clone(), if a.unique_human { u } else { 0.0 }))
+            .collect();
+    }
+    raw.into_iter().map(|(k, v)| (k, v / total)).collect()
+}
+
+/// Parameters of the reputation computation (§1, §1.6). Defaults match the Python prototype.
+pub struct Params {
+    pub alpha: f64,       // weight of the evidence anchor (teleport)
+    pub iterations: usize,
+    pub tol: f64,
+    pub scale: f64,
+    pub damping: bool,
+    pub beta: f64,        // reciprocity penalty
+    pub gamma: f64,       // overlap penalty
+    pub genesis_weight: f64,
+}
+
+impl Default for Params {
+    fn default() -> Self {
+        Params {
+            alpha: 0.30,
+            iterations: 200,
+            tol: 1e-12,
+            scale: 1000.0,
+            damping: true,
+            beta: 4.0,
+            gamma: 4.0,
+            genesis_weight: 1.0,
+        }
+    }
+}
+
+/// EARNED reputation per agent in one dimension (gate 2, §1.4): EigenTrust with teleport to the
+/// pre-trust (the evidence anchor) and the row-deficit reinjected towards the pre-trust.
+pub fn reputation_dimension(
+    agents: &[Agent],
+    graph: &TrustGraph,
+    dim: &str,
+    p: &Params,
+) -> HashMap<String, f64> {
+    let nodes: Vec<String> = agents.iter().map(|a| a.id.clone()).collect();
+    let pre = pretrust(agents, dim, p.genesis_weight);
+    let c = graph.damped_local_matrix(dim, &nodes, p.damping, p.beta, p.gamma);
+    let row_sum: HashMap<String, f64> =
+        nodes.iter().map(|i| (i.clone(), c[i].values().sum())).collect();
+
+    let mut t = pre.clone();
+    for _ in 0..p.iterations {
+        let mut nt: HashMap<String, f64> =
+            nodes.iter().map(|n| (n.clone(), p.alpha * pre[n])).collect();
+        let mut leak_total = 0.0;
+        for i in &nodes {
+            let ti = t[i];
+            if ti == 0.0 {
+                continue;
+            }
+            let emitted = (1.0 - p.alpha) * ti;
+            for (j, w) in &c[i] {
+                *nt.get_mut(j).unwrap() += emitted * w;
+            }
+            leak_total += emitted * (1.0 - row_sum[i]);
+        }
+        if leak_total != 0.0 {
+            for n in &nodes {
+                *nt.get_mut(n).unwrap() += leak_total * pre[n];
+            }
+        }
+        let delta: f64 = nodes.iter().map(|n| (nt[n] - t[n]).abs()).sum();
+        t = nt;
+        if delta < p.tol {
+            break;
+        }
+    }
+    t.into_iter().map(|(k, v)| (k, v * p.scale)).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn independence_penalises_inbreeding() {
+        // a<->b reciprocal and both vouch the same cluster (high overlap) -> ~0.11; strangers -> ~1.0
+        let mut g = TrustGraph::new();
+        g.attest("a", "b", "commerce", 1.0);
+        g.attest("b", "a", "commerce", 1.0);
+        g.attest("a", "x", "commerce", 1.0);
+        g.attest("b", "x", "commerce", 1.0);
+        let inbred = g.independence("a", "b", "commerce", 4.0, 4.0);
+        assert!(inbred < 0.2, "inbred vouch should be heavily damped, was {inbred}");
+        g.attest("p", "m", "commerce", 1.0);
+        g.attest("q", "n", "commerce", 1.0);
+        let stranger = g.independence("p", "q", "commerce", 4.0, 4.0);
+        assert!(stranger > 0.9, "stranger vouch should stay near 1, was {stranger}");
+    }
+
+    #[test]
+    fn mass_is_conserved() {
+        // EigenTrust with leak to the pre-trust conserves mass: the dimension sums to ~scale.
+        let agents = vec![
+            Agent::new("g0").genesis().with_evidence("commerce", 2.0),
+            Agent::new("h0").with_evidence("commerce", 3.0),
+            Agent::new("h1").with_evidence("commerce", 4.0),
+        ];
+        let mut g = TrustGraph::new();
+        g.attest("g0", "h0", "commerce", 1.0);
+        g.attest("h1", "h0", "commerce", 1.0);
+        let rep = reputation_dimension(&agents, &g, "commerce", &Params::default());
+        let total: f64 = rep.values().sum();
+        assert!((total - 1000.0).abs() < 1.0, "mass not conserved: {total}");
+    }
+
+    #[test]
+    fn matches_python_prototype() {
+        // Cross-validation: identical scenario to the Python prototype must give identical reputation.
+        // g0 (genesis, ev 2) -> h0 (ev 5); sybil isolated. Python: g0=297.03, h0=702.97, sybil=0.
+        let agents = vec![
+            Agent::new("g0").genesis().with_evidence("commerce", 2.0),
+            Agent::new("h0").with_evidence("commerce", 5.0),
+            Agent::new("sybil"),
+        ];
+        let mut g = TrustGraph::new();
+        g.attest("g0", "h0", "commerce", 1.0);
+        let rep = reputation_dimension(&agents, &g, "commerce", &Params::default());
+        assert!((rep["g0"] - 297.0297).abs() < 0.01, "g0 diverged: {}", rep["g0"]);
+        assert!((rep["h0"] - 702.9703).abs() < 0.01, "h0 diverged: {}", rep["h0"]);
+        assert!(rep["sybil"].abs() < 0.01, "sybil should be 0: {}", rep["sybil"]);
+    }
+
+    #[test]
+    fn sybil_without_evidence_or_vouches_has_no_power() {
+        // a fake identity with no evidence and no vouches from the reputed -> reputation ~0.
+        let agents = vec![
+            Agent::new("g0").genesis().with_evidence("commerce", 2.0),
+            Agent::new("h0").with_evidence("commerce", 5.0),
+            Agent::new("sybil"),
+        ];
+        let mut g = TrustGraph::new();
+        g.attest("g0", "h0", "commerce", 1.0);
+        let rep = reputation_dimension(&agents, &g, "commerce", &Params::default());
+        assert!(rep["sybil"] < 1.0, "sybil should have ~0 reputation, was {}", rep["sybil"]);
+        assert!(rep["h0"] > rep["sybil"] * 10.0, "honest must dominate the sybil");
+    }
+}
