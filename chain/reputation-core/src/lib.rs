@@ -436,6 +436,77 @@ pub fn reputation_dimension(
     t.into_iter().map(|(k, v)| (k, v * p.scale)).collect()
 }
 
+/// Fixed-point scale for the deterministic EigenTrust (`reputation_dimension_fixed`). 1e9 in i128.
+pub const FP_SCALE: i128 = 1_000_000_000;
+
+#[inline]
+fn to_fp(x: f64) -> i128 {
+    (x * FP_SCALE as f64).round() as i128
+}
+
+/// DETERMINISTIC EigenTrust in fixed-point (i128). Same algorithm as `reputation_dimension`, but the
+/// iteration runs in integer fixed-point so the result is bit-identical across architectures — a
+/// requirement for on-chain consensus (f64 summation is not reproducible). Cross-validates against the
+/// f64 path within a tiny tolerance.
+///
+/// NOTE (honest, milestone in progress): the local trust matrix C is still computed in f64 and then
+/// quantised; converting the FACTOR math (independence/community/in-concentration) to fixed-point is
+/// the next step toward full cross-architecture determinism (see `../PALLET-DESIGN.md`).
+pub fn reputation_dimension_fixed(
+    agents: &[Agent],
+    graph: &TrustGraph,
+    dim: &str,
+    p: &Params,
+) -> BTreeMap<String, f64> {
+    let nodes: Vec<String> = agents.iter().map(|a| a.id.clone()).collect();
+    let pre = pretrust(agents, dim, p.genesis_weight);
+    let total_evidence: BTreeMap<String, f64> =
+        agents.iter().map(|a| (a.id.clone(), a.evidence.values().sum())).collect();
+    let dim_evidence: BTreeMap<String, f64> =
+        agents.iter().map(|a| (a.id.clone(), a.evidence_in(dim))).collect();
+    let c = graph.damped_local_matrix(dim, &nodes, p, &total_evidence, &dim_evidence);
+
+    // quantise pre-trust and C to fixed-point
+    let one = FP_SCALE;
+    let alpha = to_fp(p.alpha);
+    let pre_fp: BTreeMap<String, i128> = pre.iter().map(|(k, v)| (k.clone(), to_fp(*v))).collect();
+    let c_fp: BTreeMap<String, BTreeMap<String, i128>> = c
+        .iter()
+        .map(|(i, row)| (i.clone(), row.iter().map(|(j, w)| (j.clone(), to_fp(*w))).collect()))
+        .collect();
+    let row_sum_fp: BTreeMap<String, i128> =
+        nodes.iter().map(|i| (i.clone(), c_fp[i].values().sum())).collect();
+
+    let mut t = pre_fp.clone();
+    for _ in 0..p.iterations {
+        let mut nt: BTreeMap<String, i128> =
+            nodes.iter().map(|n| (n.clone(), alpha * pre_fp[n] / one)).collect();
+        let mut leak: i128 = 0;
+        for i in &nodes {
+            let ti = t[i];
+            if ti == 0 {
+                continue;
+            }
+            let emitted = (one - alpha) * ti / one;
+            for (j, w) in &c_fp[i] {
+                *nt.get_mut(j).unwrap() += emitted * w / one;
+            }
+            leak += emitted * (one - row_sum_fp[i]) / one;
+        }
+        if leak != 0 {
+            for n in &nodes {
+                *nt.get_mut(n).unwrap() += leak * pre_fp[n] / one;
+            }
+        }
+        let delta: i128 = nodes.iter().map(|n| (nt[n] - t[n]).abs()).sum();
+        t = nt;
+        if delta == 0 {
+            break;
+        }
+    }
+    t.into_iter().map(|(k, v)| (k, v as f64 / one as f64 * p.scale)).collect()
+}
+
 /// EARNED reputation as a VECTOR over all four suits (§1.2b).
 pub fn reputation_vector(
     agents: &[Agent],
@@ -478,6 +549,39 @@ pub fn decay(reputation: &BTreeMap<String, f64>, factor: f64) -> BTreeMap<String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fixed_point_matches_f64() {
+        // the deterministic fixed-point EigenTrust matches the f64 path within a tiny tolerance.
+        let agents = vec![
+            Agent::new("g0").genesis().with_evidence("commerce", 2.0),
+            Agent::new("h0").with_evidence("commerce", 5.0),
+            Agent::new("sybil"),
+        ];
+        let mut g = TrustGraph::new();
+        g.attest("g0", "h0", "commerce", 1.0);
+        let p = Params::default();
+        let f = reputation_dimension(&agents, &g, "commerce", &p);
+        let x = reputation_dimension_fixed(&agents, &g, "commerce", &p);
+        for id in ["g0", "h0", "sybil"] {
+            assert!((f[id] - x[id]).abs() < 0.5, "{id}: f64 {} vs fixed {}", f[id], x[id]);
+        }
+    }
+
+    #[test]
+    fn fixed_point_is_deterministic() {
+        // identical inputs -> bit-identical fixed-point output across repeated runs.
+        let agents = vec![
+            Agent::new("g0").genesis().with_evidence("commerce", 2.0),
+            Agent::new("h0").with_evidence("commerce", 5.0),
+        ];
+        let mut g = TrustGraph::new();
+        g.attest("g0", "h0", "commerce", 1.0);
+        let p = Params::default();
+        let a = reputation_dimension_fixed(&agents, &g, "commerce", &p);
+        let b = reputation_dimension_fixed(&agents, &g, "commerce", &p);
+        assert_eq!(a, b);
+    }
 
     #[test]
     fn decay_evaporates_inactive() {

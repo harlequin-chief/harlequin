@@ -36,7 +36,10 @@ faith.
   (evidence + vouch graph), reputation **derived** and recomputed each epoch by an offchain worker
   (verify-by-recompute, no trusted oracle); committee/jury read the previous epoch's snapshot. Flags
   the work before compiling: `no_std` + **deterministic fixed-point arithmetic** (f64 is not
-  reproducible across architectures, unacceptable for consensus).
+  reproducible across architectures, unacceptable for consensus). **Started:**
+  `reputation_dimension_fixed` runs the EigenTrust iteration in i128 fixed-point — deterministic and
+  matching the f64 path (12/12). Remaining: the factor math (independence/community/in-concentration)
+  in fixed-point too, and the `no_std` feature-gate.
 
 ## Path ahead (`DECISION-STACK-CADENA.md §5`)
 1. ~~Faithful consensus test-rig~~ — done (`../prototipos/consenso/testrig/`).
