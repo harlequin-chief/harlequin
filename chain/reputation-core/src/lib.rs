@@ -651,13 +651,13 @@ fn to_fp(x: f64) -> i128 {
 
 /// Fixed-point multiply: (a·b) / SCALE. Inputs and output are FP_SCALE-scaled.
 #[inline]
-fn fp_mul(a: i128, b: i128) -> i128 {
+pub(crate) fn fp_mul(a: i128, b: i128) -> i128 {
     a * b / FP_SCALE
 }
 
 /// Fixed-point divide: (a·SCALE) / b. Inputs and output are FP_SCALE-scaled.
 #[inline]
-fn fp_div(a: i128, b: i128) -> i128 {
+pub(crate) fn fp_div(a: i128, b: i128) -> i128 {
     a * FP_SCALE / b
 }
 
