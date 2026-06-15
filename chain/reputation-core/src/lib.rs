@@ -9,6 +9,8 @@
 
 use std::collections::HashMap;
 
+pub mod vouch;
+
 /// The four reputation dimensions = the four suits (LORE.md, canon).
 pub const DIMENSIONS: [&str; 4] = [
     "commerce",              // ♦ ambition
@@ -430,9 +432,23 @@ pub fn reputation_dimension(
     t.into_iter().map(|(k, v)| (k, v * p.scale)).collect()
 }
 
+/// Decay by inactivity (§1.7): uncontributed reputation evaporates. Farming then sitting still does
+/// not pay off long-term (extra anti-collusion defence). `r <- r * factor`.
+pub fn decay(reputation: &HashMap<String, f64>, factor: f64) -> HashMap<String, f64> {
+    reputation.iter().map(|(k, v)| (k.clone(), v * factor)).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn decay_evaporates_inactive() {
+        let mut r = HashMap::new();
+        r.insert("a".to_string(), 100.0);
+        let d = decay(&r, 0.9);
+        assert!((d["a"] - 90.0).abs() < 1e-9);
+    }
 
     #[test]
     fn independence_penalises_inbreeding() {
