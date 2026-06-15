@@ -155,6 +155,37 @@ def test_in_concentration_closes_funnel():
     assert worst > 0.85, f"in-concentration punishes an honest member too much (worst retention {worst:.2f})"
 
 
+def test_in_concentration_closes_cross_dim_funnel():
+    """
+    CROSS-DIMENSION funnel (closes the §2d residual): a target established in one suit (commerce) but
+    funnelled in ANOTHER (governance, where it has NO evidence). The in-concentration deficit is
+    PER-DIMENSION, so the governance funnel is cut even though the target is established in commerce —
+    you cannot buy authority in one suit with another.
+    """
+    import random as _r
+    from harlequin_rep.model import Agent, AgentKind, DIMENSIONS
+
+    rng = _r.Random(7)
+    agents, g = [], TrustGraph()
+    for i in range(5):
+        agents.append(Agent(id=f"g{i}", kind=AgentKind.GENESIS, evidence={d: 2.0 for d in DIMENSIONS}))
+    for i in range(40):
+        agents.append(Agent(id=f"h{i}", kind=AgentKind.HONEST, evidence={"commerce": 3.0, "governance": 3.0}))
+        for v in rng.sample([f"g{j}" for j in range(5)], 2):
+            g.attest(v, f"h{i}", "commerce"); g.attest(v, f"h{i}", "governance")
+    agents.append(Agent(id="c0", kind=AgentKind.COLLUDER, evidence={"commerce": 4.0}))
+    for i in range(25):
+        fid = f"c{i+1}"
+        agents.append(Agent(id=fid, kind=AgentKind.COLLUDER, evidence={"governance": 4.0}))
+        g.attest(fid, "c0", "governance")
+
+    no_sig = reputation_vector(agents, g, damping=True, community=True)
+    sig = reputation_vector(agents, g, damping=True, community=True, in_concentration=True)
+    assert sig["c0"]["governance"] < 0.5 * no_sig["c0"]["governance"], "cross-dim governance funnel not cut"
+    # the commerce standing (where c0 has real evidence) is NOT destroyed by the governance fix
+    assert sig["c0"]["commerce"] > 0.5 * no_sig["c0"]["commerce"], "the per-dim fix wrongly hit the earned suit"
+
+
 def test_temporal_decays_inactive():
     """
     Temporal dynamics (§1.7, Art. VI): whoever stops contributing DECAYS; whoever keeps contributing

@@ -2,8 +2,9 @@
 Data model: reputation dimensions and agents (pseudonyms).
 
 Anchored in SPEC.md:
-- §1.2b: VECTORIAL reputation. Initial dimensions (extensible): commerce, technical contribution,
-  judicial function, governance. Earning in one does NOT contaminate the others.
+- §1.2b: VECTORIAL reputation. The four dimensions are the FOUR SUITS of Harlequin (LORE.md):
+  commerce (♦ ambition), technical_contribution (♣ freedom), judicial_function (♠ struggle),
+  governance (♥ love/family). Earning in one suit does NOT contaminate the others.
 - §1.4: TWO GATES. Gate 1 = personhood (unique human) -> base citizenship = 1, no sponsor.
   Gate 2 = reputation earned above the base.
 """
@@ -14,13 +15,16 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 
-# §1.2b — initial dimensions of the vectorial reputation (extensible set).
-DIMENSIONS: tuple[str, ...] = (
-    "commerce",
-    "technical_contribution",
-    "judicial_function",
-    "governance",
-)
+# §1.2b — the dimensions of the vectorial reputation. These are not an arbitrary list: they are the
+# FOUR SUITS of Harlequin (LORE.md, canon 2026-06-15). Your standing is measured in the suits you earn;
+# the conservative aggregate (min over suits) means you cannot buy authority in one suit with another.
+SUITS: dict[str, str] = {
+    "commerce": "♦ diamond — ambition (enterprise, trade, the drive to build)",
+    "technical_contribution": "♣ club — freedom (the tools that free people)",
+    "judicial_function": "♠ spade — struggle (defending the society, judging wrongs)",
+    "governance": "♥ heart — love/family (stewardship of the community)",
+}
+DIMENSIONS: tuple[str, ...] = tuple(SUITS)
 
 
 class AgentKind(str, Enum):

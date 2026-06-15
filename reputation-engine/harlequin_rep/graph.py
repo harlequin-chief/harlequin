@@ -126,7 +126,7 @@ class TrustGraph:
         dim: str,
         nodes: list[str],
         label: dict[str, str],
-        k0: float = 8.0,
+        k0: float = 26.0,
     ) -> dict[str, tuple[float, float, dict[str, float]]]:
         """
         ASYMMETRIC-FUNNEL signal (§1.6, frontier §2d). Closes the gap that local independence and
@@ -180,8 +180,9 @@ class TrustGraph:
         evidence: dict[str, float] | None = None,
         kappa: float = 0.5,
         mu: float = 8.0,
-        k0: float = 8.0,
+        k0: float = 26.0,
         rho: float = 2.0,
+        dim_evidence: dict[str, float] | None = None,
     ) -> dict[str, dict[str, float]]:
         """
         Local trust matrix C, row-stochastic, with anti-collusion damping applied (§1.6).
@@ -208,6 +209,10 @@ class TrustGraph:
         suspicion: dict[str, float] = {}
         in_conc: dict[str, tuple[float, float, dict[str, float]]] = {}
         ev = evidence or {}
+        # deficit uses PER-DIMENSION evidence (falls back to total): you cannot buy authority in one
+        # suit with another, so a funnel in this dim onto a target with no evidence IN THIS DIM is cut
+        # even if the target is established elsewhere (closes the cross-dimension funnel, RESULTS §2d).
+        dev = dim_evidence if dim_evidence is not None else ev
         use_community = damping and community
         use_in_conc = damping and in_concentration
         if use_community or use_in_conc:
@@ -229,7 +234,7 @@ class TrustGraph:
                 # discriminator: a funnel pumps an UNEARNED target. Weight by the target's evidence
                 # DEFICIT: concentration into a node that earned its own evidence (a legitimately
                 # popular member) is NOT funnelling; concentration into a 0-evidence target is.
-                deficit = 1.0 / (1.0 + rho * ev.get(j, 0.0))
+                deficit = 1.0 / (1.0 + rho * dev.get(j, 0.0))
                 f *= 1.0 / (1.0 + mu * (conc * conc) * dom * gate * deficit)
             return f
 

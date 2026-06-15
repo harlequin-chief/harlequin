@@ -69,13 +69,13 @@ The signal, for each target j: how concentrated j's incoming attestation weight 
 
 | feeder diversification | c0 no damping | c0 +local | c0 +community | **c0 +in-concentration** |
 |---:|---:|---:|---:|---:|
-| 0 | 206.9 | 240.8 | 228.5 | **51.7** |
-| 3 | 63.7 | 76.4 | 69.7 | **11.1** |
-| 6 | 37.8 | 45.4 | 39.2 | **6.1** |
+| 0 | 206.9 | 240.8 | 228.5 | **68.2** |
+| 3 | 63.7 | 76.4 | 69.7 | **15.9** |
+| 6 | 37.8 | 45.4 | 39.2 | **8.7** |
 
-**False-positive check (honest members, div=0):** retention under the new signal — min **0.90**, mean **1.02**. The worst-hit honest member keeps ≥85% of their reputation; most are untouched.
+**False-positive check (honest members, div=0):** retention under the new signal — min **0.86**, mean **1.01**. The worst-hit honest member keeps ≥85% of their reputation; most are untouched.
 
-**Result:** the in-concentration signal cuts the funnel by **~77–85%** at every diversification (robust: the very act of funnelling binds the feeders + c0 into one star-community, which is what the signal detects — diversifying to escape costs pump per feeder), while honest members keep ≥85%. This closes the §2d gap **at graph level**, on top of the standing backstop: the pump is single-dimension, so under the conservative aggregate (min, §1.2b) c0's consensus power was already ~0. **Two independent defences now stop the funnel.** Residual (documented): a brand new honest member with no evidence yet and highly concentrated vouching takes a bounded haircut; and a cross-dimension funnel onto an otherwise-established member is caught by the min-aggregate rather than the graph signal. `mu`, `rho`, `k0` are PARAMETERs.
+**Result:** the in-concentration signal cuts the funnel by **~70–80%** at every diversification (robust: the very act of funnelling binds the feeders + c0 into one star-community, which is what the signal detects — diversifying to escape costs pump per feeder), while honest members keep ≥85%. This closes the §2d gap **at graph level**, on top of the standing backstop: the pump is single-dimension, so under the conservative aggregate (min, §1.2b) c0's consensus power was already ~0. **Two independent defences now stop the funnel.** The **cross-dimension** funnel (a target established in one suit, funnelled in another) is ALSO cut at graph level: the evidence deficit is **per-dimension**, so a funnel in a suit where the target earned nothing is damped even if it is established elsewhere — *you cannot buy authority in one suit with another*. Residual: a brand new honest member with no evidence yet and highly concentrated vouching takes a bounded haircut. `mu`, `rho`, `k0` are PARAMETERs (`k0=26` tuned so the volume gate spares low-degree honest members under the per-dim deficit).
 
 ## 3. Pseudonym whitewashing (§5)
 Same human, two masks: a consolidated one and a fresh one.

@@ -104,5 +104,9 @@ vector (minimums/medians, never a sum: you do not buy integrity with expertise, 
 - The figures are **relative** (power distribution), not production parameters (those are `[PARAMETER]`
   in the SPEC, to be derived with modelling).
 
+Every constant of the engine (anchor weight α=0.30, inbreeding penalty β=γ=4, funnel μ/ρ/k₀, decay 0.9,
+the sponsorship economy) has its rationale and narrative resonance in [`PARAMETERS.md`](PARAMETERS.md) —
+no magic numbers.
+
 Live frontiers: anti-collusion with an explicit economic cost, and a formal safety/liveness proof of
 the consensus.

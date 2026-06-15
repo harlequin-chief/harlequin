@@ -69,11 +69,14 @@ def reputation_dimension(
     """
     nodes = [a.id for a in agents]
     p = _pretrust(agents, dim)
-    # TOTAL evidence per node (all dimensions), for the community suspicion (§1.6)
+    # TOTAL evidence per node (all dims) for community suspicion; PER-DIM evidence for the funnel
+    # deficit (you cannot buy authority in one suit with another — closes the cross-dim funnel).
     total_evidence = {a.id: sum(a.evidence.values()) for a in agents}
+    dim_evidence = {a.id: a.evidence_in(dim) for a in agents}
     C = graph.damped_local_matrix(
         dim, nodes, damping=damping, community=community,
         in_concentration=in_concentration, evidence=total_evidence,
+        dim_evidence=dim_evidence,
     )
 
     # Sum of each row of C (≤ 1). The deficit (1 - sum) is the mass that does NOT propagate: either

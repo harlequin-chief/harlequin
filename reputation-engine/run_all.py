@@ -315,15 +315,18 @@ def build_report() -> str:
     w(f"\n**False-positive check (honest members, div=0):** retention under the new signal — "
       f"min **{min(rets):.2f}**, mean **{sum(rets)/len(rets):.2f}**. The worst-hit honest member keeps "
       f"≥85% of their reputation; most are untouched.\n\n")
-    w("**Result:** the in-concentration signal cuts the funnel by **~77–85%** at every diversification "
+    w("**Result:** the in-concentration signal cuts the funnel by **~70–80%** at every diversification "
       "(robust: the very act of funnelling binds the feeders + c0 into one star-community, which is "
       "what the signal detects — diversifying to escape costs pump per feeder), while honest members "
       "keep ≥85%. This closes the §2d gap **at graph level**, on top of the standing backstop: the "
       "pump is single-dimension, so under the conservative aggregate (min, §1.2b) c0's consensus power "
-      "was already ~0. **Two independent defences now stop the funnel.** Residual (documented): a brand "
-      "new honest member with no evidence yet and highly concentrated vouching takes a bounded haircut; "
-      "and a cross-dimension funnel onto an otherwise-established member is caught by the min-aggregate "
-      "rather than the graph signal. `mu`, `rho`, `k0` are PARAMETERs.\n")
+      "was already ~0. **Two independent defences now stop the funnel.** The **cross-dimension** funnel "
+      "(a target established in one suit, funnelled in another) is ALSO cut at graph level: the evidence "
+      "deficit is **per-dimension**, so a funnel in a suit where the target earned nothing is damped "
+      "even if it is established elsewhere — *you cannot buy authority in one suit with another*. "
+      "Residual: a brand new honest member with no evidence yet and highly concentrated vouching takes a "
+      "bounded haircut. `mu`, `rho`, `k0` are PARAMETERs (`k0=26` tuned so the volume gate spares "
+      "low-degree honest members under the per-dim deficit).\n")
 
     # whitewashing
     ww = measure_whitewashing()
