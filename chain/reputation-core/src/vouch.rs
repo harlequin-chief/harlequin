@@ -7,7 +7,7 @@
 //! - positive: the mentor dividend is a small echo of the protege's INDEPENDENT reputation, so
 //!   sponsoring puppets (reputation dependent on one's own cluster) does not pay off.
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 /// A persistent sponsor->protege link. `live` is released on graduation, but the liability does not
 /// expire (the link stays for cascade slashing).
@@ -72,16 +72,16 @@ pub fn mentor_dividend(protege_independent_rep: f64, echo: f64) -> f64 {
 /// `loss`; each sponsor up the chain loses `sponsor_fraction` of what their protege lost, up to
 /// `depth` hops. Returns a NEW reputation map (does not mutate the input).
 pub fn cascade_slashing(
-    reputation: &HashMap<String, f64>,
+    reputation: &BTreeMap<String, f64>,
     registry: &VouchRegistry,
     culprit: &str,
     loss: f64,
     sponsor_fraction: f64,
     depth: i32,
-) -> HashMap<String, f64> {
+) -> BTreeMap<String, f64> {
     let mut updated = reputation.clone();
     fn apply(
-        updated: &mut HashMap<String, f64>,
+        updated: &mut BTreeMap<String, f64>,
         registry: &VouchRegistry,
         agent: &str,
         amount: f64,
@@ -110,7 +110,7 @@ mod tests {
     fn cascade_slashing_matches_python() {
         // protege defrauds and loses 100; the hit climbs ½ per hop. Python prototype:
         // protege 100->0, middle 120->70, mentor 200->175, outsider 150->150.
-        let mut rep = HashMap::new();
+        let mut rep = BTreeMap::new();
         rep.insert("protege".to_string(), 100.0);
         rep.insert("middle".to_string(), 120.0);
         rep.insert("mentor".to_string(), 200.0);

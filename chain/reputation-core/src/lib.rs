@@ -1,13 +1,17 @@
 //! Harlequin reputation engine — Rust port of the validated Python prototype
-//! (`prototipos/reputacion/`, 17/17 tests). This is the foundation the Substrate **reputation pallet**
-//! will build on: the same EigenTrust-with-anti-collusion-damping core, in `no_std`-friendly Rust.
+//! (`prototipos/reputacion/`, 17/17 tests). Foundation of the Substrate **reputation pallet**: the
+//! full EigenTrust-with-anti-collusion-damping core, at parity with the prototype.
 //!
 //! SPEC.md anchors: §1 (reputation), §1.6 (anti-collusion damping). The four reputation dimensions are
 //! the four suits of Harlequin (LORE.md): commerce ♦, technical_contribution ♣, judicial_function ♠,
-//! governance ♥. This v0 ports the BASE engine (independence damping + EigenTrust anchored in
-//! evidence); the community / in-concentration signals (RESULTS §2b–2d) land in later increments.
+//! governance ♥.
+//!
+//! Uses `BTreeMap` (not `HashMap`) so iteration — and therefore the EigenTrust summation order — is
+//! DETERMINISTIC, a prerequisite for consensus reproducibility. Still on `std` f64 for now; full
+//! `no_std` + deterministic fixed-point arithmetic (f64 is not reproducible across architectures) is
+//! the next milestone before this becomes a pallet (see `../PALLET-DESIGN.md`).
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 pub mod vouch;
 
@@ -26,12 +30,12 @@ pub struct Agent {
     pub unique_human: bool,
     pub genesis: bool,
     /// objective verifiable evidence per dimension (settled deals, proven work, §1.3a).
-    pub evidence: HashMap<String, f64>,
+    pub evidence: BTreeMap<String, f64>,
 }
 
 impl Agent {
     pub fn new(id: &str) -> Self {
-        Agent { id: id.into(), unique_human: true, genesis: false, evidence: HashMap::new() }
+        Agent { id: id.into(), unique_human: true, genesis: false, evidence: BTreeMap::new() }
     }
     pub fn with_evidence(mut self, dim: &str, v: f64) -> Self {
         self.evidence.insert(dim.into(), v);
@@ -49,12 +53,12 @@ impl Agent {
 /// Attestation edges per dimension: (source -> target -> weight).
 #[derive(Default)]
 pub struct TrustGraph {
-    edges: HashMap<String, HashMap<String, HashMap<String, f64>>>,
+    edges: BTreeMap<String, BTreeMap<String, BTreeMap<String, f64>>>,
 }
 
 impl TrustGraph {
     pub fn new() -> Self {
-        TrustGraph { edges: HashMap::new() }
+        TrustGraph { edges: BTreeMap::new() }
     }
 
     /// `source` vouches for `target` in `dim` (§1.3b). Adds to any existing weight.
@@ -72,7 +76,7 @@ impl TrustGraph {
             .or_insert(0.0) += weight;
     }
 
-    fn outgoing(&self, source: &str, dim: &str) -> HashMap<String, f64> {
+    fn outgoing(&self, source: &str, dim: &str) -> BTreeMap<String, f64> {
         self.edges
             .get(dim)
             .and_then(|m| m.get(source))
@@ -120,9 +124,9 @@ impl TrustGraph {
 
     /// Community detection by label propagation over the undirected projection (§1.6). Deterministic
     /// (sorted order + smallest-label tie-break) so it is reproducible — matches the Python prototype.
-    pub fn communities(&self, dim: &str, nodes: &[String]) -> HashMap<String, String> {
-        let node_set: std::collections::HashSet<&String> = nodes.iter().collect();
-        let mut adj: HashMap<String, std::collections::HashSet<String>> = HashMap::new();
+    pub fn communities(&self, dim: &str, nodes: &[String]) -> BTreeMap<String, String> {
+        let node_set: std::collections::BTreeSet<&String> = nodes.iter().collect();
+        let mut adj: BTreeMap<String, std::collections::BTreeSet<String>> = BTreeMap::new();
         for i in nodes {
             for (j, _) in self.outgoing(i, dim) {
                 if node_set.contains(&j) {
@@ -131,7 +135,7 @@ impl TrustGraph {
                 }
             }
         }
-        let mut label: HashMap<String, String> =
+        let mut label: BTreeMap<String, String> =
             nodes.iter().map(|n| (n.clone(), n.clone())).collect();
         let mut order = nodes.to_vec();
         order.sort();
@@ -142,7 +146,7 @@ impl TrustGraph {
                     Some(s) if !s.is_empty() => s,
                     _ => continue,
                 };
-                let mut count: HashMap<String, usize> = HashMap::new();
+                let mut count: BTreeMap<String, usize> = BTreeMap::new();
                 for m in neigh {
                     *count.entry(label[m].clone()).or_insert(0) += 1;
                 }
@@ -177,11 +181,11 @@ impl TrustGraph {
         &self,
         dim: &str,
         nodes: &[String],
-        label: &HashMap<String, String>,
-        evidence: &HashMap<String, f64>,
-    ) -> HashMap<String, f64> {
-        let node_set: std::collections::HashSet<&String> = nodes.iter().collect();
-        let mut internal: HashMap<String, f64> = HashMap::new();
+        label: &BTreeMap<String, String>,
+        evidence: &BTreeMap<String, f64>,
+    ) -> BTreeMap<String, f64> {
+        let node_set: std::collections::BTreeSet<&String> = nodes.iter().collect();
+        let mut internal: BTreeMap<String, f64> = BTreeMap::new();
         for i in nodes {
             for (j, _) in self.outgoing(i, dim) {
                 if node_set.contains(&j) && label[i] == label[&j] {
@@ -189,11 +193,11 @@ impl TrustGraph {
                 }
             }
         }
-        let mut ev: HashMap<String, f64> = HashMap::new();
+        let mut ev: BTreeMap<String, f64> = BTreeMap::new();
         for n in nodes {
             *ev.entry(label[n].clone()).or_insert(0.0) += *evidence.get(n).unwrap_or(&0.0);
         }
-        let comms: std::collections::HashSet<&String> = label.values().collect();
+        let comms: std::collections::BTreeSet<&String> = label.values().collect();
         comms
             .into_iter()
             .map(|c| {
@@ -209,12 +213,12 @@ impl TrustGraph {
         &self,
         dim: &str,
         nodes: &[String],
-        label: &HashMap<String, String>,
+        label: &BTreeMap<String, String>,
         k0: f64,
-    ) -> HashMap<String, (f64, f64, HashMap<String, f64>)> {
-        let node_set: std::collections::HashSet<&String> = nodes.iter().collect();
-        let mut incoming: HashMap<String, HashMap<String, f64>> = HashMap::new();
-        let mut in_count: HashMap<String, std::collections::HashSet<String>> = HashMap::new();
+    ) -> BTreeMap<String, (f64, f64, BTreeMap<String, f64>)> {
+        let node_set: std::collections::BTreeSet<&String> = nodes.iter().collect();
+        let mut incoming: BTreeMap<String, BTreeMap<String, f64>> = BTreeMap::new();
+        let mut in_count: BTreeMap<String, std::collections::BTreeSet<String>> = BTreeMap::new();
         for src in nodes {
             for (tgt, w) in self.outgoing(src, dim) {
                 if node_set.contains(&tgt) && w > 0.0 {
@@ -224,15 +228,15 @@ impl TrustGraph {
                 }
             }
         }
-        let mut out: HashMap<String, (f64, f64, HashMap<String, f64>)> = HashMap::new();
+        let mut out: BTreeMap<String, (f64, f64, BTreeMap<String, f64>)> = BTreeMap::new();
         for tgt in nodes {
             match incoming.get(tgt) {
                 None => {
-                    out.insert(tgt.clone(), (0.0, 0.0, HashMap::new()));
+                    out.insert(tgt.clone(), (0.0, 0.0, BTreeMap::new()));
                 }
                 Some(comm_w) => {
                     let total: f64 = comm_w.values().sum();
-                    let shares: HashMap<String, f64> =
+                    let shares: BTreeMap<String, f64> =
                         comm_w.iter().map(|(c, w)| (c.clone(), w / total)).collect();
                     let conc: f64 = shares.values().map(|s| s * s).sum();
                     let n = in_count[tgt].len() as f64;
@@ -253,42 +257,42 @@ impl TrustGraph {
         dim: &str,
         nodes: &[String],
         p: &Params,
-        evidence: &HashMap<String, f64>,
-        dim_evidence: &HashMap<String, f64>,
-    ) -> HashMap<String, HashMap<String, f64>> {
-        let node_set: std::collections::HashSet<&String> = nodes.iter().collect();
+        evidence: &BTreeMap<String, f64>,
+        dim_evidence: &BTreeMap<String, f64>,
+    ) -> BTreeMap<String, BTreeMap<String, f64>> {
+        let node_set: std::collections::BTreeSet<&String> = nodes.iter().collect();
 
         let use_comm = p.damping && p.community;
         let use_inc = p.damping && p.in_concentration;
         let label = if use_comm || use_inc {
             self.communities(dim, nodes)
         } else {
-            HashMap::new()
+            BTreeMap::new()
         };
         let suspicion = if use_comm {
             self.community_suspicion(dim, nodes, &label, evidence)
         } else {
-            HashMap::new()
+            BTreeMap::new()
         };
         let in_conc = if use_inc {
             self.in_concentration_signals(dim, nodes, &label, p.k0)
         } else {
-            HashMap::new()
+            BTreeMap::new()
         };
 
-        let mut c: HashMap<String, HashMap<String, f64>> = HashMap::new();
+        let mut c: BTreeMap<String, BTreeMap<String, f64>> = BTreeMap::new();
         for i in nodes {
-            let outgoing: HashMap<String, f64> = self
+            let outgoing: BTreeMap<String, f64> = self
                 .outgoing(i, dim)
                 .into_iter()
                 .filter(|(j, _)| node_set.contains(j))
                 .collect();
             let raw_sum: f64 = outgoing.values().sum();
             if raw_sum <= 0.0 {
-                c.insert(i.clone(), HashMap::new());
+                c.insert(i.clone(), BTreeMap::new());
                 continue;
             }
-            let mut row = HashMap::new();
+            let mut row = BTreeMap::new();
             for (j, w) in outgoing {
                 let mut f = if p.damping {
                     self.independence(i, &j, dim, p.beta, p.gamma)
@@ -323,8 +327,8 @@ impl TrustGraph {
 
 /// Pre-trust p per dimension: normalised objective evidence (§1.3a) + genesis seed (§1.4).
 /// Falls back to uniform among unique humans if there is no anchor at all (degenerate, avoids /0).
-fn pretrust(agents: &[Agent], dim: &str, genesis_weight: f64) -> HashMap<String, f64> {
-    let mut raw: HashMap<String, f64> = HashMap::new();
+fn pretrust(agents: &[Agent], dim: &str, genesis_weight: f64) -> BTreeMap<String, f64> {
+    let mut raw: BTreeMap<String, f64> = BTreeMap::new();
     for a in agents {
         let seed = if a.genesis { genesis_weight } else { 0.0 };
         raw.insert(a.id.clone(), a.evidence_in(dim) + seed);
@@ -390,21 +394,21 @@ pub fn reputation_dimension(
     graph: &TrustGraph,
     dim: &str,
     p: &Params,
-) -> HashMap<String, f64> {
+) -> BTreeMap<String, f64> {
     let nodes: Vec<String> = agents.iter().map(|a| a.id.clone()).collect();
     let pre = pretrust(agents, dim, p.genesis_weight);
     // TOTAL evidence per node (community suspicion) + PER-DIM evidence (funnel deficit, cross-dim).
-    let total_evidence: HashMap<String, f64> =
+    let total_evidence: BTreeMap<String, f64> =
         agents.iter().map(|a| (a.id.clone(), a.evidence.values().sum())).collect();
-    let dim_evidence: HashMap<String, f64> =
+    let dim_evidence: BTreeMap<String, f64> =
         agents.iter().map(|a| (a.id.clone(), a.evidence_in(dim))).collect();
     let c = graph.damped_local_matrix(dim, &nodes, p, &total_evidence, &dim_evidence);
-    let row_sum: HashMap<String, f64> =
+    let row_sum: BTreeMap<String, f64> =
         nodes.iter().map(|i| (i.clone(), c[i].values().sum())).collect();
 
     let mut t = pre.clone();
     for _ in 0..p.iterations {
-        let mut nt: HashMap<String, f64> =
+        let mut nt: BTreeMap<String, f64> =
             nodes.iter().map(|n| (n.clone(), p.alpha * pre[n])).collect();
         let mut leak_total = 0.0;
         for i in &nodes {
@@ -437,14 +441,14 @@ pub fn reputation_vector(
     agents: &[Agent],
     graph: &TrustGraph,
     p: &Params,
-) -> HashMap<String, HashMap<String, f64>> {
-    let mut per_dim: HashMap<&str, HashMap<String, f64>> = HashMap::new();
+) -> BTreeMap<String, BTreeMap<String, f64>> {
+    let mut per_dim: BTreeMap<&str, BTreeMap<String, f64>> = BTreeMap::new();
     for d in DIMENSIONS {
         per_dim.insert(d, reputation_dimension(agents, graph, d, p));
     }
-    let mut out: HashMap<String, HashMap<String, f64>> = HashMap::new();
+    let mut out: BTreeMap<String, BTreeMap<String, f64>> = BTreeMap::new();
     for a in agents {
-        let v: HashMap<String, f64> =
+        let v: BTreeMap<String, f64> =
             DIMENSIONS.iter().map(|d| (d.to_string(), per_dim[d][&a.id])).collect();
         out.insert(a.id.clone(), v);
     }
@@ -454,7 +458,7 @@ pub fn reputation_vector(
 /// Conservative aggregation of the vector (§1.2b): min (default) or mean — NEVER a sum. For powers
 /// that need global reliability (consensus, vouching) a high suit does not buy a low one: you cannot
 /// buy authority in one suit with another.
-pub fn conservative_aggregate(vector: &HashMap<String, f64>, min: bool) -> f64 {
+pub fn conservative_aggregate(vector: &BTreeMap<String, f64>, min: bool) -> f64 {
     if vector.is_empty() {
         return 0.0;
     }
@@ -467,7 +471,7 @@ pub fn conservative_aggregate(vector: &HashMap<String, f64>, min: bool) -> f64 {
 
 /// Decay by inactivity (§1.7): uncontributed reputation evaporates. Farming then sitting still does
 /// not pay off long-term (extra anti-collusion defence). `r <- r * factor`.
-pub fn decay(reputation: &HashMap<String, f64>, factor: f64) -> HashMap<String, f64> {
+pub fn decay(reputation: &BTreeMap<String, f64>, factor: f64) -> BTreeMap<String, f64> {
     reputation.iter().map(|(k, v)| (k.clone(), v * factor)).collect()
 }
 
@@ -477,7 +481,7 @@ mod tests {
 
     #[test]
     fn decay_evaporates_inactive() {
-        let mut r = HashMap::new();
+        let mut r = BTreeMap::new();
         r.insert("a".to_string(), 100.0);
         let d = decay(&r, 0.9);
         assert!((d["a"] - 90.0).abs() < 1e-9);
