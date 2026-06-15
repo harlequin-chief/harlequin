@@ -230,6 +230,81 @@ impl TrustGraph {
             .collect()
     }
 
+    /// Deterministic fixed-point community suspicion (i128, FP_SCALE-scaled). `evidence_fp` is
+    /// FP_SCALE-scaled. suspicion = internal_edges / (1 + evidence) → fp_div(internal·FP, FP + ev_fp).
+    pub fn community_suspicion_fp(
+        &self,
+        dim: &str,
+        nodes: &[String],
+        label: &BTreeMap<String, String>,
+        evidence_fp: &BTreeMap<String, i128>,
+    ) -> BTreeMap<String, i128> {
+        let node_set: std::collections::BTreeSet<&String> = nodes.iter().collect();
+        let mut internal: BTreeMap<String, i128> = BTreeMap::new();
+        for i in nodes {
+            for (j, _) in self.outgoing(i, dim) {
+                if node_set.contains(&j) && label[i] == label[&j] {
+                    *internal.entry(label[i].clone()).or_insert(0) += 1;
+                }
+            }
+        }
+        let mut ev: BTreeMap<String, i128> = BTreeMap::new();
+        for n in nodes {
+            *ev.entry(label[n].clone()).or_insert(0) += *evidence_fp.get(n).unwrap_or(&0);
+        }
+        let comms: std::collections::BTreeSet<&String> = label.values().collect();
+        comms
+            .into_iter()
+            .map(|c| {
+                let internal_c = *internal.get(c).unwrap_or(&0);
+                let denom = FP_SCALE + *ev.get(c).unwrap_or(&0);
+                (c.clone(), fp_div(internal_c * FP_SCALE, denom))
+            })
+            .collect()
+    }
+
+    /// Deterministic fixed-point in-concentration signal: per target (conc, gate, shares), all i128
+    /// FP_SCALE-scaled. shares = w/total, conc = Σ shares², gate = n/(n+k0). No floats.
+    pub fn in_concentration_signals_fp(
+        &self,
+        dim: &str,
+        nodes: &[String],
+        label: &BTreeMap<String, String>,
+        k0_fp: i128,
+    ) -> BTreeMap<String, (i128, i128, BTreeMap<String, i128>)> {
+        let node_set: std::collections::BTreeSet<&String> = nodes.iter().collect();
+        let mut incoming: BTreeMap<String, BTreeMap<String, i128>> = BTreeMap::new();
+        let mut in_count: BTreeMap<String, std::collections::BTreeSet<String>> = BTreeMap::new();
+        for src in nodes {
+            for (tgt, w) in self.outgoing(src, dim) {
+                if node_set.contains(&tgt) && w > 0.0 {
+                    let lab = label.get(src).cloned().unwrap_or_else(|| src.clone());
+                    *incoming.entry(tgt.clone()).or_default().entry(lab).or_insert(0) += to_fp(w);
+                    in_count.entry(tgt.clone()).or_default().insert(src.clone());
+                }
+            }
+        }
+        let mut out: BTreeMap<String, (i128, i128, BTreeMap<String, i128>)> = BTreeMap::new();
+        for tgt in nodes {
+            match incoming.get(tgt) {
+                None => {
+                    out.insert(tgt.clone(), (0, 0, BTreeMap::new()));
+                }
+                Some(comm_w) => {
+                    let total: i128 = comm_w.values().sum();
+                    let shares: BTreeMap<String, i128> =
+                        comm_w.iter().map(|(c, w)| (c.clone(), fp_div(*w, total))).collect();
+                    let conc: i128 = shares.values().map(|s| fp_mul(*s, *s)).sum();
+                    let n = in_count[tgt].len() as i128;
+                    let n_fp = n * FP_SCALE;
+                    let gate = fp_div(n_fp, n_fp + k0_fp);
+                    out.insert(tgt.clone(), (conc, gate, shares));
+                }
+            }
+        }
+        out
+    }
+
     /// Asymmetric-funnel signal (§2d): per target, (concentration HHI over source communities, volume
     /// gate, shares per community). Cuts a directed PageRank funnel local independence misses.
     pub fn in_concentration_signals(
@@ -599,6 +674,48 @@ mod tests {
             let f = g.independence(i, j, "commerce", 4.0, 4.0);
             let x = g.independence_fp(i, j, "commerce", bfp, gfp) as f64 / FP_SCALE as f64;
             assert!((f - x).abs() < 1e-6, "{i}->{j}: f64 {f} vs fp {x}");
+        }
+    }
+
+    #[test]
+    fn community_suspicion_fp_matches_f64() {
+        let mut g = TrustGraph::new();
+        // ring + an honest with evidence
+        g.attest("c0", "c1", "commerce", 1.0);
+        g.attest("c1", "c2", "commerce", 1.0);
+        g.attest("c2", "c0", "commerce", 1.0);
+        g.attest("g0", "h0", "commerce", 1.0);
+        let nodes: Vec<String> = ["c0", "c1", "c2", "g0", "h0"].iter().map(|s| s.to_string()).collect();
+        let label = g.communities("commerce", &nodes);
+        let mut ev = BTreeMap::new();
+        ev.insert("h0".to_string(), 5.0);
+        let ev_fp: BTreeMap<String, i128> = ev.iter().map(|(k, v)| (k.clone(), to_fp(*v))).collect();
+        let f = g.community_suspicion("commerce", &nodes, &label, &ev);
+        let x = g.community_suspicion_fp("commerce", &nodes, &label, &ev_fp);
+        for (c, fv) in &f {
+            let xv = x[c] as f64 / FP_SCALE as f64;
+            assert!((fv - xv).abs() < 1e-6, "comm {c}: f64 {fv} vs fp {xv}");
+        }
+    }
+
+    #[test]
+    fn in_concentration_fp_matches_f64() {
+        let mut g = TrustGraph::new();
+        for i in 0..5 {
+            g.attest(&format!("f{i}"), "c0", "commerce", 1.0);
+        }
+        g.attest("g0", "h0", "commerce", 1.0);
+        let mut nodes: Vec<String> = (0..5).map(|i| format!("f{i}")).collect();
+        nodes.push("c0".into());
+        nodes.push("g0".into());
+        nodes.push("h0".into());
+        let label = g.communities("commerce", &nodes);
+        let f = g.in_concentration_signals("commerce", &nodes, &label, 26.0);
+        let x = g.in_concentration_signals_fp("commerce", &nodes, &label, to_fp(26.0));
+        for (t, (conc, gate, _)) in &f {
+            let (cx, gx, _) = &x[t];
+            assert!((conc - *cx as f64 / FP_SCALE as f64).abs() < 1e-6, "{t} conc");
+            assert!((gate - *gx as f64 / FP_SCALE as f64).abs() < 1e-6, "{t} gate");
         }
     }
 
