@@ -16,6 +16,13 @@ faith.
     reputation values (g0=297.03, h0=702.97, sybil=0) for a shared scenario. Fidelity is a test.
   - Run: `cd reputation-core && cargo test`.
 
+- **`consensus-core/`** — Rust port of the consensus sortition (SPEC §2.2): reputation-weighted VRF
+  committee election, rotating each epoch. Dependency-free — includes a hand-rolled **SHA-256**
+  (matches the standard vectors / Python `hashlib`, so the simulated VRF is bit-identical; a real
+  ECVRF replaces it in production). 4/4 tests (Sybils excluded, committee ~τ, rotation). The async
+  voting engine (Snowball + partition/quorum) is a later increment; the test-rig stays the reference.
+  - Run: `cd consensus-core && cargo test`.
+
 ## Path ahead (`DECISION-STACK-CADENA.md §5`)
 1. ~~Faithful consensus test-rig~~ — done (`../prototipos/consenso/testrig/`).
 2. **Done — full parity:** the engine is ported to Rust (`reputation-core/`), every piece

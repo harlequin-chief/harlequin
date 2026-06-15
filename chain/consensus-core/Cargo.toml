@@ -1,0 +1,12 @@
+[package]
+name = "consensus-core"
+version = "0.1.0"
+edition = "2021"
+description = "Harlequin Woven-Trust Consensus — Rust port of the validated test-rig (reputation-weighted VRF sortition committees). Dependency-free."
+license = "AGPL-3.0-or-later"
+
+[dependencies]
+
+[lib]
+name = "consensus_core"
+path = "src/lib.rs"
