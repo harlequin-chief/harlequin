@@ -17,10 +17,12 @@
 //! vouch-scoring port — is the step that makes the whole machine `no_std` for the pallet. Until then
 //! `advance_epoch` is the integration oracle and the source of the telemetry schema.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
-use consensus_core::elect_committee;
-use reputation_core::{reputation_dimension_fully_fixed, Agent, Params, TrustGraph, DIMENSIONS};
+use consensus_core::elect_committee_fp;
+use reputation_core::{
+    reputation_dimension_fully_fixed_fp, Agent, Params, TrustGraph, DIMENSIONS, FP_SCALE,
+};
 
 /// The chain state across epochs.
 pub struct Protocol {
@@ -28,7 +30,7 @@ pub struct Protocol {
     graph: TrustGraph,
     /// node -> VRF secret key. SIMULATION ONLY: derived deterministically as `sk-<id>` so a run is
     /// reproducible. On a real node each member holds its own key and never shares it.
-    secret_keys: HashMap<String, String>,
+    secret_keys: BTreeMap<String, String>,
     params: Params,
     /// expected total committee seats per epoch (sortition intensity, SPEC §2.2).
     tau: f64,
@@ -68,7 +70,7 @@ impl Protocol {
         let mut p = Protocol {
             agents: Vec::new(),
             graph: TrustGraph::new(),
-            secret_keys: HashMap::new(),
+            secret_keys: BTreeMap::new(),
             params,
             tau,
             epoch: 0,
@@ -107,17 +109,27 @@ impl Protocol {
     /// Reputation vector per member for the current state: `node -> {suit -> reputation}`, each suit on
     /// the deterministic fixed-point path (reproducible across machines).
     pub fn reputation_vector(&self) -> BTreeMap<String, BTreeMap<String, f64>> {
-        let mut per_dim: BTreeMap<&str, BTreeMap<String, f64>> = BTreeMap::new();
-        for d in DIMENSIONS {
-            per_dim.insert(d, reputation_dimension_fully_fixed(&self.agents, &self.graph, d, &self.params));
-        }
+        let scale = self.params.scale / FP_SCALE as f64;
+        let per_dim = self.reputation_vector_fp();
         let mut out: BTreeMap<String, BTreeMap<String, f64>> = BTreeMap::new();
         for a in &self.agents {
             let v: BTreeMap<String, f64> =
-                DIMENSIONS.iter().map(|d| (d.to_string(), per_dim[d][&a.id])).collect();
+                DIMENSIONS.iter().map(|d| (d.to_string(), per_dim[*d][&a.id] as f64 * scale)).collect();
             out.insert(a.id.clone(), v);
         }
         out
+    }
+
+    /// Per-suit reputation in RAW fixed-point (i128) — the exact on-chain values. `suit -> {node -> r}`.
+    fn reputation_vector_fp(&self) -> BTreeMap<&'static str, BTreeMap<String, i128>> {
+        let mut per_dim: BTreeMap<&'static str, BTreeMap<String, i128>> = BTreeMap::new();
+        for d in DIMENSIONS {
+            per_dim.insert(
+                d,
+                reputation_dimension_fully_fixed_fp(&self.agents, &self.graph, d, &self.params),
+            );
+        }
+        per_dim
     }
 
     /// Advance one epoch: recompute reputation, elect the committee by reputation-weighted sortition,
@@ -127,34 +139,42 @@ impl Protocol {
         self.epoch += 1;
         let seed = format!("{beacon}|epoch{}", self.epoch);
 
-        let vector = self.reputation_vector();
+        // Raw fixed-point reputation per suit — the exact values the chain computes.
+        let per_dim = self.reputation_vector_fp();
+        let scale = self.params.scale / FP_SCALE as f64;
 
         // Consensus reputation = conservative MIN across suits (§1.2b): authority that needs global
-        // reliability cannot be bought in one suit. A high ♦ does not buy a missing ♠.
-        let mut scalar: HashMap<String, f64> = HashMap::new();
+        // reliability cannot be bought in one suit. A high ♦ does not buy a missing ♠. Kept in raw
+        // fixed-point so the committee is elected by the deterministic on-chain sortition.
+        let mut scalar_fp: BTreeMap<String, i128> = BTreeMap::new();
         let mut reputation_by_suit: BTreeMap<String, f64> =
             DIMENSIONS.iter().map(|d| (d.to_string(), 0.0)).collect();
-        for (id, v) in &vector {
-            let agg = v.values().cloned().fold(f64::INFINITY, f64::min);
-            scalar.insert(id.clone(), if agg.is_finite() { agg } else { 0.0 });
-            for (suit, r) in v {
-                *reputation_by_suit.get_mut(suit).unwrap() += r;
+        for a in &self.agents {
+            let mut min_fp = i128::MAX;
+            for d in DIMENSIONS {
+                let r = per_dim[d][&a.id];
+                if r < min_fp {
+                    min_fp = r;
+                }
+                *reputation_by_suit.get_mut(d).unwrap() += r as f64 * scale;
             }
+            scalar_fp.insert(a.id.clone(), min_fp.max(0));
         }
 
-        let committee = elect_committee(&scalar, &self.secret_keys, &seed, self.tau);
-        let committee: BTreeMap<String, u32> = committee.into_iter().collect();
+        // Committee by the deterministic fixed-point sortition — the exact path the runtime runs.
+        let committee = elect_committee_fp(&scalar_fp, &self.secret_keys, &seed, self.tau.round() as u32);
         let committee_size: u32 = committee.values().sum();
 
-        let values: Vec<f64> = scalar.values().cloned().collect();
-        let total_reputation: f64 = values.iter().sum();
-        let top_reputation = values.iter().cloned().fold(0.0_f64, f64::max);
+        let values_fp: Vec<i128> = scalar_fp.values().cloned().collect();
+        let total_reputation: f64 = values_fp.iter().map(|&r| r as f64 * scale).sum();
+        let top_reputation = values_fp.iter().cloned().max().unwrap_or(0) as f64 * scale;
         // Gini is measured over the ACTIVE members only (reputation > 0). Otherwise a swarm of
         // powerless Sybils would inflate it toward 1 and hide whether power is actually concentrating
         // among those who hold it. This is the "is an elite forming?" alarm, not a head-count of zeros.
-        let mut active: Vec<f64> = values.into_iter().filter(|&r| r > EPS).collect();
+        let mut active: Vec<f64> =
+            values_fp.iter().filter(|&&r| r > 0).map(|&r| r as f64 * scale).collect();
         let active_nodes = active.len();
-        let excluded = scalar.len() - active_nodes;
+        let excluded = values_fp.len() - active_nodes;
         let gini = gini_coefficient(&mut active);
 
         EpochReport {
@@ -171,9 +191,6 @@ impl Protocol {
         }
     }
 }
-
-/// Reputation below this counts as zero (sortition/exclusion threshold), after the §1 `scale`.
-const EPS: f64 = 1e-6;
 
 /// Gini coefficient of a set of non-negative values, in [0,1]. 0 = perfectly even; →1 = all mass on
 /// one holder. `gini = Σ_i Σ_j |x_i - x_j| / (2 n Σ x)`. Empty or all-zero → 0.
@@ -333,6 +350,18 @@ mod tests {
         ] {
             assert!(j.contains(key), "telemetry json missing {key}: {j}");
         }
+    }
+
+    #[test]
+    fn committee_is_deterministic_across_runs() {
+        // the committee is now elected by the fixed-point sortition — bit-identical across runs,
+        // the property a chain needs (every node must agree on the same committee).
+        let build = || {
+            let cohort: Vec<Agent> = (0..40).map(|i| founder(&format!("g{i}"))).collect();
+            let mut p = Protocol::genesis(cohort, base_params(), 25.0);
+            p.advance_epoch("beacon").committee
+        };
+        assert_eq!(build(), build());
     }
 
     #[test]

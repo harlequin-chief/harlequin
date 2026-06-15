@@ -725,15 +725,16 @@ pub fn reputation_dimension_fixed(
     t.into_iter().map(|(k, v)| (k, v as f64 / one as f64 * p.scale)).collect()
 }
 
-/// FULLY DETERMINISTIC reputation in one dimension: every step in fixed-point (factors AND the
-/// EigenTrust iteration), no f64 anywhere in the path. This is the version a runtime can run — same
-/// result on every machine. Cross-validates against the f64 `reputation_dimension` within tolerance.
-pub fn reputation_dimension_fully_fixed(
+/// FULLY DETERMINISTIC reputation in one dimension, RAW fixed-point (i128, FP_SCALE-scaled). Every step
+/// in fixed-point (factors AND the EigenTrust iteration), no f64 anywhere — the exact values a runtime
+/// computes, before any f64 presentation scaling. The vector sums to ~FP_SCALE; only ratios matter for
+/// committee weighting, so this feeds the sortition directly.
+pub fn reputation_dimension_fully_fixed_fp(
     agents: &[Agent],
     graph: &TrustGraph,
     dim: &str,
     p: &Params,
-) -> BTreeMap<String, f64> {
+) -> BTreeMap<String, i128> {
     let nodes: Vec<String> = agents.iter().map(|a| a.id.clone()).collect();
     let pre = pretrust(agents, dim, p.genesis_weight);
     let evidence_fp: BTreeMap<String, i128> =
@@ -775,7 +776,22 @@ pub fn reputation_dimension_fully_fixed(
             break;
         }
     }
-    t.into_iter().map(|(k, v)| (k, v as f64 / one as f64 * p.scale)).collect()
+    t
+}
+
+/// FULLY DETERMINISTIC reputation in one dimension, presented as f64 (raw fixed-point × `scale`). Thin
+/// wrapper over [`reputation_dimension_fully_fixed_fp`] for hosts/tests; same deterministic values.
+pub fn reputation_dimension_fully_fixed(
+    agents: &[Agent],
+    graph: &TrustGraph,
+    dim: &str,
+    p: &Params,
+) -> BTreeMap<String, f64> {
+    let scale = p.scale / FP_SCALE as f64;
+    reputation_dimension_fully_fixed_fp(agents, graph, dim, p)
+        .into_iter()
+        .map(|(k, v)| (k, v as f64 * scale))
+        .collect()
 }
 
 /// EARNED reputation as a VECTOR over all four suits (§1.2b).
