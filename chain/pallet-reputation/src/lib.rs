@@ -43,6 +43,30 @@ pub enum Suit {
     Governance,
 }
 
+/// Per-epoch network telemetry written on-chain (SPEC §5c). Any node serves it to the public panel —
+/// no central dashboard. The data the network publishes about itself, including whether power is
+/// concentrating (`top_reputation`).
+#[derive(
+    codec::Encode,
+    codec::Decode,
+    codec::DecodeWithMemTracking,
+    codec::MaxEncodedLen,
+    scale_info::TypeInfo,
+    Clone,
+    PartialEq,
+    Eq,
+    Debug,
+    Default,
+)]
+pub struct EpochReport {
+    /// participants this epoch (anyone with evidence or in the vouch graph).
+    pub members: u32,
+    /// participants with positive consensus reputation (the conservative min across suits > 0).
+    pub active_members: u32,
+    /// the single highest consensus reputation, raw fixed-point — the entrenchment watch.
+    pub top_reputation: i128,
+}
+
 impl Suit {
     /// All four suits, canonical order.
     pub const ALL: [Suit; 4] = [Suit::Commerce, Suit::Technical, Suit::Judicial, Suit::Governance];
@@ -60,7 +84,7 @@ impl Suit {
 
 #[frame::pallet]
 pub mod pallet {
-    use super::Suit;
+    use super::{EpochReport, Suit};
     use frame::prelude::*;
 
     #[pallet::config]
@@ -119,6 +143,10 @@ pub mod pallet {
     #[pallet::storage]
     pub type Epoch<T> = StorageValue<_, u64, ValueQuery>;
 
+    /// Last epoch's network telemetry (SPEC §5c) — what the nodes serve to the public panel.
+    #[pallet::storage]
+    pub type LastReport<T> = StorageValue<_, EpochReport, OptionQuery>;
+
     /// Genesis: seed the founding cohort's objective evidence (§1.4), so the chain boots with members
     /// who already have standing to bootstrap trust. Nothing here is reputation — only the evidence
     /// inputs; reputation is still DERIVED on the first epoch recompute.
@@ -147,8 +175,8 @@ pub mod pallet {
         Vouched { voucher: T::AccountId, target: T::AccountId, suit: Suit, weight: u32 },
         /// `voucher` revoked its vouch(es) for `target` in `suit`.
         VouchRevoked { voucher: T::AccountId, target: T::AccountId, suit: Suit },
-        /// A new epoch began.
-        EpochAdvanced { epoch: u64 },
+        /// A new epoch began, with its network telemetry (members, active members).
+        EpochAdvanced { epoch: u64, members: u32, active_members: u32 },
         /// A proven fraud slashed `culprit` in `suit`; the loss cascaded up the vouch chain.
         FraudSlashed { culprit: T::AccountId, suit: Suit, loss: u128 },
     }
@@ -233,12 +261,17 @@ pub mod pallet {
         #[pallet::weight(Weight::from_parts(1_000_000_000, 0))]
         pub fn advance_epoch(origin: OriginFor<T>) -> DispatchResult {
             ensure_root(origin)?;
-            Self::recompute_reputation();
+            let report = Self::recompute_reputation().unwrap_or_default();
+            LastReport::<T>::put(report.clone());
             let epoch = Epoch::<T>::mutate(|e| {
                 *e = e.saturating_add(1);
                 *e
             });
-            Self::deposit_event(Event::EpochAdvanced { epoch });
+            Self::deposit_event(Event::EpochAdvanced {
+                epoch,
+                members: report.members,
+                active_members: report.active_members,
+            });
             Ok(())
         }
 
@@ -318,7 +351,7 @@ pub mod pallet {
         ///
         /// HEAVY (EigenTrust over the whole graph): this in-runtime version is for testnet/triggering;
         /// production runs it in an offchain worker and verifies by recompute.
-        pub fn recompute_reputation() {
+        pub fn recompute_reputation() -> Option<EpochReport> {
             use alloc::collections::{BTreeMap, BTreeSet};
             use alloc::string::ToString;
             use alloc::vec::Vec;
@@ -337,7 +370,7 @@ pub mod pallet {
             }
             let accounts: Vec<T::AccountId> = set.into_iter().collect();
             if accounts.is_empty() {
-                return;
+                return None;
             }
             // reputation-core keys agents by short string ids = their index in `accounts`.
             let mut idx: BTreeMap<T::AccountId, usize> = BTreeMap::new();
@@ -372,18 +405,29 @@ pub mod pallet {
                 }
             }
 
-            // 4. compute per suit (deterministic fixed-point) and overwrite the snapshot.
+            // 4. compute per suit (deterministic fixed-point), overwrite the snapshot, and track each
+            //    member's CONSERVATIVE MINIMUM across suits (§1.2b) for the telemetry.
             let params = Params { community: true, in_concentration: true, ..Default::default() };
+            let mut min_by: Vec<i128> = alloc::vec![i128::MAX; accounts.len()];
             for suit in Suit::ALL {
                 let rep = reputation_dimension_fully_fixed_fp(&agents, &graph, suit.dim_name(), &params);
                 for (id, value) in rep.into_iter() {
                     if let Ok(i) = id.parse::<usize>() {
                         if let Some(acc) = accounts.get(i) {
                             ReputationSnapshot::<T>::insert(acc, suit, value);
+                            if value < min_by[i] {
+                                min_by[i] = value;
+                            }
                         }
                     }
                 }
             }
+
+            // 5. network telemetry (SPEC §5c).
+            let active_members = min_by.iter().filter(|&&m| m > 0).count() as u32;
+            let top_reputation =
+                min_by.iter().copied().filter(|&m| m != i128::MAX).max().unwrap_or(0).max(0);
+            Some(EpochReport { members: accounts.len() as u32, active_members, top_reputation })
         }
     }
 }
@@ -391,7 +435,7 @@ pub mod pallet {
 #[cfg(test)]
 mod tests {
     use crate as pallet_reputation;
-    use crate::{Epoch, Error, Evidence, ReputationSnapshot, Suit};
+    use crate::{Epoch, Error, Evidence, LastReport, ReputationSnapshot, Suit};
     use frame::testing_prelude::*;
 
     construct_runtime! {
@@ -489,6 +533,24 @@ mod tests {
             assert_ok!(Reputation::report_fraud(RuntimeOrigin::root(), 2u64, Suit::Commerce, 100, 2));
             assert_eq!(Evidence::<Test>::get(2u64, Suit::Commerce), 0); // culprit wiped
             assert_eq!(Evidence::<Test>::get(1u64, Suit::Commerce), 50); // sponsor answers for ½
+        });
+    }
+
+    #[test]
+    fn epoch_telemetry_tracks_active_members() {
+        new_test_ext().execute_with(|| {
+            // 1 is reputable in all four suits -> active
+            make_reputable(1);
+            let r = LastReport::<Test>::get().unwrap();
+            assert_eq!(r.members, 1);
+            assert_eq!(r.active_members, 1);
+            assert!(r.top_reputation > 0);
+            // 2 has only one suit -> conservative min across suits is 0 -> a member, but not active
+            assert_ok!(Reputation::submit_evidence(RuntimeOrigin::root(), 2u64, Suit::Commerce, 5));
+            assert_ok!(Reputation::advance_epoch(RuntimeOrigin::root()));
+            let r2 = LastReport::<Test>::get().unwrap();
+            assert_eq!(r2.members, 2);
+            assert_eq!(r2.active_members, 1);
         });
     }
 
