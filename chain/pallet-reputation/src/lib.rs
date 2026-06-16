@@ -332,29 +332,45 @@ pub mod pallet {
             reputation_core::vouch::vouch_quota_fp(agg_fp, k_fp)
         }
 
-        /// Slash `agent`'s evidence in `suit` by `amount`, then climb the vouch graph: every account
-        /// that vouched for `agent` in `suit` loses half, recursively, until `depth` runs out. Bounded
-        /// recursion (`depth: u8`). The liability is persistent (§1.5c): it follows the vouch edges.
+        /// Slash `agent`'s evidence in `suit` by `amount` and cascade the liability up the vouch graph:
+        /// every account that vouched for `agent` in `suit` loses HALF, level by level, until `depth`
+        /// runs out (§1.5c, *you answer for whom you bring in*). Breadth-first with a **visited set** so
+        /// a CYCLIC vouch graph cannot slash anyone twice; each member is hit once, by its shallowest
+        /// (largest) path. Deterministic (BTreeSet/`Vouches::iter` ordered).
         fn cascade_slash(agent: &T::AccountId, suit: Suit, amount: u128, depth: u8) {
+            use alloc::collections::BTreeSet;
             use alloc::vec::Vec;
-            if amount == 0 {
-                return;
-            }
-            Evidence::<T>::mutate(agent, suit, |e| *e = e.saturating_sub(amount));
-            if depth == 0 {
-                return;
-            }
-            let passes_on = amount / 2; // ½ per hop
-            if passes_on == 0 {
-                return;
-            }
-            // sponsors of `agent` in `suit` = accounts whose vouch edges point at it.
-            let sponsors: Vec<T::AccountId> = Vouches::<T>::iter()
-                .filter(|(_, edges)| edges.iter().any(|(t, s, _)| t == agent && *s == suit))
-                .map(|(voucher, _)| voucher)
-                .collect();
-            for sponsor in sponsors {
-                Self::cascade_slash(&sponsor, suit, passes_on, depth - 1);
+            let mut visited: BTreeSet<T::AccountId> = BTreeSet::new();
+            let mut level: Vec<(T::AccountId, u128)> = alloc::vec![(agent.clone(), amount)];
+            let mut remaining = depth;
+            loop {
+                let mut next: Vec<(T::AccountId, u128)> = Vec::new();
+                for (who, amt) in level.drain(..) {
+                    if amt == 0 || visited.contains(&who) {
+                        continue;
+                    }
+                    visited.insert(who.clone());
+                    Evidence::<T>::mutate(&who, suit, |e| *e = e.saturating_sub(amt));
+                    if remaining == 0 {
+                        continue;
+                    }
+                    let passes_on = amt / 2; // ½ per hop
+                    if passes_on == 0 {
+                        continue;
+                    }
+                    for (voucher, edges) in Vouches::<T>::iter() {
+                        if !visited.contains(&voucher)
+                            && edges.iter().any(|(t, s, _)| t == &who && *s == suit)
+                        {
+                            next.push((voucher, passes_on));
+                        }
+                    }
+                }
+                if next.is_empty() || remaining == 0 {
+                    break;
+                }
+                level = next;
+                remaining -= 1;
             }
         }
 
@@ -565,6 +581,21 @@ mod tests {
             let r2 = LastReport::<Test>::get().unwrap();
             assert_eq!(r2.members, 2);
             assert_eq!(r2.active_members, 1);
+        });
+    }
+
+    #[test]
+    fn cascade_slash_does_not_double_in_a_cycle() {
+        new_test_ext().execute_with(|| {
+            // 1 and 2 reputable in all suits (100 evidence each) so both can vouch; mutual cycle.
+            make_reputable(1);
+            make_reputable(2);
+            assert_ok!(Reputation::vouch(RuntimeOrigin::signed(1), 2u64, Suit::Commerce, 1));
+            assert_ok!(Reputation::vouch(RuntimeOrigin::signed(2), 1u64, Suit::Commerce, 1));
+            // 1 defrauds; the cascade must not loop back and slash 1 (or 2) twice.
+            assert_ok!(Reputation::report_fraud(RuntimeOrigin::root(), 1u64, Suit::Commerce, 100, 3));
+            assert_eq!(Evidence::<Test>::get(1u64, Suit::Commerce), 0); // culprit, once
+            assert_eq!(Evidence::<Test>::get(2u64, Suit::Commerce), 50); // sponsor loses ½, once (cycle guarded)
         });
     }
 
