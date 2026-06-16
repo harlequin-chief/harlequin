@@ -2151,6 +2151,7 @@ dependencies = [
  "polkadot-sdk-frame",
  "reputation-core",
  "scale-info",
+ "serde",
 ]
 
 [[package]]

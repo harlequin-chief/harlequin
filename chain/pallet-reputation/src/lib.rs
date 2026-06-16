@@ -29,6 +29,8 @@ pub use pallet::*;
     PartialOrd,
     Ord,
     Debug,
+    serde::Serialize,
+    serde::Deserialize,
 )]
 pub enum Suit {
     /// ♦ commerce / ambition
@@ -106,6 +108,25 @@ pub mod pallet {
     /// Current epoch number (drives recompute cadence + committee rotation, SPEC §2.2).
     #[pallet::storage]
     pub type Epoch<T> = StorageValue<_, u64, ValueQuery>;
+
+    /// Genesis: seed the founding cohort's objective evidence (§1.4), so the chain boots with members
+    /// who already have standing to bootstrap trust. Nothing here is reputation — only the evidence
+    /// inputs; reputation is still DERIVED on the first epoch recompute.
+    #[pallet::genesis_config]
+    #[derive(frame::prelude::DefaultNoBound)]
+    pub struct GenesisConfig<T: Config> {
+        /// `(account, suit, evidence_amount)` granted at genesis.
+        pub evidence: alloc::vec::Vec<(T::AccountId, Suit, u128)>,
+    }
+
+    #[pallet::genesis_build]
+    impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
+        fn build(&self) {
+            for (who, suit, amount) in &self.evidence {
+                Evidence::<T>::insert(who, *suit, *amount);
+            }
+        }
+    }
 
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -286,7 +307,7 @@ pub mod pallet {
 #[cfg(test)]
 mod tests {
     use crate as pallet_reputation;
-    use crate::{Epoch, Error, ReputationSnapshot, Suit};
+    use crate::{Epoch, Error, Evidence, ReputationSnapshot, Suit};
     use frame::testing_prelude::*;
 
     construct_runtime! {
@@ -345,6 +366,27 @@ mod tests {
                 Reputation::vouch(RuntimeOrigin::signed(1), 1u64, Suit::Commerce, 1),
                 Error::<Test>::SelfVouch
             );
+        });
+    }
+
+    #[test]
+    fn genesis_seeds_the_founding_cohort() {
+        // the chain boots with the founding cohort's evidence already in place (§1.4)
+        let mut ext: TestState = RuntimeGenesisConfig {
+            system: Default::default(),
+            reputation: pallet_reputation::GenesisConfig {
+                evidence: vec![(1u64, Suit::Commerce, 5), (2u64, Suit::Governance, 3)],
+            },
+        }
+        .build_storage()
+        .unwrap()
+        .into();
+        ext.execute_with(|| {
+            assert_eq!(Evidence::<Test>::get(1u64, Suit::Commerce), 5);
+            assert_eq!(Evidence::<Test>::get(2u64, Suit::Governance), 3);
+            // and the founders earn reputation on the first epoch recompute
+            assert_ok!(Reputation::advance_epoch(RuntimeOrigin::root()));
+            assert!(ReputationSnapshot::<Test>::get(1u64, Suit::Commerce) > 0);
         });
     }
 }
