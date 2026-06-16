@@ -1220,6 +1220,54 @@ mod tests {
     }
 
     #[test]
+    fn funnel_detector_cannot_be_evaded_by_atomizing_the_feeders() {
+        // Adversarial (campaña estrés tick 9): the in-concentration signal (§2d) measures the HHI of a
+        // target's inflow GROUPED BY the feeders' community. The obvious evasion is to atomize the feeders
+        // so they look like many independent communities, dragging the HHI down. It FAILS, by construction:
+        // funnelling onto a target makes that target the hub that bridges every feeder into ONE community
+        // (label propagation over the undirected projection), so the HHI stays ~1 and the signal fires.
+        // Two evasion shapes are checked — singleton feeders, and feeders paired with unique decoys —
+        // both trip the detector and stay contained far below an honest node with the SAME total evidence.
+        let mut agents = vec![
+            Agent::new("g0").genesis().with_evidence("commerce", 2.0),
+            Agent::new("h0").with_evidence("commerce", 10.0), // honest, total evidence 10
+            Agent::new("atom").with_evidence("commerce", 0.0),
+            Agent::new("frag").with_evidence("commerce", 0.0),
+        ];
+        let mut g = TrustGraph::new();
+        g.attest("g0", "h0", "commerce", 1.0);
+        // atomized funnel: 10 singleton feeders (total evidence 10) -> atom
+        for i in 0..10 {
+            let id = format!("fa{i}");
+            agents.push(Agent::new(&id).with_evidence("commerce", 1.0));
+            g.attest(&id, "atom", "commerce", 1.0);
+        }
+        // fragmented funnel: each feeder paired with a unique decoy, trying to split the inflow across
+        // 10 distinct communities -> drive the HHI down. The hub (frag) defeats it.
+        for i in 0..10 {
+            let f = format!("fc{i}");
+            let d = format!("dc{i}");
+            agents.push(Agent::new(&f).with_evidence("commerce", 1.0));
+            agents.push(Agent::new(&d).with_evidence("commerce", 1.0));
+            g.attest(&f, &d, "commerce", 5.0);
+            g.attest(&d, &f, "commerce", 5.0);
+            g.attest(&f, "frag", "commerce", 1.0);
+        }
+        let nodes: Vec<String> = agents.iter().map(|a| a.id.clone()).collect();
+        let label = g.communities("commerce", &nodes);
+        let sig = g.in_concentration_signals("commerce", &nodes, &label, 26.0);
+        // the detector fires on both shapes: inflow concentration stays high despite the atomization.
+        assert!(sig["atom"].0 > 0.9, "atomized funnel must still trip the HHI, was {}", sig["atom"].0);
+        assert!(sig["frag"].0 > 0.9, "fragmented funnel must still trip the HHI, was {}", sig["frag"].0);
+
+        let p = Params { community: true, in_concentration: true, ..Default::default() };
+        let rep = reputation_dimension(&agents, &g, "commerce", &p);
+        // both evasion targets stay far below an honest node with the SAME total feeder evidence (10).
+        assert!(rep["atom"] < rep["h0"] * 0.3, "atomized target not contained: atom={} h0={}", rep["atom"], rep["h0"]);
+        assert!(rep["frag"] < rep["h0"] * 0.3, "fragmented target not contained: frag={} h0={}", rep["frag"], rep["h0"]);
+    }
+
+    #[test]
     fn bribed_whale_vouch_does_not_buy_global_authority() {
         // Bribery attack (new 2026-06-16): a GENUINELY reputed whale `w0` (lots of real evidence) is
         // bribed to vouch a no-evidence target `x0`. This dodges the ring/in-concentration detectors
