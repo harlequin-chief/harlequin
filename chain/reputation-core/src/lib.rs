@@ -1163,4 +1163,49 @@ mod tests {
         // 3 colluders with total evidence 3 must NOT out-weigh honest with evidence 3 by inflating vouches
         assert!(colluders < rep["h0"] * 1.5, "mutual vouching amplified too much: colluders={colluders} h0={}", rep["h0"]);
     }
+
+    #[test]
+    fn bribed_whale_vouch_does_not_buy_global_authority() {
+        // Bribery attack (new 2026-06-16): a GENUINELY reputed whale `w0` (lots of real evidence) is
+        // bribed to vouch a no-evidence target `x0`. This dodges the ring/in-concentration detectors
+        // (a single trusted voucher is not a community and not a funnel). Within the bought suit, x0
+        // DOES gain delegated trust — that is correct EigenTrust, not a leak. The defences are:
+        //   (1) mass is conserved → the whale PAYS for the vouch out of its own standing (w0 drops);
+        //   (2) cross-suit conservative min (§1.2b) → x0 is empty in every OTHER suit, so its REAL
+        //       power (the min across suits, what consensus/vouching use) stays ~0.
+        // So buying one whale's vouch launders reputation in ONE suit but never buys global authority.
+        let agents = vec![
+            Agent::new("g0").genesis().with_evidence("commerce", 2.0).with_evidence("craft", 2.0),
+            // the whale: heavy evidence in BOTH suits (legitimately reputed)
+            Agent::new("w0").with_evidence("commerce", 20.0).with_evidence("craft", 20.0),
+            // an honest reference with modest, balanced evidence in both suits
+            Agent::new("h0").with_evidence("commerce", 3.0).with_evidence("craft", 3.0),
+            // the launderee: NO evidence anywhere, only the bought vouch (in commerce)
+            Agent::new("x0"),
+        ];
+        let mut g = TrustGraph::new();
+        g.attest("g0", "w0", "commerce", 1.0);
+        g.attest("g0", "w0", "craft", 1.0);
+        g.attest("g0", "h0", "commerce", 1.0);
+        g.attest("g0", "h0", "craft", 1.0);
+        // the bribe: the whale vouches the launderee HARD, but only in commerce
+        g.attest("w0", "x0", "commerce", 10.0);
+
+        let p = Params { community: true, in_concentration: true, ..Default::default() };
+        let commerce = reputation_dimension(&agents, &g, "commerce", &p);
+        let craft = reputation_dimension(&agents, &g, "craft", &p);
+
+        // (1) the whale paid: vouching x0 cost w0 commerce-standing vs its untouched craft-standing.
+        assert!(commerce["w0"] < craft["w0"], "the bribe must cost the whale (mass conserved): w0 commerce={} craft={}", commerce["w0"], craft["w0"]);
+
+        // (2) the real, cross-suit power is the conservative min — x0 is empty in craft → ~0.
+        let real_power = |id: &str| {
+            let mut v = BTreeMap::new();
+            v.insert("commerce".to_string(), commerce[id]);
+            v.insert("craft".to_string(), craft[id]);
+            conservative_aggregate(&v, true)
+        };
+        assert!(real_power("x0") < 1.0, "launderee real (min) power must be ~0, was {}", real_power("x0"));
+        assert!(real_power("h0") > real_power("x0") * 10.0, "balanced honest must dominate the launderee in real power: h0={} x0={}", real_power("h0"), real_power("x0"));
+    }
 }
