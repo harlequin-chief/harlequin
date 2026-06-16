@@ -205,6 +205,53 @@ mod tests {
         assert_eq!(sybils, 0, "sybils must not enter the committee, got {sybils}");
     }
 
+    /// Helper: worst |f64 − fixed-point| seat gap over a fine VRF-value grid, for a given lam.
+    fn max_seat_gap(lam: f64) -> i64 {
+        let lam_fp = (lam * FP as f64).round() as i128;
+        let mut max_gap = 0i64;
+        for vi in 0..=1000 {
+            let value = vi as f64 / 1000.0;
+            let value_fp = (value * FP as f64).round() as i128;
+            let f = sortition_seats(value, lam, 64) as i64;
+            let fp = sortition_seats_fp(value_fp, lam_fp, 64) as i64;
+            max_gap = max_gap.max((f - fp).abs());
+        }
+        max_gap
+    }
+
+    #[test]
+    fn sortition_is_faithful_in_the_safe_lam_range() {
+        // Macro-audit 2.2 (campaña estrés tick 2): pin the SAFE operating envelope of the fixed-point
+        // sortition. Per-node lam = tau * r/total (a node's EXPECTED committee seats). For lam <= 14
+        // the fixed-point seat count tracks the f64 oracle to within 2 seats across the whole VRF-value
+        // range. ABOVE lam~14 the integer Poisson recurrence drifts sharply (see the known-defect
+        // test). The chain MUST keep per-node lam inside this band — committee size << active population
+        // and the anti-concentration defences — for the sortition distribution to stay faithful.
+        for &lam in &[0.5, 1.0, 2.0, 5.0, 8.0, 10.0, 12.0, 14.0] {
+            assert!(max_seat_gap(lam) <= 2, "lam={lam}: seat gap {} exceeds 2 in the safe range", max_seat_gap(lam));
+        }
+    }
+
+    #[test]
+    fn known_defect_large_lam_underflow_collapses_cdf() {
+        // KNOWN DEFECT (documented, macroaudit §2.2 — 🟠→🔴 pre-mainnet). Two regimes, both make a
+        // high-lam (dominant) node's seat count diverge from the intended Poisson sortition:
+        //   * lam ~15..20: the integer term recurrence `term*lam/FP/i` accumulates truncation error,
+        //     flipping seat counts near the CDF's steep region (gaps of tens of seats, non-monotone).
+        //   * lam >~ 21: at FP=1e9, e^{-lam} underflows to 0; `poisson_cdf_fp` seeds its recurrence
+        //     from that 0, so the WHOLE CDF is identically 0 and `sortition_seats_fp` returns max_seats
+        //     for ANY VRF value — the node gets the seat cap deterministically.
+        // NOT a safety bug (deterministic across all nodes → no fork), but a fairness/anti-entrenchment
+        // defect (Art. VI): dominant nodes lose sortition proportionality and randomness. This test
+        // PINS the defect so a future numerically-stable fix (mode-anchored Poisson / higher internal
+        // precision) flips it on purpose and widens `sortition_is_faithful_in_the_safe_lam_range`.
+        assert!(max_seat_gap(15.0) >= 30, "term-recurrence drift should appear by lam=15");
+        assert_eq!(poisson_cdf_fp(0, (40.0 * FP as f64) as i128), 0, "e^-40 underflow: cdf(0) collapses to 0");
+        assert_eq!(poisson_cdf_fp(64, (40.0 * FP as f64) as i128), 0, "underflow zeroes the WHOLE recurrence");
+        assert_eq!(sortition_seats_fp(FP / 2, (40.0 * FP as f64) as i128, 64), 64, "collapsed CDF -> always the seat cap");
+        assert!(max_seat_gap(40.0) >= 60, "large-lam divergence from f64 is severe");
+    }
+
     #[test]
     fn deterministic_across_runs() {
         let reps: BTreeMap<String, i128> = (0..50).map(|i| (format!("h{i}"), FP)).collect();
