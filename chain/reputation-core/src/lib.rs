@@ -1076,4 +1076,91 @@ mod tests {
         assert!(rep["sybil"] < 1.0, "sybil should have ~0 reputation, was {}", rep["sybil"]);
         assert!(rep["h0"] > rep["sybil"] * 10.0, "honest must dominate the sybil");
     }
+
+    // ---- adversarial deepening (macro-audit 2026-06-16): probe attacks not in the base suite ----
+
+    #[test]
+    fn cross_community_collusion_without_evidence_gets_nothing() {
+        // The sophisticated ring: TWO groups that vouch ACROSS each other (not within), to dodge the
+        // community-suspicion detector (which looks at INTERNAL edges). With NO evidence, trust never
+        // flows into them (EigenTrust teleports to the evidence-anchored pre-trust) → ~0 regardless.
+        let mut agents = vec![
+            Agent::new("g0").genesis().with_evidence("commerce", 2.0),
+            Agent::new("h0").with_evidence("commerce", 5.0),
+        ];
+        for i in 0..3 {
+            agents.push(Agent::new(&format!("a{i}")));
+            agents.push(Agent::new(&format!("b{i}")));
+        }
+        let mut g = TrustGraph::new();
+        g.attest("g0", "h0", "commerce", 1.0);
+        // groups A and B vouch each other CROSS (a_i -> b_i and b_i -> a_i), heavy weight
+        for i in 0..3 {
+            g.attest(&format!("a{i}"), &format!("b{i}"), "commerce", 10.0);
+            g.attest(&format!("b{i}"), &format!("a{i}"), "commerce", 10.0);
+        }
+        let p = Params { community: true, in_concentration: true, ..Default::default() };
+        let rep = reputation_dimension(&agents, &g, "commerce", &p);
+        for i in 0..3 {
+            assert!(rep[&format!("a{i}")] < 1.0, "a{i} colluder should be ~0, was {}", rep[&format!("a{i}")]);
+            assert!(rep[&format!("b{i}")] < 1.0, "b{i} colluder should be ~0, was {}", rep[&format!("b{i}")]);
+        }
+        assert!(rep["h0"] > 600.0, "honest keeps its power, was {}", rep["h0"]);
+    }
+
+    #[test]
+    fn puppet_master_does_not_amplify_through_evidenceless_puppets() {
+        // A master with modest evidence vouches 15 puppets with NO evidence. Puppets gain only DELEGATED
+        // trust (at the master's own expense — mass is conserved), never an amplification. And since they
+        // have 0 in every other suit, the conservative min (used for real power) keeps them out anyway.
+        let mut agents = vec![
+            Agent::new("g0").genesis().with_evidence("commerce", 2.0),
+            Agent::new("h0").with_evidence("commerce", 5.0),
+            Agent::new("m0").with_evidence("commerce", 1.0),
+        ];
+        let mut g = TrustGraph::new();
+        g.attest("g0", "h0", "commerce", 1.0);
+        for i in 0..15 {
+            let p = format!("p{i}");
+            agents.push(Agent::new(&p));
+            g.attest("m0", &p, "commerce", 1.0);
+        }
+        let params = Params { community: true, in_concentration: true, ..Default::default() };
+        let rep = reputation_dimension(&agents, &g, "commerce", &params);
+        let puppets: f64 = (0..15).map(|i| rep[&format!("p{i}")]).sum();
+        // the master + all its puppets together cannot exceed the honest node that has 5x its evidence
+        assert!(rep["m0"] + puppets < rep["h0"], "puppet farm must not out-weigh honest: m0+puppets={} h0={}", rep["m0"] + puppets, rep["h0"]);
+        // each individual puppet is small
+        for i in 0..15 {
+            assert!(rep[&format!("p{i}")] < rep["h0"], "puppet p{i} too strong");
+        }
+    }
+
+    #[test]
+    fn mutual_vouch_amplification_is_damped() {
+        // 3 colluders with a little real evidence (1 each) vouch each other HEAVILY to inflate. Against
+        // an honest node with the SAME total evidence (3). The inbreeding damping (independence) + the
+        // community brake must keep the colluders from out-weighing the honest node.
+        let mut agents = vec![
+            Agent::new("g0").genesis().with_evidence("commerce", 2.0),
+            Agent::new("h0").with_evidence("commerce", 3.0),
+        ];
+        for i in 0..3 {
+            agents.push(Agent::new(&format!("c{i}")).with_evidence("commerce", 1.0));
+        }
+        let mut g = TrustGraph::new();
+        g.attest("g0", "h0", "commerce", 1.0);
+        for i in 0..3 {
+            for j in 0..3 {
+                if i != j {
+                    g.attest(&format!("c{i}"), &format!("c{j}"), "commerce", 10.0);
+                }
+            }
+        }
+        let p = Params { community: true, in_concentration: true, ..Default::default() };
+        let rep = reputation_dimension(&agents, &g, "commerce", &p);
+        let colluders: f64 = (0..3).map(|i| rep[&format!("c{i}")]).sum();
+        // 3 colluders with total evidence 3 must NOT out-weigh honest with evidence 3 by inflating vouches
+        assert!(colluders < rep["h0"] * 1.5, "mutual vouching amplified too much: colluders={colluders} h0={}", rep["h0"]);
+    }
 }
