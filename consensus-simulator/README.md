@@ -3,9 +3,8 @@
 The original consensus of Harlequin: security anchored in **earned reputation over time**
 (*reputation-time*), not in computation (proof of work) or capital (proof of stake).
 
-- **The paper:** [`PAPER-woven-trust.md`](PAPER-woven-trust.md) (English) ·
-  [`PAPER-confianza-tejida.md`](PAPER-confianza-tejida.md) (Spanish, secondary).
-- **The design notes:** [`DISENO-CONSENSO-TEJIDO.md`](DISENO-CONSENSO-TEJIDO.md) (working document).
+- **The paper:** [Woven Trust Consensus](../docs/woven-trust-consensus.md) (English) ·
+  [Consenso de Confianza Tejida](../docs/consenso-confianza-tejida.md) (Spanish, secondary).
 - **The simulator:** this directory (`wtc_sim/` + `run_consensus.py`).
 
 ## What the simulator shows

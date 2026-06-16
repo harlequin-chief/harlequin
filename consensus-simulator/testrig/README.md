@@ -1,6 +1,6 @@
 # Woven-Trust Consensus — faithful test-rig
 
-Step 1 of the chain path (`DECISION-STACK-CADENA.md §5`, decided 2026-06-15: Substrate). Before writing
+Step 1 of the chain path (the chain roadmap, decided 2026-06-15: Substrate). Before writing
 any Rust/Substrate runtime, validate the consensus under conditions the synchronous simulator
 (`../wtc_sim/`) abstracts away.
 
@@ -26,7 +26,7 @@ any Rust/Substrate runtime, validate the consensus under conditions the synchron
 
 ## Run
 ```
-python3 testrig/run_testrig.py        # from prototipos/consenso/ ; writes RESULTS-testrig.md
+python3 testrig/run_testrig.py        # from consensus-simulator/ ; writes RESULTS-testrig.md
 python3 testrig/tests/test_testrig.py # 9/9
 ```
 

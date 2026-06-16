@@ -1,10 +1,10 @@
 # chain/ — the Harlequin chain (Substrate)
 
 The real implementation of the Harlequin chain. Stack **decided 2026-06-15: Substrate** (Rust,
-sovereign solochain, custom Woven-Trust Consensus) — see `../DECISION-STACK-CADENA.md` and `SPEC §2.0`.
+sovereign solochain, custom Woven-Trust Consensus) — see the consensus paper in [`../docs/`](../docs/).
 
 **Method (quality over speed):** the model was first validated as executable prototypes
-(`../prototipos/reputacion/` 17/17, `../prototipos/consenso/` 13/13 + `testrig/` 11/11). Those remain
+(`../reputation-engine/` 17/17, `../consensus-simulator/` 13/13 + `testrig/` 11/11). Those remain
 the **guardrail**: the Rust implementation must reproduce their numbers. Nothing is written here on
 faith.
 
@@ -67,8 +67,8 @@ faith.
   (`log2`) are ported to fixed-point too (`elect_committee_fp`, `vouch_quota_fp`) — the whole path is
   integer-deterministic and `no_std`.
 
-## Path ahead (`DECISION-STACK-CADENA.md §5`)
-1. ~~Faithful consensus test-rig~~ — done (`../prototipos/consenso/testrig/`).
+## Path ahead (the chain roadmap)
+1. ~~Faithful consensus test-rig~~ — done (`../consensus-simulator/testrig/`).
 2. **Done — full parity:** the engine ported to Rust (`reputation-core/`), every piece cross-validated
    against the Python prototype (trust graph + damping, EigenTrust, community suspicion, in-concentration,
    decay, the sponsorship economy and cascade slashing).

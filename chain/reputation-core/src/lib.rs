@@ -1,8 +1,8 @@
 //! Harlequin reputation engine — Rust port of the validated Python prototype
-//! (`prototipos/reputacion/`, 17/17 tests). Foundation of the Substrate **reputation pallet**: the
+//! (`reputation-engine/`, 17/17 tests). Foundation of the Substrate **reputation pallet**: the
 //! full EigenTrust-with-anti-collusion-damping core, at parity with the prototype.
 //!
-//! SPEC.md anchors: §1 (reputation), §1.6 (anti-collusion damping). The four reputation dimensions are
+//! the spec anchors: §1 (reputation), §1.6 (anti-collusion damping). The four reputation dimensions are
 //! the four suits of Harlequin (LORE.md): commerce ♦, technical_contribution ♣, judicial_function ♠,
 //! governance ♥.
 //!

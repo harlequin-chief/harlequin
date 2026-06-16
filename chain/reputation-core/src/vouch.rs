@@ -1,5 +1,5 @@
 //! Vouching mechanics: sponsorship quota, persistent liability, mentor dividend and cascade slashing.
-//! Rust port of the validated prototype (`prototipos/reputacion/vouch.py`). SPEC §1.5c, §1.7.
+//! Rust port of the validated prototype (`reputation-engine/vouch.py`). SPEC §1.5c, §1.7.
 //!
 //! The incentive to sponsor is ONLY reputational and the sponsor->protege link is PERSISTENT:
 //! - negative: if the protege defrauds, the cascade slashing climbs the vouch chain (½ per hop) —

@@ -2,11 +2,11 @@
 
 ### Una seguridad que no se compra: la reputación ganada en el tiempo como cimiento de una cadena
 
-*Borrador — versión 0.1 · 2026-06-13 · texto de trabajo en español (canónico). La versión inglesa,
-para su publicación, vendrá después, como vino con la constitución.*
+*Versión 0.1 · texto en español (canónico). La versión inglesa nativa vive en
+[`woven-trust-consensus.md`](woven-trust-consensus.md).*
 
-> Este escrito acompaña al código que ya corre (`prototipos/reputacion/`) y al diseño que lo precede
-> (`DISENO-CONSENSO-TEJIDO.md`). Sigue la voz de Harlequin: declarativa, sobria, sin urgencia ni
+> Este escrito acompaña al código que ya corre (`reputation-engine/`) y al diseño que lo precede
+> (las notas de diseño del consenso). Sigue la voz de Harlequin: declarativa, sobria, sin urgencia ni
 > adorno vano. Mas no oculta lo que no sabe. **Donde una afirmación se sostiene en construcción o en
 > el prototipo, se dice firme; donde es apuesta de diseño, se confiesa apuesta; donde es problema sin
 > resolver, se nombra abierto.** No se reclama lo que no se ha probado.
@@ -96,7 +96,7 @@ tejido** —el grafo de confianza como topología— y **el decaimiento** como d
 ## 4. El sustrato: la reputación
 
 El consenso descansa sobre un motor de reputación que ya se ha construido y puesto a prueba
-(`prototipos/reputacion/`).
+(`reputation-engine/`).
 
 **Es contextual.** Un vector por seudónimo sobre dominios distintos —comercio, obra técnica, función
 judicial, gobierno—, ampliable. Ser buen comerciante no hace juez a nadie. Para las funciones que
@@ -280,7 +280,7 @@ uso, y —lo que más importa— **nace del manifiesto, no se le añade después
 
 Fiel a «calidad sobre prisa», **no se escribe la cadena hasta validar el modelo**:
 
-1. *Hecho.* Motor de reputación y simulaciones de ataque (`prototipos/reputacion/`, ocho de ocho
+1. *Hecho.* Motor de reputación y simulaciones de ataque (`reputation-engine/`, ocho de ocho
    pruebas en verde).
 2. *Siguiente.* Endurecer el motor contra la connivencia fina —anillos dispersos, dinámica temporal con
    decaimiento por época—. Frente primero.
@@ -310,4 +310,4 @@ una certeza, sino un cimiento —y la voluntad de probarlo antes de levantar sob
 - Ford — *Pseudonym Parties* (2008): prueba de persona presencial.
 - Consenso por prueba de trabajo y prueba de participación (2008–): tope, emisión y seguridad-por-coste, como contraste.
 - Friedman, *The Machinery of Freedom*; Benson, *The Enterprise of Law*: orden legal sin centro.
-- Proyecto Harlequin — `MANIFIESTO.md`, `SPEC.md`, `prototipos/reputacion/`.
+- Proyecto Harlequin — el manifiesto, la especificación, `reputation-engine/`.

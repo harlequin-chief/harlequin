@@ -88,5 +88,5 @@ where zero-knowledge / minimal-disclosure proofs plug in later (§1.8 open).
 5. Wire `elect_committee_fp` as committee/validator selection; offchain-worker recompute per the epoch
    flow above.
 6. Sub-sampled finality + light clients (§2.3). The async voting behaviour is already validated in the
-   Python test-rig (`prototipos/consenso/testrig/`, 11/11); the production transport is Substrate/libp2p,
+   Python test-rig (`consensus-simulator/testrig/`, 11/11); the production transport is Substrate/libp2p,
    not a re-port of the simulator.

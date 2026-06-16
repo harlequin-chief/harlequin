@@ -1,6 +1,6 @@
 # Harlequin reputation engine prototype
 
-The project's first **executable code**. It implements the core described in `SPEC.md §1`
+The project's first **executable code**. It implements the core described in the spec §1
 (reputation), `§1.6` (anti-collusion) and `§2.2` (consensus by reputation-weighted sortition), and
 **tests it with attack simulations**. Python 3 standard library only — **no external dependencies**
 (the project's OPSEC criterion).
@@ -25,7 +25,7 @@ personhood test.** Creating fake identities or farming vouches in a circle must 
 ## How to run
 
 ```bash
-cd prototipos/reputacion
+cd reputation-engine
 python3 run_all.py            # generates RESULTS.md
 python3 run_all.py --stdout   # also prints it
 python3 tests/test_engine.py  # self-audit (15 tests, no pytest)
@@ -34,7 +34,7 @@ python3 tests/test_engine.py  # self-audit (15 tests, no pytest)
 ## Layout
 
 ```
-prototipos/reputacion/
+reputation-engine/
 ├── harlequin_rep/          # the engine (package)
 │   ├── model.py            # dimensions (§1.2b) + agent with two gates (§1.4)
 │   ├── graph.py            # vouch graph + anti-collusion independence (§1.6)

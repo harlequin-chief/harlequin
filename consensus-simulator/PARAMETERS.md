@@ -58,7 +58,7 @@ A node finalises only after **12** consecutive rounds of the same supermajority.
   ~0.5 (i.e. f comfortably below threshold) — and the formula tells you the dial: to hold even at the
   metastable edge (worst case Q1≈0.5) to 10⁻⁶/10⁻⁹ you raise β to ~20/~30. β=12 is the operating-regime
   choice; β is the lever for edge-hardening.
-- **The resonance:** the Constitution has **twelve articles** (`MANIFIESTO.md`). The network confirms
+- **The resonance:** the Constitution has **twelve articles** (the manifesto). The network confirms
   a verdict **twelve times** before it is permanent — one confirmation per article it must not betray.
   Judgment is deliberate, never rushed: irreversibility is earned, like reputation itself.
 - Status: **PARAMETER** (β=12 for the operating regime; raise toward 20–30 for edge-margin; confirm

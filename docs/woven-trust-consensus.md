@@ -2,11 +2,11 @@
 
 ### A security that cannot be bought: earned reputation, over time, as the foundation of a chain
 
-*Draft — version 0.1 · 2026-06-13 · native English text (not a translation of the Spanish; written in
-English, as the manifesto was). The Spanish companion lives in `PAPER-confianza-tejida.md`.*
+*Version 0.1 · native English text (not a translation of the Spanish; written in English, as the
+manifesto was). The Spanish companion lives in [`consenso-confianza-tejida.md`](consenso-confianza-tejida.md).*
 
-> This paper accompanies code that already runs (`prototipos/reputacion/`) and the design that precedes
-> it (`DISENO-CONSENSO-TEJIDO.md`). It keeps Harlequin's voice: plain, sober, free of urgency and idle
+> This paper accompanies code that already runs (`reputation-engine/`) and the design that precedes
+> it (the consensus design notes). It keeps Harlequin's voice: plain, sober, free of urgency and idle
 > ornament. Yet it hides nothing it does not know. **Where a claim rests on construction or on the
 > prototype, it is stated firm; where it is a design wager, it is confessed a wager; where it is an
 > unsolved problem, it is named open.** Nothing is claimed that has not been shown.
@@ -98,7 +98,7 @@ weave** — the trust graph as topology — and **decay** as a twofold defence.
 
 ## 4. The substrate: reputation
 
-The consensus rests on a reputation engine already built and tested (`prototipos/reputacion/`).
+The consensus rests on a reputation engine already built and tested (`reputation-engine/`).
 
 **It is contextual.** One vector per pseudonym across distinct domains — commerce, technical work,
 judicial function, governance —, extensible. To be a good trader makes no one a judge. For functions
@@ -280,7 +280,7 @@ use — and, what matters most, **it is born of the manifesto, not added afterwa
 
 True to "quality over haste," **the chain is not written until the model is validated**:
 
-1. *Done.* The reputation engine and the attack simulations (`prototipos/reputacion/`, eight of eight
+1. *Done.* The reputation engine and the attack simulations (`reputation-engine/`, eight of eight
    tests green).
 2. *Next.* Harden the engine against subtle collusion — scattered rings, temporal dynamics with decay
    per epoch —. The first front.
@@ -310,4 +310,4 @@ offered here is not a certainty, but a foundation — and the will to test it be
 - Ford — *Pseudonym Parties* (2008): in-person proof of personhood.
 - Proof-of-work and proof-of-stake consensus (2008–): cap, emission and security-by-cost, as contrast.
 - Friedman, *The Machinery of Freedom*; Benson, *The Enterprise of Law*: legal order without a centre.
-- Harlequin project — `MANIFIESTO.md`, `SPEC.md`, `prototipos/reputacion/`.
+- Harlequin project — the manifesto, the spec, `reputation-engine/`.

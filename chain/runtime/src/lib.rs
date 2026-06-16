@@ -1,11 +1,11 @@
 //! Harlequin solochain runtime — the program a node executes.
 //!
-//! WIP: composes `frame_system` + the reputation pallet via `#[frame::runtime]`. Still to add for a
-//! node-runnable runtime: `impl_runtime_apis!` (Core/BlockBuilder/…), consensus (Aura/Grandpa or manual
-//! seal), and `substrate-wasm-builder` for the wasm blob. Reference: polkadot-sdk solochain template.
+//! Composes `frame_system` + the reputation pallet via `#[frame::runtime]`, building `std` and
+//! `no_std`/`wasm32`. The remaining pieces for a node-runnable runtime are tracked in
+//! [`../PALLET-DESIGN.md`]: the runtime APIs (`impl_runtime_apis!`), consensus, and the wasm builder.
 //!
 //! Sovereign chain, Woven-Trust consensus: the committee is elected by reputation
-//! (`consensus-core::elect_committee_fp`), not stake. See `../PALLET-DESIGN.md`.
+//! (`consensus-core::elect_committee_fp`), not stake. See [`../PALLET-DESIGN.md`](../PALLET-DESIGN.md).
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
