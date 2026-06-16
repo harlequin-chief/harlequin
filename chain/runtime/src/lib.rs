@@ -49,5 +49,6 @@ impl pallet_reputation::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     /// Evidence authority: root for now (a testnet placeholder for the pluggable proof system).
     type EvidenceOrigin = EnsureRoot<Self::AccountId>;
+    type JusticeOrigin = EnsureRoot<Self::AccountId>;
     type MaxVouches = ConstU32<128>;
 }

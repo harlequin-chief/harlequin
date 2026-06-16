@@ -75,6 +75,11 @@ pub mod pallet {
         /// hard-code it — it trusts this origin to have verified the proof.
         type EvidenceOrigin: EnsureOrigin<Self::RuntimeOrigin>;
 
+        /// Origin allowed to act on a proven-guilty fraud verdict (the justice function, §4). Like
+        /// `EvidenceOrigin`, the VERDICT is pluggable (a jury pallet, governance…); this pallet only
+        /// carries out the slashing once something it trusts has ruled.
+        type JusticeOrigin: EnsureOrigin<Self::RuntimeOrigin>;
+
         /// Max live vouches a single account can hold (bounds storage / PoV).
         #[pallet::constant]
         type MaxVouches: Get<u32>;
@@ -139,6 +144,8 @@ pub mod pallet {
         VouchRevoked { voucher: T::AccountId, target: T::AccountId, suit: Suit },
         /// A new epoch began.
         EpochAdvanced { epoch: u64 },
+        /// A proven fraud slashed `culprit` in `suit`; the loss cascaded up the vouch chain.
+        FraudSlashed { culprit: T::AccountId, suit: Suit, loss: u128 },
     }
 
     #[pallet::error]
@@ -224,9 +231,55 @@ pub mod pallet {
             Self::deposit_event(Event::EpochAdvanced { epoch });
             Ok(())
         }
+
+        /// Act on a proven-guilty fraud verdict (§1.7): slash the culprit's evidence in `suit` by
+        /// `loss`, and cascade the liability up the vouch chain — each sponsor up to `depth` hops loses
+        /// HALF of what their protégé lost (§1.5c, *you answer for whom you bring in*). Slashing hits the
+        /// EVIDENCE inputs, so the lower reputation persists through the next recompute. Gated by
+        /// `JusticeOrigin` (the pluggable verdict authority).
+        #[pallet::call_index(4)]
+        #[pallet::weight(Weight::from_parts(100_000, 0))]
+        pub fn report_fraud(
+            origin: OriginFor<T>,
+            culprit: T::AccountId,
+            suit: Suit,
+            loss: u128,
+            depth: u8,
+        ) -> DispatchResult {
+            T::JusticeOrigin::ensure_origin(origin)?;
+            Self::cascade_slash(&culprit, suit, loss, depth);
+            Self::deposit_event(Event::FraudSlashed { culprit, suit, loss });
+            Ok(())
+        }
     }
 
     impl<T: Config> Pallet<T> {
+        /// Slash `agent`'s evidence in `suit` by `amount`, then climb the vouch graph: every account
+        /// that vouched for `agent` in `suit` loses half, recursively, until `depth` runs out. Bounded
+        /// recursion (`depth: u8`). The liability is persistent (§1.5c): it follows the vouch edges.
+        fn cascade_slash(agent: &T::AccountId, suit: Suit, amount: u128, depth: u8) {
+            use alloc::vec::Vec;
+            if amount == 0 {
+                return;
+            }
+            Evidence::<T>::mutate(agent, suit, |e| *e = e.saturating_sub(amount));
+            if depth == 0 {
+                return;
+            }
+            let passes_on = amount / 2; // ½ per hop
+            if passes_on == 0 {
+                return;
+            }
+            // sponsors of `agent` in `suit` = accounts whose vouch edges point at it.
+            let sponsors: Vec<T::AccountId> = Vouches::<T>::iter()
+                .filter(|(_, edges)| edges.iter().any(|(t, s, _)| t == agent && *s == suit))
+                .map(|(voucher, _)| voucher)
+                .collect();
+            for sponsor in sponsors {
+                Self::cascade_slash(&sponsor, suit, passes_on, depth - 1);
+            }
+        }
+
         /// Recompute every member's reputation from the on-chain inputs (`Evidence` + `Vouches`) and
         /// overwrite `ReputationSnapshot`. Deterministic — it runs `reputation-core` on the fixed-point
         /// path, so every node derives the same numbers and can reject a wrong snapshot. The chain
@@ -325,6 +378,7 @@ mod tests {
     impl pallet_reputation::Config for Test {
         type RuntimeEvent = RuntimeEvent;
         type EvidenceOrigin = EnsureRoot<Self::AccountId>;
+        type JusticeOrigin = EnsureRoot<Self::AccountId>;
         type MaxVouches = ConstU32<64>;
     }
 
@@ -366,6 +420,20 @@ mod tests {
                 Reputation::vouch(RuntimeOrigin::signed(1), 1u64, Suit::Commerce, 1),
                 Error::<Test>::SelfVouch
             );
+        });
+    }
+
+    #[test]
+    fn fraud_slashes_culprit_and_cascades_to_sponsor() {
+        new_test_ext().execute_with(|| {
+            // sponsor 1 vouches for culprit 2; both have evidence
+            assert_ok!(Reputation::submit_evidence(RuntimeOrigin::root(), 1u64, Suit::Commerce, 100));
+            assert_ok!(Reputation::submit_evidence(RuntimeOrigin::root(), 2u64, Suit::Commerce, 100));
+            assert_ok!(Reputation::vouch(RuntimeOrigin::signed(1), 2u64, Suit::Commerce, 1));
+            // 2 defrauds: loses 100, the hit climbs ½ per hop up to depth 2
+            assert_ok!(Reputation::report_fraud(RuntimeOrigin::root(), 2u64, Suit::Commerce, 100, 2));
+            assert_eq!(Evidence::<Test>::get(2u64, Suit::Commerce), 0); // culprit wiped
+            assert_eq!(Evidence::<Test>::get(1u64, Suit::Commerce), 50); // sponsor answers for ½
         });
     }
 
