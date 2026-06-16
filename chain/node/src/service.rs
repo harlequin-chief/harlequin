@@ -218,13 +218,18 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
             task_manager.spawn_handle().spawn("block_authoring", None, async move {
                 loop {
                     futures_timer::Delay::new(std::time::Duration::from_millis(block_time)).await;
-                    sink.try_send(sc_consensus_manual_seal::EngineCommand::SealNewBlock {
+                    // Don't panic in the authoring loop (audit 2026-06-17): if the seal engine is gone
+                    // (node shutting down) stop cleanly; if its channel is momentarily full, skip this slot.
+                    if let Err(e) = sink.try_send(sc_consensus_manual_seal::EngineCommand::SealNewBlock {
                         create_empty: true,
                         finalize: true,
                         parent_hash: None,
                         sender: None,
-                    })
-                    .unwrap();
+                    }) {
+                        if e.is_disconnected() {
+                            break;
+                        }
+                    }
                 }
             });
 
