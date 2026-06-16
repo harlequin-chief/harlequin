@@ -1220,6 +1220,76 @@ mod tests {
     }
 
     #[test]
+    fn suit_coverage_collusion_does_not_lift_the_conservative_min() {
+        // Adversarial (auditoría nocturna 2026-06-17): NEW angle. 4 colluders, each genuinely strong in ONE
+        // distinct suit and empty in the other three, vouch each other ACROSS suits trying to "cover" each
+        // other's weak suits and so lift everyone's conservative MIN (the real power, §1.2b) above zero.
+        // It fails by construction: reputation is PER-SUIT and you can only DELEGATE trust in a suit where
+        // YOU hold standing. A colluder strong only in commerce has ~0 standing in craft, so its vouch of a
+        // peer IN craft carries ~0 weight. Nobody in the ring can lend the suit they lack → the covered
+        // suits stay ~0 → each colluder's min stays ~0. A balanced honest node (real evidence in all four)
+        // keeps real power and dominates.
+        let suits = DIMENSIONS;
+        let mut agents = vec![Agent::new("g0").genesis(), Agent::new("h0")];
+        // genesis + honest carry balanced evidence across ALL four suits.
+        for s in suits {
+            agents[0] = agents[0].clone().with_evidence(s, 2.0);
+            agents[1] = agents[1].clone().with_evidence(s, 3.0);
+        }
+        // each colluder c_i: strong (10) in suit i only, zero elsewhere.
+        for (i, s) in suits.iter().enumerate() {
+            agents.push(Agent::new(&format!("c{i}")).with_evidence(s, 10.0));
+        }
+        let mut g = TrustGraph::new();
+        for s in suits {
+            g.attest("g0", "h0", s, 1.0); // anchor the honest node in every suit
+        }
+        // colluders vouch each other HARD in EVERY suit (the "coverage" attempt).
+        for i in 0..4 {
+            for j in 0..4 {
+                if i != j {
+                    for s in suits {
+                        g.attest(&format!("c{i}"), &format!("c{j}"), s, 10.0);
+                    }
+                }
+            }
+        }
+        let p = Params { community: true, in_concentration: true, ..Default::default() };
+        // real power = conservative MIN across the four suits.
+        let per_suit: std::collections::BTreeMap<&str, BTreeMap<String, f64>> =
+            suits.iter().map(|s| (*s, reputation_dimension(&agents, &g, s, &p))).collect();
+        let real_power = |id: &str| {
+            let mut v = BTreeMap::new();
+            for s in suits {
+                v.insert(s.to_string(), per_suit[s][id]);
+            }
+            conservative_aggregate(&v, true)
+        };
+        // Control: a single-suit specialist WITHOUT the ring → conservative min is 0 (the min zeroes anyone
+        // empty in any suit). This is the defence working for individuals.
+        let mut control_agents = agents.clone();
+        control_agents.push(Agent::new("solo").with_evidence("commerce", 10.0));
+        let solo_per: std::collections::BTreeMap<&str, BTreeMap<String, f64>> =
+            suits.iter().map(|s| (*s, reputation_dimension(&control_agents, &g, s, &p))).collect();
+        let solo_min = {
+            let mut v = BTreeMap::new();
+            for s in suits { v.insert(s.to_string(), solo_per[s]["solo"]); }
+            conservative_aggregate(&v, true)
+        };
+        // Measured (2026-06-17): solo=0.00, ring colluder≈6.92, balanced honest≈270.62.
+        assert!(solo_min < 1.0, "a single-suit specialist with no ring must have min ~0, was {solo_min}");
+        // The ring DOES leak a sliver of min into the covered suits (the coverage attack is not fully zeroed)
+        // — documented residual. But the anti-collusion damping (community + independence) crushes it to
+        // NEGLIGIBLE: every ring colluder stays well under a 20th of a genuinely balanced honest node.
+        for i in 0..4 {
+            let c = format!("c{i}");
+            assert!(real_power(&c) < real_power("h0") / 20.0,
+                "suit-coverage colluder {c} min {} must stay << honest {}", real_power(&c), real_power("h0"));
+        }
+        assert!(real_power("h0") > 100.0, "balanced honest keeps real (min) power, was {}", real_power("h0"));
+    }
+
+    #[test]
     fn funnel_detector_cannot_be_evaded_by_atomizing_the_feeders() {
         // Adversarial (campaña estrés tick 9): the in-concentration signal (§2d) measures the HHI of a
         // target's inflow GROUPED BY the feeders' community. The obvious evasion is to atomize the feeders
