@@ -1165,6 +1165,61 @@ mod tests {
     }
 
     #[test]
+    fn fully_fixed_is_invariant_to_input_ordering() {
+        // Macro-audit 1.1 (campaña estrés tick 8): CONSENSUS-SAFETY property. Every node must compute the
+        // exact same reputation regardless of the order in which it received agents and attestation edges
+        // (different nodes see txs in different orders). f64 addition is not associative, and label
+        // propagation is order-sensitive — so this is not free; it holds only because every step uses
+        // BTreeMap/BTreeSet (sorted) or sorts explicitly (`communities`). This test PINS that invariant:
+        // swap a BTreeMap for a HashMap or drop a sort and consensus would silently fork — this goes red.
+        // Scenario exercises the order-sensitive paths: genesis + honest + a collusion ring + a funnel.
+        let agent_specs: Vec<(&str, bool, f64)> = vec![
+            ("g0", true, 2.0), ("h0", false, 5.0),
+            ("c0", false, 0.0), ("c1", false, 0.0), ("c2", false, 0.0),
+            ("f0", false, 1.0), ("f1", false, 1.0), ("f2", false, 1.0), ("k0", false, 0.0),
+        ];
+        let edge_specs: Vec<(&str, &str)> = vec![
+            ("g0", "h0"), ("c0", "c1"), ("c1", "c2"), ("c2", "c0"),
+            ("f0", "k0"), ("f1", "k0"), ("f2", "k0"),
+        ];
+        let p = Params { community: true, in_concentration: true, ..Default::default() };
+
+        let build = |agent_order: &[usize], edge_order: &[usize]| -> BTreeMap<String, i128> {
+            let agents: Vec<Agent> = agent_order.iter().map(|&i| {
+                let (id, gen, ev) = agent_specs[i];
+                let mut a = Agent::new(id);
+                if gen { a = a.genesis(); }
+                if ev > 0.0 { a = a.with_evidence("commerce", ev); }
+                a
+            }).collect();
+            let mut g = TrustGraph::new();
+            for &e in edge_order {
+                let (s, t) = edge_specs[e];
+                g.attest(s, t, "commerce", 1.0);
+            }
+            reputation_dimension_fully_fixed_fp(&agents, &g, "commerce", &p)
+        };
+
+        let n_a = agent_specs.len();
+        let n_e = edge_specs.len();
+        let forward_a: Vec<usize> = (0..n_a).collect();
+        let forward_e: Vec<usize> = (0..n_e).collect();
+        let rev_a: Vec<usize> = (0..n_a).rev().collect();
+        let rev_e: Vec<usize> = (0..n_e).rev().collect();
+        // a deterministic "shuffle" (odd indices first, then even) — a third distinct ordering.
+        let mut shuf_a: Vec<usize> = (0..n_a).filter(|i| i % 2 == 1).collect();
+        shuf_a.extend((0..n_a).filter(|i| i % 2 == 0));
+        let mut shuf_e: Vec<usize> = (0..n_e).filter(|i| i % 2 == 1).collect();
+        shuf_e.extend((0..n_e).filter(|i| i % 2 == 0));
+
+        let baseline = build(&forward_a, &forward_e);
+        assert_eq!(build(&rev_a, &rev_e), baseline, "reversed input order changed the on-chain reputation");
+        assert_eq!(build(&shuf_a, &shuf_e), baseline, "shuffled input order changed the on-chain reputation");
+        assert_eq!(build(&rev_a, &forward_e), baseline, "reversed agents (same edges) changed the result");
+        assert_eq!(build(&forward_a, &shuf_e), baseline, "reordered edges changed the result");
+    }
+
+    #[test]
     fn bribed_whale_vouch_does_not_buy_global_authority() {
         // Bribery attack (new 2026-06-16): a GENUINELY reputed whale `w0` (lots of real evidence) is
         // bribed to vouch a no-evidence target `x0`. This dodges the ring/in-concentration detectors
