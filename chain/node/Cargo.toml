@@ -1,0 +1,40 @@
+[package]
+name = "harlequin-node"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+description = "Harlequin node — the service that runs the chain (network, block authoring, RPC). Sovereign chain."
+
+[dependencies]
+harlequin-runtime = { path = "../runtime", features = ["std"] }
+# polkadot-sdk umbrella pinned to 2604.2.0 = frame 0.17.0 / sp-api 42 (CONFIRMED match with the runtime).
+# Pinning the umbrella keeps all sc-*/sp-* internally consistent (the unversioned-sc-* route picks ancient
+# crates and breaks). features: node (the client side) + experimental.
+polkadot-sdk = { version = "2604.2.0", features = ["experimental", "node"] }
+clap = { version = "4", features = ["derive"] }
+futures = "0.3"
+futures-timer = "3"
+jsonrpsee = { version = "0.24", features = ["server"] }
+serde_json = "1"
+# sp-* primitives the node glue uses directly (the polkadot-sdk umbrella does not re-export these at its
+# top level). Unversioned → cargo unifies them to the umbrella's already-locked versions.
+sp-runtime = "*"
+sp-io = "*"
+sp-timestamp = "*"
+sp-api = "*"
+sp-block-builder = "*"
+sp-genesis-builder = "*"
+
+[features]
+default = ["std"]
+std = ["harlequin-runtime/std", "polkadot-sdk/std"]
+
+[workspace]
+
+# core2 0.4.0 (needed transitively by multihash 0.17 → litep2p → sc-network) was YANKED from crates.io
+# (the author yanked the whole crate), so a fresh resolve fails. The source still exists on git; patch to it.
+# Authorised by Chief (2026-06-16). Pinned to an immutable rev for reproducibility (set after first resolve).
+[patch.crates-io]
+# rev 545e84b = "Bump version to 0.4.0" (the next commit deprecated/gutted the crate). Immutable pin =
+# the exact 0.4.0 source, reproducible. Widely-used crate (46M downloads), yanked wholesale by the author.
+core2 = { git = "https://github.com/bbqsrc/core2", rev = "545e84b" }
