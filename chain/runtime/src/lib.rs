@@ -51,4 +51,5 @@ impl pallet_reputation::Config for Runtime {
     type EvidenceOrigin = EnsureRoot<Self::AccountId>;
     type JusticeOrigin = EnsureRoot<Self::AccountId>;
     type MaxVouches = ConstU32<128>;
+    type VouchQuotaK = ConstU32<3>;
 }

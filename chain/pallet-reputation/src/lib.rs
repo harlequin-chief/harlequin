@@ -83,6 +83,11 @@ pub mod pallet {
         /// Max live vouches a single account can hold (bounds storage / PoV).
         #[pallet::constant]
         type MaxVouches: Get<u32>;
+
+        /// `k` in the sublinear sponsorship quota `floor(k · log2(1 + reputation))` (§1.5c): higher = more
+        /// vouches per unit of standing. Decreasing returns either way, so nobody monopolises sponsorship.
+        #[pallet::constant]
+        type VouchQuotaK: Get<u32>;
     }
 
     #[pallet::pallet]
@@ -156,6 +161,8 @@ pub mod pallet {
         TooManyVouches,
         /// Vouch weight must be non-zero.
         ZeroWeight,
+        /// The caller's reputation does not yet earn the right to cast another vouch (§1.5c quota).
+        VouchQuotaReached,
     }
 
     #[pallet::call]
@@ -191,6 +198,9 @@ pub mod pallet {
             let voucher = ensure_signed(origin)?;
             ensure!(voucher != target, Error::<T>::SelfVouch);
             ensure!(weight > 0, Error::<T>::ZeroWeight);
+            // sublinear sponsorship quota by reputation (§1.5c): you earn the right to vouch.
+            let current = Vouches::<T>::get(&voucher).len() as u64;
+            ensure!(current < Self::vouch_quota_of(&voucher), Error::<T>::VouchQuotaReached);
             Vouches::<T>::try_mutate(&voucher, |edges| {
                 edges
                     .try_push((target.clone(), suit, weight))
@@ -254,6 +264,27 @@ pub mod pallet {
     }
 
     impl<T: Config> Pallet<T> {
+        /// Live-vouch quota of `who` (§1.5c): `floor(k · log2(1 + reputation))`, where reputation is the
+        /// CONSERVATIVE MINIMUM across the four suits (§1.2b) — you cannot sponsor on the strength of one
+        /// suit alone; you must be trustworthy in all four. Reads the last epoch's snapshot.
+        pub fn vouch_quota_of(who: &T::AccountId) -> u64 {
+            let mut min_raw = i128::MAX;
+            for suit in Suit::ALL {
+                let r = ReputationSnapshot::<T>::get(who, suit);
+                if r < min_raw {
+                    min_raw = r;
+                }
+            }
+            if min_raw <= 0 {
+                return 0;
+            }
+            // The snapshot is raw fixed-point (network mass ≈ FP_SCALE); map it to the §1 display scale
+            // (×1000) so the log2 lands in a meaningful range.
+            let agg_fp = min_raw.saturating_mul(1000);
+            let k_fp = (T::VouchQuotaK::get() as i128).saturating_mul(reputation_core::FP_SCALE);
+            reputation_core::vouch::vouch_quota_fp(agg_fp, k_fp)
+        }
+
         /// Slash `agent`'s evidence in `suit` by `amount`, then climb the vouch graph: every account
         /// that vouched for `agent` in `suit` loses half, recursively, until `depth` runs out. Bounded
         /// recursion (`depth: u8`). The liability is persistent (§1.5c): it follows the vouch edges.
@@ -380,6 +411,7 @@ mod tests {
         type EvidenceOrigin = EnsureRoot<Self::AccountId>;
         type JusticeOrigin = EnsureRoot<Self::AccountId>;
         type MaxVouches = ConstU32<64>;
+        type VouchQuotaK = ConstU32<3>;
     }
 
     fn new_test_ext() -> TestState {
@@ -391,14 +423,37 @@ mod tests {
         new_test_ext().execute_with(|| {
             assert_ok!(Reputation::submit_evidence(RuntimeOrigin::root(), 1u64, Suit::Commerce, 5));
             assert_ok!(Reputation::submit_evidence(RuntimeOrigin::root(), 2u64, Suit::Commerce, 5));
-            assert_ok!(Reputation::vouch(RuntimeOrigin::signed(1), 2u64, Suit::Commerce, 1));
             assert_ok!(Reputation::advance_epoch(RuntimeOrigin::root()));
             assert_eq!(Epoch::<Test>::get(), 1);
-            // members who put in evidence/vouches earn standing
+            // members who put in evidence earn standing
             assert!(ReputationSnapshot::<Test>::get(1u64, Suit::Commerce) > 0);
             assert!(ReputationSnapshot::<Test>::get(2u64, Suit::Commerce) > 0);
             // an account that contributed nothing has zero standing (reputation is EARNED)
             assert_eq!(ReputationSnapshot::<Test>::get(99u64, Suit::Commerce), 0);
+        });
+    }
+
+    /// Give `who` enough evidence in every suit, then recompute, so it is reputable in all four and
+    /// has a positive vouch quota.
+    fn make_reputable(who: u64) {
+        for suit in Suit::ALL {
+            assert_ok!(Reputation::submit_evidence(RuntimeOrigin::root(), who, suit, 100));
+        }
+        assert_ok!(Reputation::advance_epoch(RuntimeOrigin::root()));
+    }
+
+    #[test]
+    fn vouch_needs_earned_reputation_quota() {
+        new_test_ext().execute_with(|| {
+            // no reputation yet -> quota 0 -> cannot vouch (§1.5c)
+            assert_noop!(
+                Reputation::vouch(RuntimeOrigin::signed(1), 2u64, Suit::Commerce, 1),
+                Error::<Test>::VouchQuotaReached
+            );
+            make_reputable(1);
+            assert!(Reputation::vouch_quota_of(&1) > 0);
+            // now the earned standing buys the right to sponsor
+            assert_ok!(Reputation::vouch(RuntimeOrigin::signed(1), 2u64, Suit::Commerce, 1));
         });
     }
 
@@ -426,8 +481,8 @@ mod tests {
     #[test]
     fn fraud_slashes_culprit_and_cascades_to_sponsor() {
         new_test_ext().execute_with(|| {
-            // sponsor 1 vouches for culprit 2; both have evidence
-            assert_ok!(Reputation::submit_evidence(RuntimeOrigin::root(), 1u64, Suit::Commerce, 100));
+            // sponsor 1 must be reputable in all suits to vouch; it holds 100 evidence in Commerce.
+            make_reputable(1);
             assert_ok!(Reputation::submit_evidence(RuntimeOrigin::root(), 2u64, Suit::Commerce, 100));
             assert_ok!(Reputation::vouch(RuntimeOrigin::signed(1), 2u64, Suit::Commerce, 1));
             // 2 defrauds: loses 100, the hit climbs ½ per hop up to depth 2
