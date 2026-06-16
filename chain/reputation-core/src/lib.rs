@@ -649,16 +649,20 @@ fn to_fp(x: f64) -> i128 {
     rounded as i128
 }
 
-/// Fixed-point multiply: (a·b) / SCALE. Inputs and output are FP_SCALE-scaled.
+/// Fixed-point multiply: (a·b) / SCALE. Inputs and output are FP_SCALE-scaled. `saturating_mul` so a
+/// pathologically large input clamps deterministically instead of WRAPPING (a silent wrap in consensus
+/// math would be catastrophic); for the normal range (values ≤ ~FP_SCALE) it never triggers.
 #[inline]
 pub(crate) fn fp_mul(a: i128, b: i128) -> i128 {
-    a * b / FP_SCALE
+    a.saturating_mul(b) / FP_SCALE
 }
 
-/// Fixed-point divide: (a·SCALE) / b. Inputs and output are FP_SCALE-scaled.
+/// Fixed-point divide: (a·SCALE) / b. Inputs and output are FP_SCALE-scaled. `saturating_mul` for the
+/// same overflow-safety reason; callers pass `b > 0` by construction (denominators are `FP_SCALE + …`
+/// or checked totals).
 #[inline]
 pub(crate) fn fp_div(a: i128, b: i128) -> i128 {
-    a * FP_SCALE / b
+    a.saturating_mul(FP_SCALE) / b
 }
 
 /// DETERMINISTIC EigenTrust in fixed-point (i128). Same algorithm as `reputation_dimension`, but the
