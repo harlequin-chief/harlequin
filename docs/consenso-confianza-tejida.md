@@ -32,9 +32,9 @@ que se pierde si se abandona. A eso lo llamamos **Consenso de Confianza Tejida**
 Toda blockchain responde, lo diga o no, a una sola pregunta: **¿qué bien escaso impide que un atacante
 se adueñe de la red?** La respuesta decide quién manda.
 
-- En **Bitcoin** (prueba de trabajo) el bien es el **cómputo**. La seguridad crece con la máquina y la
+- En la **prueba de trabajo** el bien es el **cómputo**. La seguridad crece con la máquina y la
   energía. De ahí su deriva: pocos mineros grandes, y un coste que se paga en kilovatios.
-- En **Ethereum** (prueba de participación) el bien es el **capital**. La seguridad crece con el dinero
+- En la **prueba de participación** el bien es el **capital**. La seguridad crece con el dinero
   inmovilizado. De ahí su raíz: el poder se compra.
 
 Ambas comparten un vicio que Harlequin no puede aceptar, pues su fundamento dice que «el peso de cada
@@ -85,8 +85,8 @@ Conviene la honradez: este consenso **recombina** piezas conocidas; no las inven
 - **Prueba de persona única** — Idena, *pseudonym parties*. Aquí da la **ciudadanía base**, no el poder.
 - **Reputación como prueba** — existe en la literatura menor, mas suele derivarla del capital o de la
   actividad, y a menudo transferible. Aquí se exige **intransferible, contextual, anclada y perecedera**.
-- **Dos capas ancladas** — Bitcoin y su capa rápida. Aquí la capa rápida se **enruta por confianza**,
-  no por azar.
+- **Dos capas ancladas** — una cadena base de liquidación y su capa rápida. Aquí la capa rápida se
+  **enruta por confianza**, no por azar.
 
 Lo propio de este consenso (§9) no son estas piezas, sino **el cimiento** —la reputación-tiempo—, **el
 tejido** —el grafo de confianza como topología— y **el decaimiento** como defensa doble.
@@ -294,8 +294,8 @@ Fiel a «calidad sobre prisa», **no se escribe la cadena hasta validar el model
 
 ## Epílogo
 
-*Bitcoin encareció el ataque con energía; Ethereum, con dinero; Harlequin lo encarece con tiempo y con
-confianza ganada —un bien que no se compra, no se computa y no se atesora, tejido en un grafo de
+*La prueba de trabajo encareció el ataque con energía; la prueba de participación, con dinero; Harlequin
+lo encarece con tiempo y con confianza ganada —un bien que no se compra, no se computa y no se atesora, tejido en un grafo de
 reputación que es, a un tiempo, la sociedad y su consenso. La propuesta es ambiciosa, y honrada: su
 corazón ya late y se mide; su prueba formal y la connivencia fina quedan por delante. No se ofrece aquí
 una certeza, sino un cimiento —y la voluntad de probarlo antes de levantar sobre él.*
@@ -308,7 +308,6 @@ una certeza, sino un cimiento —y la voluntad de probarlo antes de levantar sob
 - Kamvar, Schlosser, Garcia-Molina — *EigenTrust* (WWW 2003): reputación de grafo.
 - Page, Brin, Motwani, Winograd — *PageRank* (1999): y sus flaquezas ante la falsa multitud.
 - Ford — *Pseudonym Parties* (2008): prueba de persona presencial.
-- Nakamoto — *Bitcoin* (2008): tope y emisión; prueba de trabajo como contraste.
-- Buterin y otros — *Ethereum / Casper*: prueba de participación como contraste.
+- Consenso por prueba de trabajo y prueba de participación (2008–): tope, emisión y seguridad-por-coste, como contraste.
 - Friedman, *The Machinery of Freedom*; Benson, *The Enterprise of Law*: orden legal sin centro.
 - Proyecto Harlequin — `MANIFIESTO.md`, `SPEC.md`, `prototipos/reputacion/`.

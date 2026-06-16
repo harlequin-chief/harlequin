@@ -22,8 +22,8 @@ all, its heart — the **reputation engine**.
 
 Every blockchain rests on one question: *what scarce good keeps an attacker from seizing the network?*
 
-- **Bitcoin** makes the attack dear with **energy** (proof of work).
-- **Ethereum** makes it dear with **money** (proof of stake).
+- **Proof of work** makes the attack dear with **energy**.
+- **Proof of stake** makes it dear with **money**.
 
 In both, **power can be bought.** Harlequin proposes another foundation: **earned reputation over
 time** — a good that is *not bought, not computed, and not hoarded*. We call the consensus built upon
@@ -78,8 +78,8 @@ todo, su corazón — el **motor de reputación**.
 
 Toda blockchain descansa en una pregunta: *¿qué bien escaso impide que un atacante se adueñe de la red?*
 
-- **Bitcoin** encarece el ataque con **energía** (prueba de trabajo).
-- **Ethereum** lo encarece con **dinero** (prueba de participación).
+- La **prueba de trabajo** encarece el ataque con **energía**.
+- La **prueba de participación** lo encarece con **dinero**.
 
 En ambas, **el poder se compra.** Harlequin propone otro cimiento: la **reputación ganada en el
 tiempo** — un bien que *no se compra, no se computa y no se atesora*. Al consenso que se levanta sobre

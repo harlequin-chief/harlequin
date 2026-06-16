@@ -32,9 +32,9 @@ the judgement of equals — and that is lost if abandoned. We call it **Woven Tr
 Every blockchain answers, whether it says so or not, a single question: **what scarce good keeps an
 attacker from seizing the network?** The answer decides who rules.
 
-- In **Bitcoin** (proof of work) the good is **computation**. Security grows with the machine and the
+- In **proof of work** the good is **computation**. Security grows with the machine and the
   current. Hence its drift: a few large miners, and a cost paid in kilowatts.
-- In **Ethereum** (proof of stake) the good is **capital**. Security grows with the money locked away.
+- In **proof of stake** the good is **capital**. Security grows with the money locked away.
   Hence its root: power is bought.
 
 Both share a flaw that Harlequin cannot accept, for its foundation holds that "the weight of each one
@@ -88,8 +88,8 @@ Honesty is owed: this consensus **recombines** known pieces; it does not invent 
 - **Reputation as proof** — it exists in the lesser literature, yet it tends to derive reputation from
   capital or activity, and often transferable. Here it is required **non-transferable, contextual,
   anchored and perishable**.
-- **Two anchored layers** — Bitcoin and its fast layer. Here the fast layer is **routed by trust**, not
-  by chance.
+- **Two anchored layers** — a base settlement chain and its fast layer. Here the fast layer is **routed
+  by trust**, not by chance.
 
 What is this consensus's own (§9) is not these pieces, but **the foundation** — reputation-time —, **the
 weave** — the trust graph as topology — and **decay** as a twofold defence.
@@ -294,8 +294,8 @@ True to "quality over haste," **the chain is not written until the model is vali
 
 ## Epilogue
 
-*Bitcoin made the attack dear with energy; Ethereum, with money; Harlequin makes it dear with time and
-with earned trust — a good that is not bought, not computed and not hoarded, woven into a graph of
+*Proof of work made the attack dear with energy; proof of stake, with money; Harlequin makes it dear with
+time and with earned trust — a good that is not bought, not computed and not hoarded, woven into a graph of
 reputation that is, at once, the society and its consensus. The proposal is ambitious, and honest: its
 heart already beats and is measured; its formal proof and the subtle collusion lie ahead. What is
 offered here is not a certainty, but a foundation — and the will to test it before building upon it.*
@@ -308,7 +308,6 @@ offered here is not a certainty, but a foundation — and the will to test it be
 - Kamvar, Schlosser, Garcia-Molina — *EigenTrust* (WWW 2003): graph reputation.
 - Page, Brin, Motwani, Winograd — *PageRank* (1999): and its weaknesses before the false multitude.
 - Ford — *Pseudonym Parties* (2008): in-person proof of personhood.
-- Nakamoto — *Bitcoin* (2008): cap and emission; proof of work as contrast.
-- Buterin et al. — *Ethereum / Casper*: proof of stake as contrast.
+- Proof-of-work and proof-of-stake consensus (2008–): cap, emission and security-by-cost, as contrast.
 - Friedman, *The Machinery of Freedom*; Benson, *The Enterprise of Law*: legal order without a centre.
 - Harlequin project — `MANIFIESTO.md`, `SPEC.md`, `prototipos/reputacion/`.
