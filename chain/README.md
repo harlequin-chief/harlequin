@@ -40,6 +40,20 @@ faith.
   - Runnable demo: `cargo run -p protocol-core --example epochs` — 50 founders + 1000 Sybils over 3
     epochs; the Sybils never enter the committee and the telemetry JSON is printed each epoch.
 
+- **`pallet-reputation/`** — the reputation engine **on-chain**, as a Substrate (FRAME) pallet. Stores
+  the verifiable INPUTS — objective evidence per suit + the vouch graph — never an asserted reputation;
+  reputation is **derived** from them by `reputation-core` and recomputed each epoch, so every node
+  re-derives the same numbers and rejects a wrong one (no oracle). Calls: `submit_evidence` (gated by a
+  pluggable proof origin), `vouch` / `revoke_vouch` (with a sublinear, all-suits **quota** so nobody
+  monopolises sponsorship, §1.5c), `advance_epoch` (recompute + on-chain telemetry, §5c), `report_fraud`
+  (cascade slashing up the vouch chain, ½ per hop, §1.7). Genesis seeds the founding cohort (§1.4).
+  Builds `std` + `no_std`/`wasm32`. 9/9 tests on a mock runtime. Its own workspace (the FRAME tree stays
+  out of the lean cores).
+
+- **`runtime/`** — the **solochain runtime** a node executes: `frame_system` + `pallet-reputation`
+  composed via `#[frame::runtime]`, building `std` + `no_std`/`wasm32`. Still to add for a bootable node:
+  `impl_runtime_apis!`, consensus, and `substrate-wasm-builder` (see `PALLET-DESIGN.md`).
+
 ## Design
 - **`PALLET-DESIGN.md`** — how `reputation-core` becomes an on-chain reputation pallet: inputs on-chain
   (evidence + vouch graph), reputation **derived** and recomputed each epoch by an offchain worker
@@ -49,21 +63,24 @@ faith.
   bit-identical across architectures, cross-validated against f64) and the **`no_std` feature-gate**.
   `reputation-core` now builds for `wasm32-unknown-unknown` with `default-features = false`: the f64
   oracle/prototype path sits behind the `std` feature; the runtime links only the fixed-point path plus
-  the vouch registry. Remaining for the pallet: port the sortition (consensus-core) and vouch scoring
-  (`log2`) to fixed-point so the whole epoch machine is `no_std`.
+  the vouch registry. **Also done since:** the sortition (`consensus-core`) and the vouch scoring
+  (`log2`) are ported to fixed-point too (`elect_committee_fp`, `vouch_quota_fp`) — the whole path is
+  integer-deterministic and `no_std`.
 
 ## Path ahead (`DECISION-STACK-CADENA.md §5`)
 1. ~~Faithful consensus test-rig~~ — done (`../prototipos/consenso/testrig/`).
-2. **Done — full parity:** the engine is ported to Rust (`reputation-core/`), every piece
-   cross-validated against the Python prototype: trust graph + independence damping, EigenTrust
-   anchored in evidence, community suspicion, per-suit in-concentration, inactivity decay, the
-   sponsorship economy (quota, mentor dividend, graduation) and cascade slashing. **10/10 tests.**
-3. **Done:** `reputation-core` is `no_std` / `wasm32`-ready (fixed-point path + vouch registry).
-4. **Done:** the **epoch state machine** (`protocol-core/`) composes reputation + sortition into a
-   living chain (genesis → epochs → committee → telemetry).
-5. Wrap it as a **reputation pallet** + a minimal Substrate solochain with the genesis cohort (§1.4).
-6. Port sortition + vouch scoring to fixed-point so the whole epoch machine is `no_std`.
-7. Sub-sampled finality + light clients.
+2. **Done — full parity:** the engine ported to Rust (`reputation-core/`), every piece cross-validated
+   against the Python prototype (trust graph + damping, EigenTrust, community suspicion, in-concentration,
+   decay, the sponsorship economy and cascade slashing).
+3. **Done:** the whole stack is `no_std`/`wasm32` + deterministic fixed-point (reputation, sortition,
+   vouch scoring) — bit-identical across machines.
+4. **Done:** the **epoch state machine** (`protocol-core/`) — genesis → epochs → committee → telemetry.
+5. **Done:** the **reputation pallet** (`pallet-reputation/`) — inputs on-chain, reputation derived;
+   evidence, vouching with earned quota, recompute, genesis cohort, justice/slashing, telemetry.
+6. **Done:** the **runtime** (`runtime/`) composes the pallet into a Substrate runtime (`std` + `wasm`).
+7. **Next:** make the runtime node-runnable (`impl_runtime_apis!` + consensus + wasm-builder), then a
+   minimal solochain node that boots — committee selection by `elect_committee_fp`.
+8. Sub-sampled finality + light clients.
 
 ## Toolchain
 `rustup` (stable + nightly + `wasm32-unknown-unknown`) is installed on the station — enough to build the

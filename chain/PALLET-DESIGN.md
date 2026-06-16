@@ -3,13 +3,14 @@
 How the validated `reputation-core` engine becomes an on-chain Substrate pallet. Anchors:
 `SPEC §1` (reputation), `§1.4` (two gates / genesis), `§2.2` (sortition), `§4` (justice/slashing).
 
-**Status (2026-06-15): all the engine prerequisites are DONE.** The reputation engine, the sortition
-and the vouch scoring are ported to deterministic fixed-point and build `no_std`/`wasm32`; the epoch
-flow is implemented and tested as a host state machine (`protocol-core`). What remains is purely the
-Substrate scaffolding — which is **gated on one decision for Chief**: pulling the `polkadot-sdk`
-dependency tree onto the isolated station (multi-GB external supply chain — an OPSEC call, not the
-agent's to make unsupervised). Once greenlit, this pallet is a mechanical wrap of code that already
-exists and passes its tests.
+**Status (2026-06-16): the pallet is BUILT.** `pallet-reputation/` implements this design on
+`polkadot-sdk-frame` (Chief authorised pulling it): storage (Evidence, Vouches, ReputationSnapshot,
+Epoch, LastReport), calls (`submit_evidence`, `vouch`/`revoke_vouch` with the sublinear all-suits quota,
+`advance_epoch` = recompute + telemetry, `report_fraud` = cascade slashing), and a genesis cohort. It
+runs `reputation-core` on the deterministic fixed-point path, builds `std` + `no_std`/`wasm32`, and
+passes 9/9 mock-runtime tests. The `runtime/` crate composes it into a Substrate runtime. What remains is
+making the runtime node-runnable (`impl_runtime_apis!` + consensus + wasm-builder) and a booting node —
+the in-runtime recompute here is a testnet trigger; production moves it to the offchain worker below.
 
 ## Core principle: inputs on-chain, reputation DERIVED
 The chain stores the **verifiable inputs** — objective evidence per suit and the vouch graph — never a
