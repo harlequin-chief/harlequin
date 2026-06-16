@@ -415,15 +415,13 @@ mod tests {
     }
 
     #[test]
-    fn dominant_node_hits_sortition_collapse_but_gini_alarm_fires() {
-        // KNOWN DEFECT at the epoch level (campaña estrés tick 4, ties to consensus-core macroaudit §2.2):
-        // a node that GENUINELY dominates evidence across all suits, with a large tau, drives its
-        // lam = tau*share past ~21. The fixed-point Poisson then collapses (see consensus-core) and the
-        // node wins the seat CAP (64) on EVERY beacon — pinned, zero rotation, defeating Art. VI. The
-        // saving grace: such genuine dominance lights the Gini alarm (>0.8), so the concentration is at
-        // least VISIBLE on the telemetry panel even though the sortition silently worsens it. This test
-        // pins the behaviour so the future numerically-stable Poisson fix flips it (g0 should then win
-        // ~lam seats WITH rotation, not the cap).
+    fn dominant_node_rotates_instead_of_pinning_at_the_cap() {
+        // FIXED at the epoch level (campaña estrés tick 11, mode-anchored Poisson). A node that genuinely
+        // dominates evidence across all suits — with its expected seats lam HIGH but below the seat cap —
+        // used to win the cap (64) on EVERY beacon (the collapse, tick 4): zero rotation, defeating Art.
+        // VI. Now its seat count is Poisson-distributed and VARIES beacon to beacon (rotation restored),
+        // while the Gini alarm still flags the concentration on the telemetry. tau kept modest so lam
+        // stays under the 64 cap (above it, capping every beacon would be legitimate, not a defect).
         let mut cohort: Vec<Agent> = vec![];
         let mut g0 = Agent::new("g0").genesis();
         for d in DIMENSIONS {
@@ -437,7 +435,7 @@ mod tests {
             }
             cohort.push(a);
         }
-        let mut p = Protocol::genesis(cohort, base_params(), 120.0);
+        let mut p = Protocol::genesis(cohort, base_params(), 30.0);
         let mut g0_seats = std::collections::HashSet::new();
         let mut max_gini = 0.0f64;
         for b in ["beacon-A", "beacon-B", "beacon-C", "beacon-D", "beacon-E"] {
@@ -445,8 +443,9 @@ mod tests {
             g0_seats.insert(*r.committee.get("g0").unwrap_or(&0));
             max_gini = max_gini.max(r.gini);
         }
-        assert_eq!(g0_seats, std::collections::HashSet::from([64]), "collapse: g0 pinned at the seat cap every beacon (no rotation): {g0_seats:?}");
-        assert!(max_gini > 0.8, "the Gini alarm must fire on this concentration, was {max_gini}");
+        assert!(g0_seats.len() > 1, "fixed: a dominant node now ROTATES (varying seats), not pinned: {g0_seats:?}");
+        assert!(!g0_seats.contains(&64), "a below-cap dominant node must not be pinned at the seat cap: {g0_seats:?}");
+        assert!(max_gini > 0.6, "the Gini alarm still flags the concentration, was {max_gini}");
     }
 
     #[test]

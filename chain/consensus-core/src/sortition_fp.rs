@@ -10,12 +10,18 @@
 use crate::sha256::sha256;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
+use alloc::vec::Vec;
 
 /// Fixed-point scale, 1e9 — matches `reputation-core` so reputation values feed straight in.
 pub const FP: i128 = 1_000_000_000;
 
 /// e^{-1} * FP, rounded. The base of the integer-power range reduction.
 const E_INV_FP: i128 = 367_879_441;
+
+/// Anchor for the mode-anchored Poisson weights (1e18). Bigger than FP so the weights carry ~18 digits
+/// of dynamic range — enough that even the deep low tail (k ≪ mode) stays representable instead of
+/// underflowing to 0, which would otherwise distort the seat count of the very-lowest VRF draws.
+const POISSON_ANCHOR: i128 = 1_000_000_000_000_000_000;
 
 #[inline]
 fn fp_mul(a: i128, b: i128) -> i128 {
@@ -61,33 +67,84 @@ pub fn exp_neg_fp(lam_fp: i128) -> i128 {
     result.clamp(0, FP)
 }
 
-/// Poisson CDF `P(X <= j)` for mean `lam` (fixed-point), in `[0, FP]`. Iterative term:
-/// `term_0 = e^{-lam}`, `term_i = term_{i-1} * lam / i`.
+/// UNNORMALISED Poisson weights `w[k] ∝ P(X = k)`, indexed by `k` from 0, plus their total. Anchored at
+/// the MODE (`w[floor(lam)] = FP`) and recursed outward — `w[k+1] = w[k]·lam/(k+1)`, `w[k-1] = w[k]·k/lam`.
+/// The `e^{-lam}` factor of the true PMF is a constant that cancels once we normalise by the total, so it
+/// is NEVER computed: that is what kills the large-`lam` underflow that collapsed the old seeded-from-
+/// `e^{-lam}` recurrence (the dominant-node seat-cap bug, macroaudit §2.2). The outward loops stop when the
+/// weight underflows to 0, so the window self-sizes to the representable mass. `no_std` (alloc), no floats.
+fn poisson_weights_fp(lam_fp: i128) -> (Vec<i128>, i128) {
+    let m = (lam_fp / FP) as usize; // mode = floor(lam)
+    // upward from the mode: indices m, m+1, ...
+    let mut up: Vec<i128> = Vec::new();
+    let mut w = POISSON_ANCHOR;
+    up.push(w);
+    let mut k = m as i128;
+    loop {
+        w = w * lam_fp / FP / (k + 1); // w[k+1] = w[k]·lam/(k+1)
+        if w == 0 {
+            break;
+        }
+        up.push(w);
+        k += 1;
+    }
+    // downward from the mode: indices m-1, m-2, ... 0
+    let mut down: Vec<i128> = Vec::new();
+    let mut w = POISSON_ANCHOR;
+    let mut k = m as i128;
+    while k > 0 {
+        w = w * k * FP / lam_fp; // w[k-1] = w[k]·k/lam
+        if w == 0 {
+            break; // lower weights are negligible
+        }
+        down.push(w);
+        k -= 1;
+    }
+    let kmax = m + up.len() - 1;
+    let mut wts = alloc::vec![0i128; kmax + 1];
+    for (i, &v) in up.iter().enumerate() {
+        wts[m + i] = v;
+    }
+    for (i, &v) in down.iter().enumerate() {
+        wts[m - 1 - i] = v;
+    }
+    let total: i128 = wts.iter().sum();
+    (wts, total)
+}
+
+/// Poisson CDF `P(X <= j)` for mean `lam` (fixed-point), in `[0, FP]`. Mode-anchored + normalised so it
+/// stays accurate for the full `lam` range the sortition uses (no `e^{-lam}` underflow).
 pub fn poisson_cdf_fp(j: u32, lam_fp: i128) -> i128 {
     if lam_fp <= 0 {
         return FP;
     }
-    let mut term = exp_neg_fp(lam_fp);
-    let mut cdf = term;
-    for i in 1..=j {
-        term = term * lam_fp / FP / (i as i128);
-        cdf += term;
-        if term == 0 {
-            break;
-        }
+    let (wts, total) = poisson_weights_fp(lam_fp);
+    if total <= 0 {
+        return FP;
     }
-    cdf.min(FP)
+    let upper = (j as usize).min(wts.len() - 1);
+    let partial: i128 = wts[0..=upper].iter().sum();
+    (partial * FP / total).min(FP)
 }
 
 /// Inverse Poisson CDF: committee seats for a node with expected `lam` and VRF value `value_fp` in
-/// `[0, FP)`. `lam_fp <= 0 -> 0` seats. Capped at `max_seats`.
+/// `[0, FP)`. `lam_fp <= 0 -> 0` seats. Capped at `max_seats`. Builds the weight window ONCE and walks the
+/// cumulative — the smallest `j` with `value < CDF(j)`.
 pub fn sortition_seats_fp(value_fp: i128, lam_fp: i128, max_seats: u32) -> u32 {
     if lam_fp <= 0 {
         return 0;
     }
+    let (wts, total) = poisson_weights_fp(lam_fp);
+    if total <= 0 {
+        return 0;
+    }
+    let mut cum: i128 = 0;
     let mut j = 0;
     while j < max_seats {
-        if value_fp < poisson_cdf_fp(j, lam_fp) {
+        if let Some(&w) = wts.get(j as usize) {
+            cum += w;
+        }
+        if value_fp < (cum * FP / total).min(FP) {
             return j;
         }
         j += 1;
@@ -209,7 +266,9 @@ mod tests {
     fn max_seat_gap(lam: f64) -> i64 {
         let lam_fp = (lam * FP as f64).round() as i128;
         let mut max_gap = 0i64;
-        for vi in 0..=1000 {
+        // 1..1000: exclude the exact 0 and 1 endpoints — the VRF never emits them, and at the deep tail
+        // the f64 oracle's sub-1e-18 CDF is below any representable fixed-point resolution.
+        for vi in 1..1000 {
             let value = vi as f64 / 1000.0;
             let value_fp = (value * FP as f64).round() as i128;
             let f = sortition_seats(value, lam, 64) as i64;
@@ -220,36 +279,32 @@ mod tests {
     }
 
     #[test]
-    fn sortition_is_faithful_in_the_safe_lam_range() {
-        // Macro-audit 2.2 (campaña estrés tick 2): pin the SAFE operating envelope of the fixed-point
-        // sortition. Per-node lam = tau * r/total (a node's EXPECTED committee seats). For lam <= 14
-        // the fixed-point seat count tracks the f64 oracle to within 2 seats across the whole VRF-value
-        // range. ABOVE lam~14 the integer Poisson recurrence drifts sharply (see the known-defect
-        // test). The chain MUST keep per-node lam inside this band — committee size << active population
-        // and the anti-concentration defences — for the sortition distribution to stay faithful.
-        for &lam in &[0.5, 1.0, 2.0, 5.0, 8.0, 10.0, 12.0, 14.0] {
-            assert!(max_seat_gap(lam) <= 2, "lam={lam}: seat gap {} exceeds 2 in the safe range", max_seat_gap(lam));
+    fn sortition_matches_f64_across_the_full_lam_range() {
+        // Macro-audit 2.2 — FIXED (campaña estrés tick 11, mode-anchored Poisson). The fixed-point
+        // sortition now tracks the f64 oracle to within 2 seats across the WHOLE VRF-value range for the
+        // full span of per-node lam the consensus can see (lam = tau * r/total, capped by max_seats). The
+        // old version only held for lam <= 14 and collapsed to the seat cap for lam >~ 21; this is the
+        // regression guard that the fix holds end to end.
+        for &lam in &[0.5, 1.0, 2.0, 5.0, 8.0, 12.0, 16.0, 21.0, 30.0, 40.0, 50.0, 60.0] {
+            assert!(max_seat_gap(lam) <= 2, "lam={lam}: seat gap {} (fix should keep it tiny everywhere)", max_seat_gap(lam));
         }
     }
 
     #[test]
-    fn known_defect_large_lam_underflow_collapses_cdf() {
-        // KNOWN DEFECT (documented, macroaudit §2.2 — 🟠→🔴 pre-mainnet). Two regimes, both make a
-        // high-lam (dominant) node's seat count diverge from the intended Poisson sortition:
-        //   * lam ~15..20: the integer term recurrence `term*lam/FP/i` accumulates truncation error,
-        //     flipping seat counts near the CDF's steep region (gaps of tens of seats, non-monotone).
-        //   * lam >~ 21: at FP=1e9, e^{-lam} underflows to 0; `poisson_cdf_fp` seeds its recurrence
-        //     from that 0, so the WHOLE CDF is identically 0 and `sortition_seats_fp` returns max_seats
-        //     for ANY VRF value — the node gets the seat cap deterministically.
-        // NOT a safety bug (deterministic across all nodes → no fork), but a fairness/anti-entrenchment
-        // defect (Art. VI): dominant nodes lose sortition proportionality and randomness. This test
-        // PINS the defect so a future numerically-stable fix (mode-anchored Poisson / higher internal
-        // precision) flips it on purpose and widens `sortition_is_faithful_in_the_safe_lam_range`.
-        assert!(max_seat_gap(15.0) >= 30, "term-recurrence drift should appear by lam=15");
-        assert_eq!(poisson_cdf_fp(0, (40.0 * FP as f64) as i128), 0, "e^-40 underflow: cdf(0) collapses to 0");
-        assert_eq!(poisson_cdf_fp(64, (40.0 * FP as f64) as i128), 0, "underflow zeroes the WHOLE recurrence");
-        assert_eq!(sortition_seats_fp(FP / 2, (40.0 * FP as f64) as i128, 64), 64, "collapsed CDF -> always the seat cap");
-        assert!(max_seat_gap(40.0) >= 60, "large-lam divergence from f64 is severe");
+    fn large_lam_no_longer_collapses_to_the_seat_cap() {
+        // The dominant-node defect (was macroaudit §2.2 🟠→🔴) is FIXED by the mode-anchored Poisson:
+        // the e^{-lam} factor cancels in normalisation, so the CDF no longer underflows to 0 for large
+        // lam. A high-lam node now gets a Poisson-distributed seat count that SPREADS with the VRF value
+        // (proportionality + rotation restored, Art. VI) instead of the cap for every value.
+        let lam_fp = (40.0 * FP as f64) as i128;
+        // the CDF is a proper non-degenerate distribution: 0 at the low tail, ~full at the high tail.
+        assert!(poisson_cdf_fp(20, lam_fp) < FP / 100, "low tail near 0, was {}", poisson_cdf_fp(20, lam_fp));
+        assert!(poisson_cdf_fp(60, lam_fp) > FP * 99 / 100, "high tail near 1, was {}", poisson_cdf_fp(60, lam_fp));
+        // seats now SPREAD with the VRF value — a low value yields few seats, a high value many — not the cap.
+        assert!(sortition_seats_fp(FP / 100, lam_fp, 64) < 35, "low VRF value must NOT get the cap");
+        assert!(sortition_seats_fp(99 * FP / 100, lam_fp, 64) > 45, "high VRF value gets more seats");
+        // and it tracks the f64 oracle at this previously-broken lam.
+        assert!(max_seat_gap(40.0) <= 2, "lam=40 must now match f64, gap was {}", max_seat_gap(40.0));
     }
 
     /// Helper: (best seats found by grinding `trials` candidate keys, average seats) for a fixed lam+seed.
