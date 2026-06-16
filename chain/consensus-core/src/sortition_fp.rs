@@ -252,6 +252,42 @@ mod tests {
         assert!(max_seat_gap(40.0) >= 60, "large-lam divergence from f64 is severe");
     }
 
+    /// Helper: (best seats found by grinding `trials` candidate keys, average seats) for a fixed lam+seed.
+    fn grind_seats(lam: f64, seed: &str, trials: u32) -> (u32, f64) {
+        let lam_fp = (lam * FP as f64).round() as i128;
+        let (mut max_seats, mut sum) = (0u32, 0u64);
+        for i in 0..trials {
+            let s = sortition_seats_fp(vrf_value_fp(&format!("sk-attacker{i}"), seed), lam_fp, 64);
+            max_seats = max_seats.max(s);
+            sum += s as u64;
+        }
+        (max_seats, sum as f64 / trials as f64)
+    }
+
+    #[test]
+    fn known_defect_vrf_is_grindable_but_reputation_anchor_holds() {
+        // KNOWN DEFECT (campaña estrés tick 7, macroaudit §2.1): the sortition uses a SIMULATED VRF —
+        // value = SHA-256(sk|seed) — and the sk is DERIVED FROM A FREELY-CHOSEN id (protocol-core:
+        // sk-{id}; Art. VII lets a member pick their name). So a node can GRIND its id offline against a
+        // predictable epoch seed to lift its committee seats well above its fair share. This pins:
+        //   * the exploit: grinding ~400 ids ~doubles+ the seats vs the honest average (which tracks lam);
+        //   * the boundary that saves it from being catastrophic: a node with ZERO reputation (lam=0)
+        //     wins 0 seats no matter how hard it grinds — the reputation anchor (not the VRF) is the real
+        //     Sybil defence. Grinding only helps a node that ALREADY earned reputation, and only one-shot
+        //     per predictable seed (the id is a fixed identity; the epoch folds into the seed).
+        // The fix is macroaudit §2.1: a real ECVRF (committed keypair, not a choosable string) + a beacon
+        // unpredictable until after keys are committed. This test flips when that lands.
+        let seed = "beacon|epoch1";
+        for &lam in &[2.0, 5.0, 8.0] {
+            let (best, avg) = grind_seats(lam, seed, 400);
+            assert!((avg - lam).abs() < lam * 0.3, "sortition must be fair on average: lam={lam} avg={avg}");
+            assert!(best as f64 > avg * 1.8, "grinding should lift seats well above the fair share: lam={lam} best={best} avg={avg}");
+        }
+        // the anchor: zero reputation -> zero seats, grind as you like.
+        let (best0, _) = grind_seats(0.0, seed, 400);
+        assert_eq!(best0, 0, "a zero-reputation node wins no seats however much it grinds");
+    }
+
     #[test]
     fn deterministic_across_runs() {
         let reps: BTreeMap<String, i128> = (0..50).map(|i| (format!("h{i}"), FP)).collect();
