@@ -252,8 +252,27 @@ impl EpochReport {
     }
 }
 
+/// Escape a string for embedding in a JSON string literal. Node ids are member-chosen pseudonyms
+/// (Art. VII) and `seed` carries an external beacon, so this must handle the FULL set the JSON spec
+/// requires — not just `"` and `\`, but every control char U+0000..=U+001F — or a hostile id with a
+/// raw newline/control char would emit invalid JSON to the public telemetry panel (broken dashboard,
+/// or an injection vector). Dependency-free (no serde on the isolated station).
 fn json_escape(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('"', "\\\"")
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\u{08}' => out.push_str("\\b"),
+            '\u{0c}' => out.push_str("\\f"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -350,6 +369,25 @@ mod tests {
         ] {
             assert!(j.contains(key), "telemetry json missing {key}: {j}");
         }
+    }
+
+    #[test]
+    fn json_escape_neutralises_hostile_member_ids() {
+        // A node id is a member-chosen pseudonym (Art. VII) that ends up as a JSON string key in the
+        // public telemetry. The escaper must neutralise EVERY dangerous character class — quote,
+        // backslash and the full control range U+0000..=U+001F — or a hostile id breaks/injects the panel.
+        let hostile = "ev\"il\\back\nline\ttab\u{01}\u{1f}end";
+        let e = json_escape(hostile);
+        // no raw dangerous byte survives: the escaped form is pure printable ASCII+ (>= 0x20).
+        for b in e.bytes() {
+            assert!(b >= 0x20, "json_escape left a raw control byte {b:#x} in {e:?}");
+        }
+        // each class is represented by its proper escape sequence.
+        for needle in ["\\\"", "\\\\", "\\n", "\\t", "\\u0001", "\\u001f"] {
+            assert!(e.contains(needle), "missing escape {needle:?} in {e:?}");
+        }
+        // a benign id is left untouched.
+        assert_eq!(json_escape("alice_42"), "alice_42");
     }
 
     #[test]
