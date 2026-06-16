@@ -353,6 +353,65 @@ mod tests {
     }
 
     #[test]
+    fn funnelled_concentration_does_not_reach_the_sortition_collapse_band() {
+        // GOOD NEWS half of the tick-2 follow-up (campaña estrés tick 4): trying to MANUFACTURE a
+        // dominant node by funnelling trust onto g0 in every suit does NOT push its lam into the
+        // collapse band — the in-concentration + community damping caps what one node accrues from
+        // vouches, so Gini stays moderate and g0 still rotates (its seat count varies across beacons).
+        let cohort: Vec<Agent> = (0..12).map(|i| founder(&format!("g{i}"))).collect();
+        let mut p = Protocol::genesis(cohort, base_params(), 40.0);
+        for i in 1..12 {
+            for d in DIMENSIONS {
+                p.attest(&format!("g{i}"), "g0", d, 5.0);
+            }
+        }
+        let mut g0_seats = std::collections::HashSet::new();
+        let mut max_gini = 0.0f64;
+        for b in ["beacon-A", "beacon-B", "beacon-C", "beacon-D", "beacon-E"] {
+            let r = p.advance_epoch(b);
+            g0_seats.insert(*r.committee.get("g0").unwrap_or(&0));
+            max_gini = max_gini.max(r.gini);
+        }
+        assert!(max_gini < 0.6, "funnelling should not let one node dominate; Gini={max_gini}");
+        assert!(g0_seats.len() > 1, "g0 still rotates (varying seats across beacons): {g0_seats:?}");
+    }
+
+    #[test]
+    fn dominant_node_hits_sortition_collapse_but_gini_alarm_fires() {
+        // KNOWN DEFECT at the epoch level (campaña estrés tick 4, ties to consensus-core macroaudit §2.2):
+        // a node that GENUINELY dominates evidence across all suits, with a large tau, drives its
+        // lam = tau*share past ~21. The fixed-point Poisson then collapses (see consensus-core) and the
+        // node wins the seat CAP (64) on EVERY beacon — pinned, zero rotation, defeating Art. VI. The
+        // saving grace: such genuine dominance lights the Gini alarm (>0.8), so the concentration is at
+        // least VISIBLE on the telemetry panel even though the sortition silently worsens it. This test
+        // pins the behaviour so the future numerically-stable Poisson fix flips it (g0 should then win
+        // ~lam seats WITH rotation, not the cap).
+        let mut cohort: Vec<Agent> = vec![];
+        let mut g0 = Agent::new("g0").genesis();
+        for d in DIMENSIONS {
+            g0 = g0.with_evidence(d, 200.0);
+        }
+        cohort.push(g0);
+        for i in 1..12 {
+            let mut a = Agent::new(&format!("g{i}")).genesis();
+            for d in DIMENSIONS {
+                a = a.with_evidence(d, 1.0);
+            }
+            cohort.push(a);
+        }
+        let mut p = Protocol::genesis(cohort, base_params(), 120.0);
+        let mut g0_seats = std::collections::HashSet::new();
+        let mut max_gini = 0.0f64;
+        for b in ["beacon-A", "beacon-B", "beacon-C", "beacon-D", "beacon-E"] {
+            let r = p.advance_epoch(b);
+            g0_seats.insert(*r.committee.get("g0").unwrap_or(&0));
+            max_gini = max_gini.max(r.gini);
+        }
+        assert_eq!(g0_seats, std::collections::HashSet::from([64]), "collapse: g0 pinned at the seat cap every beacon (no rotation): {g0_seats:?}");
+        assert!(max_gini > 0.8, "the Gini alarm must fire on this concentration, was {max_gini}");
+    }
+
+    #[test]
     fn committee_is_deterministic_across_runs() {
         // the committee is now elected by the fixed-point sortition — bit-identical across runs,
         // the property a chain needs (every node must agree on the same committee).
