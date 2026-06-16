@@ -5,9 +5,23 @@
 //! deterministic fixed-point path — so every node can re-derive and reject a wrong result (no trusted
 //! oracle of who is reputable). See `../PALLET-DESIGN.md`.
 //!
-//! This increment implements the **storage + input extrinsics** (the "inputs on-chain" half). The epoch
-//! recompute that runs `reputation-core` over this storage and writes `ReputationSnapshot` is the next
-//! increment (PALLET-DESIGN "Epoch flow": offchain-worker recompute, verify-by-recompute).
+//! Implemented: storage (evidence, vouch graph, reputation snapshot, epoch, telemetry), the input calls
+//! (`submit_evidence`, `vouch`/`revoke_vouch` with a sublinear all-suits quota), `advance_epoch`
+//! (recompute + telemetry), `report_fraud` (cascade slashing), and a genesis cohort.
+//!
+//! ## Pre-mainnet notes (honest limitations)
+//! - **Weights are placeholders, not benchmarked.** They must be benchmarked before mainnet. The HEAVY
+//!   operations — `advance_epoch`/`recompute_reputation` (EigenTrust over the whole graph) and
+//!   `report_fraud` (`cascade_slash`, which scans `Vouches` once per hop) — are gated to PRIVILEGED
+//!   origins (root / `JusticeOrigin` / `EvidenceOrigin`), so they are not a public DoS vector today; the
+//!   only signed-user call, `vouch`, is bounded by `MaxVouches`. Still, the recompute must move to an
+//!   **offchain worker** (verify-by-recompute) before it runs on untrusted/large state (PALLET-DESIGN
+//!   "Epoch flow").
+//! - **`cascade_slash`** halves the loss per hop and is bounded by `depth`, but a *cyclic* vouch graph
+//!   can slash a node more than once on the way up. Bounded (depth + halving → 0); a future version may
+//!   track visited nodes.
+//! - **Evidence enters `reputation-core` as `f64`** (then to fixed-point): exact for realistic
+//!   magnitudes; astronomically large `u128` evidence would lose precision / saturate. Consider a cap.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
