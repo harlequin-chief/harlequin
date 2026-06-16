@@ -225,6 +225,48 @@ mod tests {
     }
 
     #[test]
+    fn cascade_is_proportional_decaying_and_consent_scoped() {
+        // Constitutional invariants of cascade slashing (Art. V bridge, SPEC §1.5d, campaña estrés tick 6).
+        // A sponsor loses standing NOT because another's act is charged to them, but because vouching is
+        // THEIR own act and it proved a bad judgement — and only ever an attenuated reflection of it:
+        //   (1) consent-scoped: only those who vouched are touched; an outsider is never slashed;
+        //   (2) proportional & strictly decaying up the chain (fraction < 1 per hop) — far sponsors lose
+        //       negligibly, so nobody is "stripped" for a distant protege's act;
+        //   (3) depth-bounded: beyond `depth` hops, no loss;
+        //   (4) floored at zero: reputation is a reflection, not a debt — it never goes negative.
+        let mut rep = BTreeMap::new();
+        for (id, r) in [("culprit", 100.0), ("s1", 100.0), ("s2", 100.0), ("s3", 100.0), ("outsider", 100.0)] {
+            rep.insert(id.to_string(), r);
+        }
+        let mut reg = VouchRegistry::new();
+        reg.sponsor_link("s1", "culprit");
+        reg.sponsor_link("s2", "s1");
+        reg.sponsor_link("s3", "s2");
+
+        // (1)+(2): ample depth — losses strictly decrease up the chain; outsider untouched.
+        let out = cascade_slashing(&rep, &reg, "culprit", 80.0, 0.5, 10);
+        let loss = |id: &str| rep[id] - out[id];
+        assert_eq!(loss("outsider"), 0.0, "consent-scoped: a non-sponsor is never slashed");
+        assert_eq!(loss("culprit"), 80.0, "the culprit takes the full hit");
+        assert!(loss("s1") > loss("s2") && loss("s2") > loss("s3"), "loss must strictly decay up the chain: s1={} s2={} s3={}", loss("s1"), loss("s2"), loss("s3"));
+        assert!(loss("s1") < loss("culprit"), "each sponsor loses strictly less than the protege");
+
+        // (3): depth limit respected — at depth=1 only the culprit's direct sponsor is touched.
+        let shallow = cascade_slashing(&rep, &reg, "culprit", 80.0, 0.5, 1);
+        assert!(rep["s1"] - shallow["s1"] > 0.0, "direct sponsor is touched within depth");
+        assert_eq!(shallow["s2"], rep["s2"], "beyond depth, no loss");
+        assert_eq!(shallow["s3"], rep["s3"], "beyond depth, no loss");
+
+        // (4): floored at zero — a huge loss never pushes anyone negative.
+        let mut poor = rep.clone();
+        poor.insert("s1".to_string(), 5.0);
+        let floored = cascade_slashing(&poor, &reg, "culprit", 1_000_000.0, 0.9, 10);
+        for v in floored.values() {
+            assert!(*v >= 0.0, "reputation is a reflection, not a debt: never negative, got {v}");
+        }
+    }
+
+    #[test]
     fn quota_is_sublinear() {
         assert_eq!(vouch_quota(0.0, 3.0), 0); // no reputation -> no sponsorship
         assert_eq!(vouch_quota(7.0, 3.0), 9); // floor(3*log2(8)) = 9
