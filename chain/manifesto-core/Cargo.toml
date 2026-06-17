@@ -1,0 +1,18 @@
+[package]
+name = "manifesto-core"
+version = "0.1.0"
+edition = "2021"
+description = "Harlequin manifesto seal — the immutable genesis vessel (canonical text + SHA-256), Art. XII. Dependency-free, no_std; reuses the project's hand-rolled SHA-256 from consensus-core."
+license = "AGPL-3.0-or-later"
+
+[dependencies]
+# Only for the shared hand-rolled SHA-256 (no_std, dep-free) so genesis and consensus hash identically.
+consensus-core = { path = "../consensus-core", default-features = false }
+
+[features]
+default = ["std"]
+std = ["consensus-core/std"]
+
+[lib]
+name = "manifesto_core"
+path = "src/lib.rs"
