@@ -51,8 +51,17 @@ Derived safety/liveness regimes + a faithful test-rig (async network, partition)
 ### Chain — the load-bearing structure  (`chain/`, in progress)
 A sovereign **Substrate** solochain (Rust) running WTC. Inputs on-chain (evidence + vouch graph),
 reputation **derived** and recomputed each epoch (verify-by-recompute, no trusted oracle). Light
-clients so it runs on a phone (Art. on accessibility). Being hardened for on-chain use (deterministic
-fixed-point arithmetic). See `chain/PALLET-DESIGN.md`.
+clients so it runs on a phone (Art. on accessibility). Deterministic fixed-point arithmetic throughout.
+See `chain/PALLET-DESIGN.md`.
+
+The node now authors under Woven-Trust: each slot it runs the reputation-weighted sortition
+(`consensus-core`) over the chain's own reputation, read through a runtime API (`consensus-api`), and
+only seals when elected — no placeholder seal. The **manifesto is sealed into the genesis block**
+(text + SHA-256, no mutator extrinsic, Art. XII) by `pallet-manifesto`, on the shared SHA-256 of
+`manifesto-core`; the founding cohort's reputation is derived at block 0. The voting core itself is
+ported and **cross-validated 13/13** against the reference simulator (Sybil, correlated blocs, adaptive
+adversary, loss, partition). The remaining layer is the networked finality gadget (multi-node Snowball
+voting); until then finality is trivial.
 
 ### Layers — the society itself (future)
 On the trust substrate: **identity** (pseudonymous, Art. VII) · **two currencies** (a scarce store of
