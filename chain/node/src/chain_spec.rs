@@ -13,7 +13,10 @@ pub type ChainSpec = sc_service::GenericChainSpec;
 
 fn props() -> Properties {
     let mut properties = Properties::new();
-    properties.insert("tokenDecimals".to_string(), 0.into());
+    // HLQ is the daily-use currency → it MUST be divisible (you pay fractions). 12 decimals is a sensible
+    // standard (final value is an economy decision, SPEC §3). 0 decimals (the template default) would make
+    // it indivisible — wrong for everyday money.
+    properties.insert("tokenDecimals".to_string(), 12.into());
     properties.insert("tokenSymbol".to_string(), "HLQ".into());
     properties
 }
