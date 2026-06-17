@@ -20,6 +20,9 @@
 use std::collections::BTreeMap;
 
 use consensus_core::elect_committee_fp;
+use consensus_core::sha256::sha256;
+use consensus_core::sim::{run_once, Adversary, Population, SplitMix64};
+use consensus_core::snowball::SnowballParams;
 use reputation_core::{
     reputation_dimension_fully_fixed_fp, Agent, Params, TrustGraph, DIMENSIONS, FP_SCALE,
 };
@@ -61,6 +64,10 @@ pub struct EpochReport {
     pub gini: f64,
     /// members present but with ~0 reputation and 0 seats (Sybils / freeloaders kept out).
     pub excluded: usize,
+    /// Liveness check of the REAL elected committee: did the honest committee reach finality on the
+    /// legitimate value this epoch? (Snowball voting over the committee, weighted by seats, no
+    /// adversary — the chain's own "can this committee decide?" signal, served in the telemetry.)
+    pub finalized: bool,
 }
 
 impl Protocol {
@@ -165,6 +172,32 @@ impl Protocol {
         let committee = elect_committee_fp(&scalar_fp, &self.secret_keys, &seed, self.tau.round() as u32);
         let committee_size: u32 = committee.values().sum();
 
+        // Liveness sanity: run the Snowball voting over the REAL elected committee (members weighted by
+        // their seats, all honest) and check it reaches finality. The adversarial analysis lives in
+        // `consensus-core::sim`; here we confirm the committee the chain actually elected can decide.
+        let finalized = if committee.is_empty() {
+            false
+        } else {
+            let reputation: Vec<f64> = committee.values().map(|&s| s as f64).collect();
+            let adversary = vec![false; committee.len()];
+            let pop = Population { reputation, adversary };
+            let digest = sha256(seed.as_bytes());
+            let mut rng_seed = 0u64;
+            for &b in &digest[..8] {
+                rng_seed = (rng_seed << 8) | b as u64;
+            }
+            let mut rng = SplitMix64::new(rng_seed);
+            let outcome = run_once(
+                &pop,
+                &SnowballParams::default(),
+                &mut rng,
+                true,
+                Adversary::Fixed,
+                0.0,
+            );
+            outcome.safe
+        };
+
         let values_fp: Vec<i128> = scalar_fp.values().cloned().collect();
         let total_reputation: f64 = values_fp.iter().map(|&r| r as f64 * scale).sum();
         let top_reputation = values_fp.iter().cloned().max().unwrap_or(0) as f64 * scale;
@@ -188,6 +221,7 @@ impl Protocol {
             top_reputation,
             gini,
             excluded,
+            finalized,
         }
     }
 }
@@ -237,7 +271,7 @@ impl EpochReport {
         format!(
             "{{\"epoch\":{},\"seed\":\"{}\",\"active_nodes\":{},\"committee_size\":{},\
 \"committee\":{},\"total_reputation\":{:.4},\"reputation_by_suit\":{},\
-\"top_reputation\":{:.4},\"gini\":{:.6},\"excluded\":{}}}",
+\"top_reputation\":{:.4},\"gini\":{:.6},\"excluded\":{},\"finalized\":{}}}",
             self.epoch,
             json_escape(&self.seed),
             self.active_nodes,
@@ -248,6 +282,7 @@ impl EpochReport {
             self.top_reputation,
             self.gini,
             self.excluded,
+            self.finalized,
         )
     }
 }
@@ -304,6 +339,17 @@ mod tests {
         assert!(r.committee_size > 0, "a committee must be elected, got {}", r.committee_size);
         // sortition is reputation-weighted around tau=30
         assert!(r.committee_size <= 40, "committee can't exceed members, got {}", r.committee_size);
+        // the honest elected committee reaches finality (liveness of the real committee)
+        assert!(r.finalized, "the honest committee should finalise");
+    }
+
+    #[test]
+    fn epoch_report_serialises_finalized() {
+        let cohort: Vec<Agent> = (0..40).map(|i| founder(&format!("g{i}"))).collect();
+        let mut p = Protocol::genesis(cohort, base_params(), 30.0);
+        let r = p.advance_epoch("beacon");
+        assert!(r.finalized);
+        assert!(r.to_json().contains("\"finalized\":true"), "telemetry must carry the finality flag");
     }
 
     #[test]
