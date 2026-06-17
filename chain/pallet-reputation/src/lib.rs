@@ -177,6 +177,12 @@ pub mod pallet {
             for (who, suit, amount) in &self.evidence {
                 Evidence::<T>::insert(who, *suit, *amount);
             }
+            // Derive the founding cohort's reputation at block 0 so the chain boots with a real,
+            // reputation-weighted committee (not a fallback). Reputation is still DERIVED, never
+            // asserted — genesis only seeds the evidence, the snapshot is computed from it.
+            if !self.evidence.is_empty() {
+                let _ = Pallet::<T>::recompute_reputation();
+            }
         }
     }
 
@@ -311,6 +317,33 @@ pub mod pallet {
     }
 
     impl<T: Config> Pallet<T> {
+        /// Per-account **consensus reputation** = the conservative MINIMUM across the four suits (§1.2b),
+        /// raw fixed-point i128, for every account with a positive value. This is what the node's
+        /// Woven-Trust sortition weights on; exposed to the node through the `HarlequinConsensusApi`
+        /// runtime API. Reads the last epoch's snapshot (read-only between epochs).
+        pub fn consensus_reputation() -> alloc::vec::Vec<(T::AccountId, i128)> {
+            use alloc::collections::BTreeSet;
+            // Candidate accounts: any that appear in the snapshot.
+            let mut accounts: BTreeSet<T::AccountId> = BTreeSet::new();
+            for (acc, _suit, _r) in ReputationSnapshot::<T>::iter() {
+                accounts.insert(acc);
+            }
+            let mut out = alloc::vec::Vec::new();
+            for acc in accounts {
+                let mut min_raw = i128::MAX;
+                for suit in Suit::ALL {
+                    let r = ReputationSnapshot::<T>::get(&acc, suit);
+                    if r < min_raw {
+                        min_raw = r;
+                    }
+                }
+                if min_raw > 0 {
+                    out.push((acc, min_raw));
+                }
+            }
+            out
+        }
+
         /// Live-vouch quota of `who` (§1.5c): `floor(k · log2(1 + reputation))`, where reputation is the
         /// CONSERVATIVE MINIMUM across the four suits (§1.2b) — you cannot sponsor on the strength of one
         /// suit alone; you must be trustworthy in all four. Reads the last epoch's snapshot.
