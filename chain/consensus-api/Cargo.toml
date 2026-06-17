@@ -1,0 +1,20 @@
+[package]
+name = "harlequin-consensus-api"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+description = "Runtime API that exposes on-chain consensus reputation to the node, so Woven-Trust sortition runs off real chain state."
+
+[dependencies]
+# Unversioned → cargo unifies to the polkadot-sdk umbrella version already locked by the runtime/node.
+sp-api = { version = "*", default-features = false }
+codec = { version = "3.7.5", package = "parity-scale-codec", default-features = false, features = ["derive"] }
+scale-info = { version = "2.11.6", default-features = false, features = ["derive"] }
+
+[features]
+default = ["std"]
+std = ["sp-api/std", "codec/std", "scale-info/std"]
+
+[lib]
+name = "harlequin_consensus_api"
+path = "src/lib.rs"
