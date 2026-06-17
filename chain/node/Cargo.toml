@@ -7,6 +7,10 @@ description = "Harlequin node — the service that runs the chain (network, bloc
 
 [dependencies]
 harlequin-runtime = { path = "../runtime", features = ["std"] }
+# Woven-Trust consensus core (dep-free, validated): reputation-weighted sortition gates block authoring.
+consensus-core = { path = "../consensus-core" }
+# Runtime API to read on-chain consensus reputation (drives the sortition off real chain state).
+harlequin-consensus-api = { path = "../consensus-api" }
 # polkadot-sdk umbrella pinned to 2604.2.0 = frame 0.17.0 / sp-api 42 (CONFIRMED match with the runtime).
 # Pinning the umbrella keeps all sc-*/sp-* internally consistent (the unversioned-sc-* route picks ancient
 # crates and breaks). Only the `node` (client) feature — `experimental` added nothing we use (lock unchanged).

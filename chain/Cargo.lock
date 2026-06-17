@@ -15,6 +15,13 @@ name = "consensus-core"
 version = "0.1.0"
 
 [[package]]
+name = "manifesto-core"
+version = "0.1.0"
+dependencies = [
+ "consensus-core",
+]
+
+[[package]]
 name = "protocol-core"
 version = "0.1.0"
 dependencies = [

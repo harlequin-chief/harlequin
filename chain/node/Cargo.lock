@@ -2495,6 +2495,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "consensus-core"
+version = "0.1.0"
+
+[[package]]
 name = "console"
 version = "0.15.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5675,12 +5679,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "harlequin-consensus-api"
+version = "0.1.0"
+dependencies = [
+ "parity-scale-codec",
+ "scale-info",
+ "sp-api",
+]
+
+[[package]]
 name = "harlequin-node"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "consensus-core",
  "futures",
  "futures-timer",
+ "harlequin-consensus-api",
  "harlequin-runtime",
  "jsonrpsee",
  "polkadot-sdk",
@@ -5698,7 +5713,9 @@ name = "harlequin-runtime"
 version = "0.1.0"
 dependencies = [
  "frame-system",
+ "harlequin-consensus-api",
  "pallet-balances",
+ "pallet-manifesto",
  "pallet-reputation",
  "pallet-sudo",
  "pallet-timestamp",
@@ -7753,6 +7770,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "manifesto-core"
+version = "0.1.0"
+dependencies = [
+ "consensus-core",
+]
+
+[[package]]
 name = "maplit"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9585,6 +9609,17 @@ dependencies = [
  "parity-scale-codec",
  "scale-info",
  "sp-runtime",
+]
+
+[[package]]
+name = "pallet-manifesto"
+version = "0.1.0"
+dependencies = [
+ "manifesto-core",
+ "parity-scale-codec",
+ "polkadot-sdk-frame",
+ "scale-info",
+ "serde",
 ]
 
 [[package]]

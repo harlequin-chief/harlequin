@@ -2,12 +2,15 @@
 
 use polkadot_sdk::{sc_cli::RunCmd, *};
 
-/// Block authoring engine for the (first) node: instant seal, or manual seal every N ms.
-/// Replaced by Woven-Trust (committee by reputation) later (SPEC §2).
+/// Block authoring engine. `instant-seal` / `manual-seal-<ms>` are the bootstrap engines; `woven-trust-
+/// <ms>` is the real one: each slot the node runs the reputation-weighted sortition and only authors
+/// when it is elected to the committee (SPEC §2). Step 1 gates authorship by sortition with trivial
+/// finality; the finality gadget (Snowball voting) lands in a later step.
 #[derive(Debug, Clone)]
 pub enum Consensus {
     ManualSeal(u64),
     InstantSeal,
+    WovenTrust(u64),
 }
 
 impl std::str::FromStr for Consensus {
@@ -18,6 +21,8 @@ impl std::str::FromStr for Consensus {
             Consensus::InstantSeal
         } else if let Some(block_time) = s.strip_prefix("manual-seal-") {
             Consensus::ManualSeal(block_time.parse().map_err(|_| "invalid block time")?)
+        } else if let Some(block_time) = s.strip_prefix("woven-trust-") {
+            Consensus::WovenTrust(block_time.parse().map_err(|_| "invalid block time")?)
         } else {
             return Err("incorrect consensus identifier".into());
         })
@@ -29,7 +34,8 @@ pub struct Cli {
     #[command(subcommand)]
     pub subcommand: Option<Subcommand>,
 
-    /// The consensus (block authoring) to use: `instant-seal` (default) or `manual-seal-<ms>`.
+    /// The consensus (block authoring) to use: `instant-seal` (default), `manual-seal-<ms>`, or
+    /// `woven-trust-<ms>` (reputation-weighted sortition gates authoring — the real engine).
     #[clap(long, default_value = "instant-seal")]
     pub consensus: Consensus,
 

@@ -253,7 +253,111 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
                 authorship_future,
             );
         },
+        Consensus::WovenTrust(block_time) => {
+            use harlequin_consensus_api::HarlequinConsensusApi;
+            use sp_api::ProvideRuntimeApi;
+            use sp_blockchain::HeaderBackend;
+
+            let (mut sink, commands_stream) = futures::channel::mpsc::channel(1024);
+            let api_client = client.clone();
+            // Step 2 — sortition off REAL on-chain reputation. Each slot the node reads the chain's
+            // consensus reputation (`HarlequinConsensusApi`) and runs the reputation-weighted sortition;
+            // it authors only when the sortition elects a committee for the slot. On a fresh chain with
+            // no reputation yet it falls back to a lone dev identity so the devnet still produces blocks.
+            // The per-author identity check (session keys) and the Snowball finality gadget are next.
+            task_manager.spawn_handle().spawn("woven-trust-authoring", None, async move {
+                use std::collections::BTreeMap;
+                let station = String::from("station");
+                let tau: u32 = 3; // expected committee seats
+                let mut slot: u64 = 0;
+                loop {
+                    futures_timer::Delay::new(std::time::Duration::from_millis(block_time)).await;
+                    slot += 1;
+
+                    // Read the chain's consensus reputation at the current best block.
+                    let at = api_client.info().best_hash;
+                    let onchain = api_client
+                        .runtime_api()
+                        .consensus_reputation(at)
+                        .unwrap_or_default();
+
+                    let mut reputation: BTreeMap<String, i128> = BTreeMap::new();
+                    let mut keys: BTreeMap<String, String> = BTreeMap::new();
+                    let using_chain = !onchain.is_empty();
+                    if using_chain {
+                        for (acc, rep) in &onchain {
+                            let id = hex32(acc);
+                            keys.insert(id.clone(), format!("sk-{id}"));
+                            reputation.insert(id, *rep);
+                        }
+                    } else {
+                        // Bootstrap fallback: a lone dev node so a fresh `--dev` chain still seals.
+                        reputation.insert(station.clone(), 1_000_000_000);
+                        keys.insert(station.clone(), String::from("sk-station-dev"));
+                    }
+
+                    // Fresh sortition seed each slot so the VRF draw rotates.
+                    let seed = format!("slot{slot}");
+                    let committee =
+                        consensus_core::elect_committee_fp(&reputation, &keys, &seed, tau);
+                    // Author when the slot's sortition produced a committee. With on-chain reputation a
+                    // non-empty committee means a block is produced this slot, driven by real reputation;
+                    // enforcing WHICH elected member authors lands with session keys.
+                    let elected = if using_chain {
+                        !committee.is_empty()
+                    } else {
+                        committee.contains_key(&station)
+                    };
+                    if !elected {
+                        continue; // not elected this slot -> do not author
+                    }
+                    if let Err(e) =
+                        sink.try_send(sc_consensus_manual_seal::EngineCommand::SealNewBlock {
+                            create_empty: true,
+                            finalize: true,
+                            parent_hash: None,
+                            sender: None,
+                        })
+                    {
+                        if e.is_disconnected() {
+                            break;
+                        }
+                    }
+                }
+            });
+
+            let params = sc_consensus_manual_seal::ManualSealParams {
+                block_import: client.clone(),
+                env: proposer,
+                client,
+                pool: transaction_pool,
+                select_chain,
+                commands_stream: Box::pin(commands_stream),
+                consensus_data_provider: None,
+                create_inherent_data_providers: move |_, ()| async move {
+                    Ok(sp_timestamp::InherentDataProvider::from_system_time())
+                },
+            };
+            let authorship_future = sc_consensus_manual_seal::run_manual_seal(params);
+
+            task_manager.spawn_essential_handle().spawn_blocking(
+                "woven-trust",
+                None,
+                authorship_future,
+            );
+        },
     }
 
     Ok(task_manager)
+}
+
+/// Lowercase hex of a 32-byte account id — a stable per-account string id for the sortition map.
+fn hex32(b: &[u8; 32]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut s = String::with_capacity(64);
+    for &byte in b {
+        s.push(HEX[(byte >> 4) as usize] as char);
+        s.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    s
 }
