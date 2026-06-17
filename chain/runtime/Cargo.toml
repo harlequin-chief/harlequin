@@ -10,6 +10,8 @@ codec = { version = "3.7.5", package = "parity-scale-codec", default-features = 
 scale-info = { version = "2.11.6", default-features = false, features = ["derive"] }
 frame = { version = "0.17.0", package = "polkadot-sdk-frame", default-features = false, features = ["runtime"] }
 pallet-reputation = { path = "../pallet-reputation", default-features = false }
+pallet-manifesto = { path = "../pallet-manifesto", default-features = false }
+harlequin-consensus-api = { path = "../consensus-api", default-features = false }
 pallet-timestamp = { version = "47.0.0", default-features = false }
 pallet-balances = { version = "49.0.0", default-features = false }
 pallet-sudo = { version = "48.0.0", default-features = false }
@@ -21,6 +23,7 @@ frame-system = { version = "47.0.0", default-features = false }
 default = ["std"]
 std = [
 	"codec/std", "scale-info/std", "frame/std", "frame-system/std", "pallet-reputation/std",
+	"pallet-manifesto/std", "harlequin-consensus-api/std",
 	"pallet-timestamp/std", "pallet-balances/std", "pallet-sudo/std",
 	"pallet-transaction-payment/std", "pallet-transaction-payment-rpc-runtime-api/std",
 	"substrate-wasm-builder",

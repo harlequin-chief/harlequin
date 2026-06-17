@@ -92,6 +92,9 @@ mod runtime {
 
     #[runtime::pallet_index(5)]
     pub type TransactionPayment = pallet_transaction_payment::Pallet<Runtime>;
+
+    #[runtime::pallet_index(6)]
+    pub type Manifesto = pallet_manifesto::Pallet<Runtime>;
 }
 
 #[derive_impl(frame_system::config_preludes::SolochainDefaultConfig)]
@@ -128,6 +131,11 @@ impl pallet_reputation::Config for Runtime {
     type VouchQuotaK = ConstU32<3>;
 }
 
+impl pallet_manifesto::Config for Runtime {
+    /// 64 KiB ceiling for the founding constitution (a charter, not a database).
+    type MaxManifestoLen = ConstU32<65536>;
+}
+
 /// Minimal genesis presets. Concrete genesis (founding cohort §1.4 + the manifesto sealed in block 0,
 /// task #26) is defined by the chain spec in the node crate; no built-in presets yet.
 mod genesis_config_presets {
@@ -138,7 +146,35 @@ mod genesis_config_presets {
     pub fn get_preset(id: &PresetId) -> Option<Vec<u8>> {
         let id: &str = id.as_ref();
         if id == sp_genesis_builder::DEV_RUNTIME_PRESET {
-            Some(b"{}".to_vec())
+            // --- Founding cohort (§1.4): well-known dev accounts seeded with objective evidence in all
+            // four suits, so the chain boots with members who already have standing. Reputation is
+            // DERIVED from this at block 0 (the pallet's genesis recompute), never asserted. ---
+            let founders = [
+                "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY", // Alice
+                "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty", // Bob
+                "5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS59Y", // Charlie
+                "5DAAnrj7VHTznn2AWBemMuyBwZWs6FNFjdyVXUeYum3PTXFy", // Dave
+                "5HGjWAeFDfFCWPsjFQdVV2Msvz2XtMktvgocEZcCj68kUMaw", // Eve
+                "5CiPPseXPECbkjWCa6MnjNokrgYjMqmKndv2rSnekmSK2DjL", // Ferdie
+            ];
+            let suits = ["Commerce", "Technical", "Judicial", "Governance"];
+            let mut ev: Vec<alloc::string::String> = Vec::new();
+            for f in founders {
+                for s in suits {
+                    ev.push(alloc::format!("[\"{f}\",\"{s}\",1000]"));
+                }
+            }
+            let evidence = ev.join(",");
+
+            // --- Manifesto sealed into block 0 (Art. XII). Placeholder until the freeze. ---
+            let text: &[u8] = b"HARLEQUIN -- founding manifesto placeholder. The final constitution is \
+sealed into genesis at the freeze, after the adversarial audit (Art. XII, Permanence).";
+            let bytes = text.iter().map(|b| alloc::format!("{b}")).collect::<Vec<_>>().join(",");
+
+            let json = alloc::format!(
+                "{{\"reputation\":{{\"evidence\":[{evidence}]}},\"manifesto\":{{\"text\":[{bytes}]}}}}"
+            );
+            Some(json.into_bytes())
         } else {
             None
         }
@@ -239,6 +275,15 @@ impl_runtime_apis! {
     impl apis::AccountNonceApi<Block, interface::AccountId, interface::Nonce> for Runtime {
         fn account_nonce(account: interface::AccountId) -> interface::Nonce {
             System::account_nonce(account)
+        }
+    }
+
+    impl harlequin_consensus_api::HarlequinConsensusApi<Block> for Runtime {
+        fn consensus_reputation() -> Vec<([u8; 32], i128)> {
+            pallet_reputation::Pallet::<Runtime>::consensus_reputation()
+                .into_iter()
+                .map(|(acc, rep)| (acc.into(), rep))
+                .collect()
         }
     }
 
