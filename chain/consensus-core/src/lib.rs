@@ -17,6 +17,7 @@
 
 extern crate alloc;
 
+pub mod finality;
 pub mod sha256;
 #[cfg(feature = "std")]
 pub mod sim;
@@ -25,6 +26,7 @@ pub mod sortition_fp;
 #[cfg(feature = "std")]
 pub mod vrf;
 
+pub use finality::{FinalityRound, Hash as FinalityHash};
 pub use snowball::{SnowballNode, SnowballParams};
 pub use sortition_fp::{
     elect_committee_fp, exp_neg_fp, poisson_cdf_fp, sortition_seats_fp, vrf_value_fp,
