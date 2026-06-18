@@ -58,11 +58,21 @@ pub const ENGINE_ID: sp_runtime::ConsensusEngineId = *b"WTC1";
 
 /// Confirmations before a height is irreversible. TESTNET value (production: `consensus-simulator/PARAMETERS.md` beta=12).
 const FINALITY_BETA: u32 = 4;
-/// Expected committee seats elected from reputation (sortition `tau`).
-const COMMITTEE_TAU: u32 = 3;
-/// Seed for the finality committee election. Constant for now → a stable committee across heights;
-/// per-epoch rotation (binding to the epoch) is the next increment (step 3c).
+/// Expected committee seats elected from reputation (sortition `tau`). TESTNET value over the small dev
+/// cohort; production τ=60 (the rotating jury ♠) comes from `consensus-simulator/PARAMETERS.md` at the pre-mainnet gate.
+const COMMITTEE_TAU: u32 = 4;
+/// Blocks per finality epoch. The committee is re-drawn each epoch (Art. VI — no one keeps power), so the
+/// election seed is bound to the epoch number, not constant. TESTNET cadence (fast rotation for
+/// validation); production epoch length comes from `consensus-simulator/PARAMETERS.md` at the pre-mainnet gate.
+const EPOCH_LENGTH: u32 = 10;
+/// Base seed for the finality-committee sortition; the epoch number is appended so the jury rotates.
 const COMMITTEE_SEED: &str = "hlq-finality-committee";
+
+/// The finality epoch a block height belongs to. Deterministic from the height, so every node agrees on
+/// which committee secures which block.
+fn epoch_of(height: u32) -> u32 {
+    height / EPOCH_LENGTH
+}
 
 /// A finality vote: "at `height`, I prefer block `hash`." `voter` is a stable per-node id (dedup +
 /// committee/quorum counting). Fixed 72-byte wire layout — dependency-free, deterministic.
@@ -259,8 +269,8 @@ async fn run_worker(
     // votes. The FULL `Vote` (signer + signature) is kept so the finality justification can carry the
     // signed-vote proof that any peer verifies on import (step 3b).
     let mut votes: BTreeMap<[u8; 32], Vote> = BTreeMap::new();
-    // Finality committee (reputation accounts) for the current height; refreshed each tick.
-    let mut committee: BTreeSet<[u8; 32]> = committee_set(&client);
+    // Finality committee (reputation accounts) for the current height's epoch; refreshed each tick.
+    let mut committee: BTreeSet<[u8; 32]> = committee_for_height(&client, height);
     let mut votes_rx = gossip.lock().expect("gossip mutex").messages_for(topic(height as u64));
 
     let mut timer = futures_timer::Delay::new(std::time::Duration::from_millis(round_ms)).fuse();
@@ -279,9 +289,9 @@ async fn run_worker(
                     continue;
                 }
 
-                // Refresh the committee elected from on-chain reputation (sortition). No cohort yet
-                // (fresh chain) -> empty committee -> no finality until reputation exists.
-                committee = committee_set(&client);
+                // Refresh the committee for THIS height's epoch (sortition over reputation at the epoch
+                // start). No cohort yet (fresh chain) -> empty committee -> no finality until it exists.
+                committee = committee_for_height(&client, height);
                 let committee_size = committee.len() as u32;
                 if committee_size == 0 {
                     continue;
@@ -378,12 +388,21 @@ fn target_hash(client: &Arc<FullClient>, height: u32) -> Option<([u8; 32], bool)
     }
 }
 
-/// The finality committee at the current best block: the reputation accounts the sortition elects
-/// (reputation-weighted, deterministic from on-chain state + `COMMITTEE_SEED`). Only these accounts'
-/// signed votes count toward finality. Empty on a fresh chain with no consensus reputation yet.
-fn committee_set(client: &Arc<FullClient>) -> BTreeSet<[u8; 32]> {
+/// The finality committee securing a block at `height`: the reputation accounts the sortition elects for
+/// that block's EPOCH. The election seed is bound to the epoch (`COMMITTEE_SEED-{epoch}`) so the jury
+/// **rotates** each epoch (Art. VI — no one keeps power, step 3d), and the reputation snapshot is read at
+/// the epoch's first block so every node — voter, importer, follower — agrees on the same committee for a
+/// given block regardless of when it evaluates. Empty on a fresh chain with no consensus reputation yet.
+fn committee_for_height(client: &Arc<FullClient>, height: u32) -> BTreeSet<[u8; 32]> {
     use harlequin_consensus_api::HarlequinConsensusApi;
-    let at = client.info().best_hash;
+    let epoch = epoch_of(height);
+    // Reputation snapshot pinned to the epoch's first block (genesis for epoch 0). Pinning makes the
+    // committee a deterministic function of (epoch), not of each node's fleeting best block.
+    let epoch_start = epoch * EPOCH_LENGTH;
+    let at = match client.hash(epoch_start) {
+        Ok(Some(h)) => h,
+        _ => client.info().best_hash, // epoch start not on chain yet -> best-effort
+    };
     let onchain = client.runtime_api().consensus_reputation(at).unwrap_or_default();
     if onchain.is_empty() {
         return BTreeSet::new();
@@ -395,7 +414,8 @@ fn committee_set(client: &Arc<FullClient>) -> BTreeSet<[u8; 32]> {
         keys.insert(id.clone(), format!("sk-{id}"));
         reputation.insert(id, *rep);
     }
-    let elected = consensus_core::elect_committee_fp(&reputation, &keys, COMMITTEE_SEED, COMMITTEE_TAU);
+    let seed = format!("{COMMITTEE_SEED}-{epoch}");
+    let elected = consensus_core::elect_committee_fp(&reputation, &keys, &seed, COMMITTEE_TAU);
     // Map the elected ids (hex of the account) back to the 32-byte accounts.
     onchain
         .iter()
@@ -536,7 +556,7 @@ where
             if let Some(proof) = justifications.get(ENGINE_ID) {
                 let hash = block.post_hash();
                 let number = (*block.header.number()) as u64;
-                let committee = committee_set(&self.client);
+                let committee = committee_for_height(&self.client, number as u32);
                 verify_proof(&hash.0, number, proof, &committee).map_err(|e| {
                     ConsensusError::ClientImport(format!(
                         "woven-trust finality proof rejected at #{number}: {e}"
@@ -579,7 +599,7 @@ impl JustificationImport<Block> for WovenTrustJustificationImport {
         if engine != ENGINE_ID {
             return Ok(()); // not our finality — ignore
         }
-        let committee = committee_set(&self.client);
+        let committee = committee_for_height(&self.client, number as u32);
         verify_proof(&hash.0, number as u64, &proof, &committee).map_err(|e| {
             ConsensusError::ClientImport(format!(
                 "woven-trust justification rejected at #{number}: {e}"
@@ -839,7 +859,7 @@ fn try_apply_proof(
         Ok(Some(local)) if local.0 == *hash => {}
         _ => return false,
     }
-    let committee = committee_set(client);
+    let committee = committee_for_height(client, height as u32);
     if verify_proof(hash, height, proof, &committee).is_err() {
         return false;
     }
@@ -882,6 +902,41 @@ mod tests {
 
     fn votes_map(votes: Vec<Vote>) -> BTreeMap<[u8; 32], Vote> {
         votes.into_iter().map(|v| (v.signer, v)).collect()
+    }
+
+    #[test]
+    fn epoch_of_partitions_heights() {
+        // Heights group into fixed-length epochs; the boundary is deterministic.
+        assert_eq!(epoch_of(0), 0);
+        assert_eq!(epoch_of(EPOCH_LENGTH - 1), 0);
+        assert_eq!(epoch_of(EPOCH_LENGTH), 1);
+        assert_eq!(epoch_of(2 * EPOCH_LENGTH + 3), 2);
+    }
+
+    #[test]
+    fn committee_rotates_each_epoch() {
+        // A cohort large enough that the reputation-weighted sortition draws a real subset.
+        let mut reputation: BTreeMap<String, i128> = BTreeMap::new();
+        let mut keys: BTreeMap<String, String> = BTreeMap::new();
+        for i in 0..24 {
+            let id = format!("acc{i:02}");
+            reputation.insert(id.clone(), 1_000);
+            keys.insert(id.clone(), format!("sk-{id}"));
+        }
+        // Elect the committee per epoch exactly as `committee_for_height` does: seed bound to the epoch.
+        let committee = |epoch: u32| -> BTreeSet<String> {
+            let seed = format!("{COMMITTEE_SEED}-{epoch}");
+            consensus_core::elect_committee_fp(&reputation, &keys, &seed, COMMITTEE_TAU)
+                .into_keys()
+                .collect()
+        };
+        let epochs: Vec<BTreeSet<String>> = (0..6).map(committee).collect();
+        // Each epoch elects a non-empty STRICT subset of the cohort.
+        for c in &epochs {
+            assert!(!c.is_empty() && c.len() < 24);
+        }
+        // The jury ROTATES (Art. VI): membership is not frozen across epochs.
+        assert!(epochs.windows(2).any(|w| w[0] != w[1]), "committee must rotate across epochs");
     }
 
     #[test]
