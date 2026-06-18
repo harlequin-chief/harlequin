@@ -107,7 +107,7 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
         other: mut telemetry,
     } = new_partial(&config)?;
 
-    let net_config = sc_network::config::FullNetworkConfiguration::<
+    let mut net_config = sc_network::config::FullNetworkConfiguration::<
         Block,
         <Block as BlockT>::Hash,
         Network,
@@ -118,6 +118,23 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
     let metrics = Network::register_notification_metrics(
         config.prometheus_config.as_ref().map(|cfg| &cfg.registry),
     );
+
+    // Woven-Trust finality gadget: register its gossip notification protocol BEFORE the network starts
+    // (same recipe as `sc_consensus_grandpa::grandpa_peers_set_config`). Keep the service to drive the
+    // gadget once the network is up. Only the real engine carries finality votes.
+    let finality_notif = if matches!(
+        consensus,
+        Consensus::WovenTrust(_) | Consensus::WovenTrustVoteOnly(_)
+    ) {
+        let (cfg, service) = crate::finality::protocol_config::<Network>(
+            metrics.clone(),
+            net_config.peer_store_handle(),
+        );
+        net_config.add_notification_protocol(cfg);
+        Some(service)
+    } else {
+        None
+    };
 
     let (network, system_rpc_tx, tx_handler_controller, sync_service) =
         sc_service::build_network(sc_service::BuildNetworkParams {
@@ -133,6 +150,10 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
             block_relay: None,
             metrics,
         })?;
+
+    // Clones for the finality gadget (the originals are moved into `spawn_tasks` below).
+    let gossip_network = network.clone();
+    let gossip_sync = sync_service.clone();
 
     if config.offchain_worker.enabled {
         let offchain_workers =
@@ -182,6 +203,32 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
         telemetry: telemetry.as_mut(),
         tracing_execute_block: None,
     })?;
+
+    // Drive the Woven-Trust finality gadget: the committee runs the Snowball vote over the candidate
+    // blocks and finalises by quorum (replacing the trivial finality of the authoring loop). Two
+    // essential tasks: the worker (votes + finalises) and the gossip-engine driver.
+    let finality_block_time = match &consensus {
+        Consensus::WovenTrust(t) | Consensus::WovenTrustVoteOnly(t) => Some(*t),
+        _ => None,
+    };
+    if let (Some(notification_service), Some(block_time)) = (finality_notif, finality_block_time) {
+        let local_id = consensus_core::sha256::sha256(&gossip_network.local_peer_id().to_bytes());
+        let (worker, driver) = crate::finality::start(
+            client.clone(),
+            gossip_network,
+            gossip_sync,
+            notification_service,
+            local_id,
+            block_time,
+            prometheus_registry.as_ref(),
+        );
+        task_manager
+            .spawn_essential_handle()
+            .spawn("woven-trust-finality", None, worker);
+        task_manager
+            .spawn_essential_handle()
+            .spawn("woven-trust-finality-gossip", None, driver);
+    }
 
     let proposer = sc_basic_authorship::ProposerFactory::new(
         task_manager.spawn_handle(),
@@ -314,7 +361,8 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
                     if let Err(e) =
                         sink.try_send(sc_consensus_manual_seal::EngineCommand::SealNewBlock {
                             create_empty: true,
-                            finalize: true,
+                            // Finality is owned by the Woven-Trust gadget now, not the authoring loop.
+                            finalize: false,
                             parent_hash: None,
                             sender: None,
                         })
@@ -346,13 +394,17 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
                 authorship_future,
             );
         },
+        Consensus::WovenTrustVoteOnly(_) => {
+            // No authoring: this node follows the chain (sync) and only runs the finality gadget
+            // (spawned above). Lets a devnet add finality voters without each one forking by authoring.
+        },
     }
 
     Ok(task_manager)
 }
 
 /// Lowercase hex of a 32-byte account id — a stable per-account string id for the sortition map.
-fn hex32(b: &[u8; 32]) -> String {
+pub(crate) fn hex32(b: &[u8; 32]) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut s = String::with_capacity(64);
     for &byte in b {

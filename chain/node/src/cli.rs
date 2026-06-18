@@ -11,6 +11,10 @@ pub enum Consensus {
     ManualSeal(u64),
     InstantSeal,
     WovenTrust(u64),
+    /// Like `WovenTrust` but the node does NOT author blocks — it only follows the chain and runs the
+    /// Snowball finality gadget (votes). Lets a devnet separate the single author from extra voters so
+    /// the committee reaches quorum without every node forking by authoring each slot.
+    WovenTrustVoteOnly(u64),
 }
 
 impl std::str::FromStr for Consensus {
@@ -21,6 +25,9 @@ impl std::str::FromStr for Consensus {
             Consensus::InstantSeal
         } else if let Some(block_time) = s.strip_prefix("manual-seal-") {
             Consensus::ManualSeal(block_time.parse().map_err(|_| "invalid block time")?)
+        } else if let Some(block_time) = s.strip_prefix("woven-trust-voteonly-") {
+            // Checked before `woven-trust-` so the longer prefix wins.
+            Consensus::WovenTrustVoteOnly(block_time.parse().map_err(|_| "invalid block time")?)
         } else if let Some(block_time) = s.strip_prefix("woven-trust-") {
             Consensus::WovenTrust(block_time.parse().map_err(|_| "invalid block time")?)
         } else {
@@ -34,8 +41,9 @@ pub struct Cli {
     #[command(subcommand)]
     pub subcommand: Option<Subcommand>,
 
-    /// The consensus (block authoring) to use: `instant-seal` (default), `manual-seal-<ms>`, or
-    /// `woven-trust-<ms>` (reputation-weighted sortition gates authoring — the real engine).
+    /// The consensus (block authoring) to use: `instant-seal` (default), `manual-seal-<ms>`,
+    /// `woven-trust-<ms>` (reputation-weighted sortition gates authoring — the real engine), or
+    /// `woven-trust-voteonly-<ms>` (no authoring; only follows the chain and runs the finality vote).
     #[clap(long, default_value = "instant-seal")]
     pub consensus: Consensus,
 

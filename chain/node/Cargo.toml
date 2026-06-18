@@ -21,11 +21,13 @@ polkadot-sdk = { version = "2604.2.0", features = ["node"] }
 clap = { version = "4", features = ["derive"] }
 futures = "0.3"
 futures-timer = "3"
+log = "0.4"
 jsonrpsee = { version = "0.24", features = ["server"] }
 serde_json = "1"
 # sp-* primitives the node glue uses directly (the polkadot-sdk umbrella does not re-export these at its
 # top level). Unversioned → cargo unifies them to the umbrella's already-locked versions.
 sp-runtime = "*"
+sp-core = "*"
 sp-io = "*"
 sp-timestamp = "*"
 sp-api = "*"

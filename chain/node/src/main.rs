@@ -4,6 +4,7 @@
 mod chain_spec;
 mod cli;
 mod command;
+mod finality;
 mod rpc;
 mod service;
 
