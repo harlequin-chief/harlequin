@@ -15,6 +15,10 @@ pub enum Consensus {
     /// Snowball finality gadget (votes). Lets a devnet separate the single author from extra voters so
     /// the committee reaches quorum without every node forking by authoring each slot.
     WovenTrustVoteOnly(u64),
+    /// Pure follower: no authoring AND no finality gadget — it only syncs blocks and accepts finality
+    /// EXCLUSIVELY through verified imported justifications (`JustificationImport`). Used to isolate and
+    /// prove step-3b import-time verification: this node finalises only when a peer hands it a sound proof.
+    Follower,
 }
 
 impl std::str::FromStr for Consensus {
@@ -23,6 +27,8 @@ impl std::str::FromStr for Consensus {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(if s == "instant-seal" {
             Consensus::InstantSeal
+        } else if s == "follower" {
+            Consensus::Follower
         } else if let Some(block_time) = s.strip_prefix("manual-seal-") {
             Consensus::ManualSeal(block_time.parse().map_err(|_| "invalid block time")?)
         } else if let Some(block_time) = s.strip_prefix("woven-trust-voteonly-") {
@@ -46,6 +52,11 @@ pub struct Cli {
     /// `woven-trust-voteonly-<ms>` (no authoring; only follows the chain and runs the finality vote).
     #[clap(long, default_value = "instant-seal")]
     pub consensus: Consensus,
+
+    /// Sign Woven-Trust finality votes as this account (sr25519 secret URI, e.g. `//Alice`). The signer
+    /// must be a member of the elected committee for its vote to count. Omit on observer/non-voting nodes.
+    #[clap(long)]
+    pub vote_as: Option<String>,
 
     #[clap(flatten)]
     pub run: RunCmd,

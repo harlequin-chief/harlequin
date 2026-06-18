@@ -74,8 +74,11 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
         .build(),
     );
 
-    let import_queue = sc_consensus_manual_seal::import_queue(
-        Box::new(client.clone()),
+    // Import queue with Woven-Trust finality verification (step 3b): blocks/justifications carrying a
+    // `WTC1` finality proof are verified (≥alpha signed committee votes) before finality is accepted —
+    // a syncing node trusts the proof, not the peer. Harmless passthrough for the seal-only modes.
+    let import_queue = crate::finality::build_import_queue(
+        client.clone(),
         &task_manager.spawn_essential_handle(),
         config.prometheus_registry(),
     );
@@ -95,6 +98,7 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Hash>>(
     config: Configuration,
     consensus: Consensus,
+    vote_as: Option<String>,
 ) -> Result<TaskManager, ServiceError> {
     let sc_service::PartialComponents {
         client,
@@ -136,6 +140,23 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
         None
     };
 
+    // Step 3c — finality-PROOF distribution protocol: registered on EVERY chain-following node (voters AND
+    // followers) so verified finality proofs reach non-voting / catching-up nodes. Register before the
+    // network starts, like the vote protocol above.
+    let proof_notif = if matches!(
+        consensus,
+        Consensus::WovenTrust(_) | Consensus::WovenTrustVoteOnly(_) | Consensus::Follower
+    ) {
+        let (cfg, service) = crate::finality::proof_protocol_config::<Network>(
+            metrics.clone(),
+            net_config.peer_store_handle(),
+        );
+        net_config.add_notification_protocol(cfg);
+        Some(service)
+    } else {
+        None
+    };
+
     let (network, system_rpc_tx, tx_handler_controller, sync_service) =
         sc_service::build_network(sc_service::BuildNetworkParams {
             config: &config,
@@ -151,9 +172,11 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
             metrics,
         })?;
 
-    // Clones for the finality gadget (the originals are moved into `spawn_tasks` below).
+    // Clones for the finality gadget + proof distributor (the originals are moved into `spawn_tasks` below).
     let gossip_network = network.clone();
     let gossip_sync = sync_service.clone();
+    let proof_network = network.clone();
+    let proof_sync = sync_service.clone();
 
     if config.offchain_worker.enabled {
         let offchain_workers =
@@ -212,13 +235,12 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
         _ => None,
     };
     if let (Some(notification_service), Some(block_time)) = (finality_notif, finality_block_time) {
-        let local_id = consensus_core::sha256::sha256(&gossip_network.local_peer_id().to_bytes());
         let (worker, driver) = crate::finality::start(
             client.clone(),
             gossip_network,
             gossip_sync,
             notification_service,
-            local_id,
+            vote_as,
             block_time,
             prometheus_registry.as_ref(),
         );
@@ -228,6 +250,31 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
         task_manager
             .spawn_essential_handle()
             .spawn("woven-trust-finality-gossip", None, driver);
+    }
+
+    // Step 3c — finality-proof distributor: runs on EVERY chain-following node (voters re-broadcast their
+    // latest proof; followers receive, verify and finalise from it). Followers have no `<ms>` of their own,
+    // so they re-broadcast/poll on a default cadence.
+    let proof_round_ms = match &consensus {
+        Consensus::WovenTrust(t) | Consensus::WovenTrustVoteOnly(t) => Some(*t),
+        Consensus::Follower => Some(6000),
+        _ => None,
+    };
+    if let (Some(notification_service), Some(round_ms)) = (proof_notif, proof_round_ms) {
+        let (worker, driver) = crate::finality::start_proof_distribution(
+            client.clone(),
+            proof_network,
+            proof_sync,
+            notification_service,
+            round_ms,
+            prometheus_registry.as_ref(),
+        );
+        task_manager
+            .spawn_essential_handle()
+            .spawn("woven-trust-proof-dist", None, worker);
+        task_manager
+            .spawn_essential_handle()
+            .spawn("woven-trust-proof-gossip", None, driver);
     }
 
     let proposer = sc_basic_authorship::ProposerFactory::new(
@@ -397,6 +444,11 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
         Consensus::WovenTrustVoteOnly(_) => {
             // No authoring: this node follows the chain (sync) and only runs the finality gadget
             // (spawned above). Lets a devnet add finality voters without each one forking by authoring.
+        },
+        Consensus::Follower => {
+            // No authoring AND no finality gadget (neither registered above nor spawned). This node only
+            // syncs blocks; it accepts finality EXCLUSIVELY via the import queue's verified justification
+            // import (step 3b). It finalises a block only when a peer serves a sound signed-vote proof.
         },
     }
 

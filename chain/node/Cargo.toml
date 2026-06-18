@@ -22,6 +22,9 @@ clap = { version = "4", features = ["derive"] }
 futures = "0.3"
 futures-timer = "3"
 log = "0.4"
+# async-trait: the polkadot-sdk `BlockImport`/`JustificationImport`/`Verifier` traits are `#[async_trait]`;
+# the umbrella does not re-export the macro, so depend on it directly (unversioned → unifies to the lock).
+async-trait = "*"
 jsonrpsee = { version = "0.24", features = ["server"] }
 serde_json = "1"
 # sp-* primitives the node glue uses directly (the polkadot-sdk umbrella does not re-export these at its
