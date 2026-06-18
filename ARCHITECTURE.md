@@ -60,8 +60,13 @@ only seals when elected — no placeholder seal. The **manifesto is sealed into 
 (text + SHA-256, no mutator extrinsic, Art. XII) by `pallet-manifesto`, on the shared SHA-256 of
 `manifesto-core`; the founding cohort's reputation is derived at block 0. The voting core itself is
 ported and **cross-validated 13/13** against the reference simulator (Sybil, correlated blocs, adaptive
-adversary, loss, partition). The remaining layer is the networked finality gadget (multi-node Snowball
-voting); until then finality is trivial.
+adversary, loss, partition). Finality is a **networked Snowball gadget**: committee members sign their
+votes (sr25519, bound to their reputation account) and only votes from the reputation-elected committee
+count, so an unbacked node cannot move finality; the justification carries that signed-vote proof and is
+**verified on import**, so a peer cannot make a node accept finality the committee did not earn; those
+proofs are **gossiped**, so non-voting and catching-up nodes finalise from verified proofs alone; the
+committee **rotates each epoch** (Art. VI); and finality advances by range so it keeps pace with the head.
+Validated multi-node (no fork; finality halts rather than forking when committee quorum is lost).
 
 ### Layers — the society itself (future)
 On the trust substrate: **identity** (pseudonymous, Art. VII) · **two currencies** (a scarce store of
