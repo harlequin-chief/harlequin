@@ -58,6 +58,13 @@ pub const ENGINE_ID: sp_runtime::ConsensusEngineId = *b"WTC1";
 
 /// Confirmations before a height is irreversible. TESTNET value (production: `consensus-simulator/PARAMETERS.md` beta=12).
 const FINALITY_BETA: u32 = 4;
+/// How far ahead of the last finalised block the worker aims each finalisation. Finalising a block
+/// finalises ALL its ancestors, so targeting `finalized + STEP` (a height every node agrees on, since
+/// `finalized` is consensus state) finalises a whole range at once — keeping finality from lagging block
+/// production unboundedly (it advances in chunks instead of one height per `beta` rounds). Must be ≥ the
+/// blocks produced during one finalisation (~`beta`) to keep pace. TESTNET value; production from
+/// `consensus-simulator/PARAMETERS.md`. Lag is bounded to ~`STEP`+`beta` blocks.
+const FINALITY_STEP: u32 = 8;
 /// Expected committee seats elected from reputation (sortition `tau`). TESTNET value over the small dev
 /// cohort; production τ=60 (the rotating jury ♠) comes from `consensus-simulator/PARAMETERS.md` at the pre-mainnet gate.
 const COMMITTEE_TAU: u32 = 4;
@@ -262,8 +269,10 @@ async fn run_worker(
 
     // This node's vote identity (sr25519 account), if it has a key.
     let vote_signer: Option<[u8; 32]> = vote_pair.as_ref().map(|p| p.public().0);
-    // Start one past the last finalised block (block numbers are u32; votes carry it as u64 on the wire).
-    let mut height: u32 = client.info().finalized_number + 1;
+    // Aim `STEP` ahead of the last finalised block (a height every node agrees on). Finalising it
+    // finalises the whole range below, so finality keeps pace with production instead of crawling by one.
+    // Block numbers are u32; votes carry the height as u64 on the wire.
+    let mut height: u32 = client.info().finalized_number + FINALITY_STEP;
     let mut round = FinalityRound::new(target_hash(&client, height).unwrap_or_default().0);
     // Latest signed vote per COMMITTEE MEMBER (account) at the current height — only valid, in-committee
     // votes. The FULL `Vote` (signer + signature) is kept so the finality justification can carry the
@@ -345,7 +354,9 @@ async fn run_worker(
                                 "🎭 finalised #{height} {decided_hash:?} (committee {committee_size}, alpha {alpha}/{k})"
                             );
                             watermark.store(height as u64, Ordering::Relaxed);
-                            height += 1;
+                            // Aim the next chunk: STEP past the new finalised tip (which is now `height`,
+                            // since finalising it finalised every ancestor). Keeps finality near the head.
+                            height = client.info().finalized_number + FINALITY_STEP;
                             votes.clear();
                             round = FinalityRound::new(
                                 target_hash(&client, height).unwrap_or_default().0,
