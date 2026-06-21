@@ -1,5 +1,5 @@
 //! Whole-network simulation harness — the Rust cross-validation of the voting port (`std` only).
-//! Mirrors the test-rig `consensus-simulator/wtc_sim/{consensus,population}.py` (`run_once` + the
+//! Mirrors the test-rig the reference simulator (`run_once` + the
 //! populations) so the Rust `SnowballNode` can be checked against the **validated** security behaviour
 //! (11/11). It is NOT consensus-critical code and never ships in the runtime — it is the reference
 //! oracle, the analogue of `vrf.rs` for the voting layer.

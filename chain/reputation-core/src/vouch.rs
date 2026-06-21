@@ -57,6 +57,76 @@ impl VouchRegistry {
         }
         graduated
     }
+
+    /// Undirected neighbours of `node`: every member one vouch edge away, in EITHER direction
+    /// ("related" is symmetric for the interest test, Art. IX).
+    fn neighbors(&self, node: &str) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        for l in &self.links {
+            if l.sponsor == node {
+                out.push(l.protege.clone());
+            } else if l.protege == node {
+                out.push(l.sponsor.clone());
+            }
+        }
+        out
+    }
+
+    /// Undirected vouch-graph distance between `a` and `b`, capped at `max_hops` (BFS over sponsor links
+    /// in either direction). `Some(0)` if `a == b`; `Some(d)` if reachable in `d ≤ max_hops` hops;
+    /// `None` if farther, unreachable, OR the search exceeds `max_visit` nodes. Lets justice distinguish
+    /// **depth-1** (excluded outright) from **depth-2 rings** (weight-penalised + audited, SPEC §4i-(8)):
+    /// a ring woven only at distance ≥2 evades depth-1 exclusion (the reputed-ring residual quantified in
+    /// (8)). **`max_visit` is a HARD anti-DoS bound:** a party with a huge vouch set projects a
+    /// large depth-2 neighbourhood → an unbounded BFS would make opening a case a vector to inflate; the
+    /// cap makes each query cost-bounded (conservative: a capped-out search returns `None` = no penalty,
+    /// never a false relation).
+    pub fn vouch_distance(&self, a: &str, b: &str, max_hops: u32, max_visit: u32) -> Option<u32> {
+        if a == b {
+            return Some(0);
+        }
+        let mut visited: BTreeSet<String> = BTreeSet::new();
+        visited.insert(a.to_string());
+        let mut frontier: Vec<String> = Vec::new();
+        frontier.push(a.to_string());
+        let mut depth = 0u32;
+        while !frontier.is_empty() && depth < max_hops {
+            depth += 1;
+            let mut next: Vec<String> = Vec::new();
+            for node in &frontier {
+                for nb in self.neighbors(node) {
+                    if nb == b {
+                        return Some(depth);
+                    }
+                    if visited.len() as u32 >= max_visit {
+                        return None; // hard compute bound: give up rather than let the graph inflate cost
+                    }
+                    if visited.insert(nb.clone()) {
+                        next.push(nb);
+                    }
+                }
+            }
+            frontier = next;
+        }
+        None
+    }
+
+    /// Smallest vouch-distance from `who` to ANY of `parties`, capped at `max_hops` / `max_visit`: the
+    /// relation depth a juror has to the closest party. `Some(1)` = directly related (excluded at the
+    /// draw); `Some(2)` = a 2-hop ring (the residual in (8): weight-penalise + audit, not a hard cut — a
+    /// hard depth-2 cut shrinks the pool and opens pool-poisoning); `None` = independent beyond the cap.
+    pub fn nearest_party_distance(
+        &self,
+        who: &str,
+        parties: &[String],
+        max_hops: u32,
+        max_visit: u32,
+    ) -> Option<u32> {
+        parties
+            .iter()
+            .filter_map(|p| self.vouch_distance(who, p, max_hops, max_visit))
+            .min()
+    }
 }
 
 /// Live-vouch quota = sublinear in reputation (§1.5c): `floor(k * log2(1 + rep))`. Decreasing returns,
@@ -398,5 +468,69 @@ mod tests {
             let xv = fp[id] as f64 / FP_SCALE as f64;
             assert!((fv - xv).abs() < 1e-6, "{id}: f64 {fv} vs fp {xv}");
         }
+    }
+
+    // ---- vouch-graph distance (SPEC §4i-(8): depth-1 exclusion vs depth-2 ring) ----
+
+    const VISIT: u32 = 10_000; // generous cap for the small graphs in these tests
+
+    #[test]
+    fn vouch_distance_is_undirected_and_capped() {
+        // chain a -> b -> c -> d (directed sponsor links); relation is symmetric, so distance ignores
+        // direction. d(a,a)=0, d(a,b)=1, d(a,c)=2, d(a,d)=3; cap hides anything beyond max_hops.
+        let mut reg = VouchRegistry::new();
+        reg.sponsor_link("a", "b");
+        reg.sponsor_link("b", "c");
+        reg.sponsor_link("c", "d");
+        assert_eq!(reg.vouch_distance("a", "a", 3, VISIT), Some(0));
+        assert_eq!(reg.vouch_distance("a", "b", 3, VISIT), Some(1));
+        assert_eq!(reg.vouch_distance("a", "c", 3, VISIT), Some(2));
+        assert_eq!(reg.vouch_distance("d", "a", 3, VISIT), Some(3)); // either direction
+        assert_eq!(reg.vouch_distance("a", "d", 2, VISIT), None); // beyond the hop cap
+        assert_eq!(reg.vouch_distance("a", "z", 9, VISIT), None); // unreachable
+    }
+
+    #[test]
+    fn depth2_ring_evades_depth1_but_is_visible_at_depth2() {
+        // The (8) residual: a colluding ring woven only at distance 2 (no direct edge to the party) is
+        // NOT depth-1 related → passes a depth-1 (max_hops=1) interest test, but a depth-2 query sees it.
+        // party P; juror J reaches P only through M (P—M—J): d(J,P)=2.
+        let mut reg = VouchRegistry::new();
+        reg.sponsor_link("P", "M");
+        reg.sponsor_link("M", "J");
+        let parties = ["P".to_string()];
+        // depth-1 interest test: J looks independent (the gap that depth-1 exclusion misses).
+        assert_eq!(reg.nearest_party_distance("J", &parties, 1, VISIT), None);
+        // depth-2 query exposes the ring → justice can weight-penalise + audit J's vote (not hard-cut).
+        assert_eq!(reg.nearest_party_distance("J", &parties, 2, VISIT), Some(2));
+    }
+
+    #[test]
+    fn nearest_party_distance_picks_the_closest_party() {
+        // J is 1 hop from party P2 and 2 hops from party P1 → nearest is 1 (most conservative).
+        let mut reg = VouchRegistry::new();
+        reg.sponsor_link("P1", "X");
+        reg.sponsor_link("X", "J");
+        reg.sponsor_link("J", "P2");
+        let parties = ["P1".to_string(), "P2".to_string()];
+        assert_eq!(reg.nearest_party_distance("J", &parties, 3, VISIT), Some(1));
+        // no parties → no relation.
+        assert_eq!(reg.nearest_party_distance("J", &[], 3, VISIT), None);
+    }
+
+    #[test]
+    fn max_visit_bounds_the_search_anti_dos() {
+        // Anti-DoS: a party with a huge fan-out projects a big depth-2 neighbourhood. With a
+        // tight visit cap the BFS gives up (None) instead of exploring it all — cost stays bounded.
+        // Star: hub H vouches H->s0..s199 (200 edges). A far node T sits 2 hops from any leaf via H.
+        let mut reg = VouchRegistry::new();
+        for i in 0..200 {
+            reg.sponsor_link("H", &alloc::format!("s{i}"));
+        }
+        reg.sponsor_link("s0", "T"); // T is at distance 2 from H, 3 from the other leaves
+        // Generous cap: the relation is found.
+        assert_eq!(reg.vouch_distance("H", "T", 3, 10_000), Some(2));
+        // Tight cap (5 nodes): the search bails out before reaching T → None (bounded, conservative).
+        assert_eq!(reg.vouch_distance("H", "T", 3, 5), None);
     }
 }

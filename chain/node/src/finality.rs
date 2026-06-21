@@ -6,14 +6,14 @@
 //! height, broadcasts this node's preferred block hash, feeds the votes it receives into the round, and
 //! when the round decides calls `Finalizer::finalize_block` with a justification. The decision rule and
 //! its safety/liveness are NOT here — they live (tested, 13/13 cross-validated) in `consensus-core`;
-//! this file wires votes ⇄ network ⇄ the chain, verifies finality justifications on import, and
-//! distributes the signed-vote proofs so non-voting / catching-up nodes finalise from verified proofs.
+//! this file only wires votes ⇄ network ⇄ the chain. Block-import verification of the justification is
+//! the next increment (see `INTEGRACION-NODO-WOVEN-TRUST.md` step 3).
 //!
 //! Committee & params scale to the live committee: each height's committee is elected by the same
 //! reputation-weighted sortition the node authors with (`elect_committee_fp`, deterministic seed
 //! `final{height}` so every node agrees), and the Snowball `k/alpha` scale to its size while keeping the
 //! 0.70 quorum wall. `beta` here is a TESTNET value (fast finality for validation); production params
-//! come from `consensus-simulator/PARAMETERS.md` at the pre-mainnet config gate.
+//! come from `PARAMETERS.md` at the pre-mainnet config gate (#25).
 
 use crate::service::FullClient;
 use futures::{FutureExt, StreamExt};
@@ -56,21 +56,37 @@ pub const PROTOCOL_NAME: &str = "/harlequin/snowball-finality/1";
 /// Consensus engine id stamped on the justifications this gadget produces.
 pub const ENGINE_ID: sp_runtime::ConsensusEngineId = *b"WTC1";
 
-/// Confirmations before a height is irreversible. TESTNET value (production: `consensus-simulator/PARAMETERS.md` beta=12).
+// --- Production cadence (#30, network-modelled 2026-06-20) vs fast testnet values. Selected by the
+// --- `mainnet` cargo feature. Mainnet: β=12, STEP=10 (≈60s), τ=60, epoch=600 (≈1h committee rotation).
+/// Confirmations before a height is irreversible. β=12 in production (`PARAMETERS.md` ♥ "the twelve":
+/// `Q1^12` is astronomically safe); a small fast value on testnet.
+#[cfg(feature = "mainnet")]
+const FINALITY_BETA: u32 = 12;
+#[cfg(not(feature = "mainnet"))]
 const FINALITY_BETA: u32 = 4;
 /// How far ahead of the last finalised block the worker aims each finalisation. Finalising a block
-/// finalises ALL its ancestors, so targeting `finalized + STEP` (a height every node agrees on, since
-/// `finalized` is consensus state) finalises a whole range at once — keeping finality from lagging block
-/// production unboundedly (it advances in chunks instead of one height per `beta` rounds). Must be ≥ the
-/// blocks produced during one finalisation (~`beta`) to keep pace. TESTNET value; production from
-/// `consensus-simulator/PARAMETERS.md`. Lag is bounded to ~`STEP`+`beta` blocks.
+/// finalises ALL its ancestors, so targeting `finalized + STEP` finalises a whole range at once — keeping
+/// finality from lagging block production unboundedly. Must be ≥ the blocks produced during one
+/// finalisation (~`beta`). Production = 10 blocks (≈60s at 6s/block, a clean 1-minute cadence; lag bounded
+/// to ~`STEP`+`beta`, time-to-finality ~1–2 min).
+#[cfg(feature = "mainnet")]
+const FINALITY_STEP: u32 = 10;
+#[cfg(not(feature = "mainnet"))]
 const FINALITY_STEP: u32 = 8;
-/// Expected committee seats elected from reputation (sortition `tau`). TESTNET value over the small dev
-/// cohort; production τ=60 (the rotating jury ♠) comes from `consensus-simulator/PARAMETERS.md` at the pre-mainnet gate.
+/// Expected committee seats elected from reputation (sortition `tau`). Production τ=60 (`PARAMETERS.md` ♠
+/// the rotating jury; = 3·k, honest supermajority w.h.p. below the threshold — the liveness knob); a small
+/// value over the dev cohort on testnet.
+#[cfg(feature = "mainnet")]
+const COMMITTEE_TAU: u32 = 60;
+#[cfg(not(feature = "mainnet"))]
 const COMMITTEE_TAU: u32 = 4;
-/// Blocks per finality epoch. The committee is re-drawn each epoch (Art. VI — no one keeps power), so the
-/// election seed is bound to the epoch number, not constant. TESTNET cadence (fast rotation for
-/// validation); production epoch length comes from `consensus-simulator/PARAMETERS.md` at the pre-mainnet gate.
+/// Blocks per finality epoch — the committee is re-drawn each epoch (Art. VI — no one keeps power), seed
+/// bound to the epoch number so the jury rotates. Production = 600 blocks ≈ **1 hour** at 6s/block (aura
+/// 60↔60: 60 seats re-drawn every 60 minutes; well above time-to-finality ~1–2 min and well below the
+/// daily reputation recompute = 24 committees/day over the same reputation, fresh beacon). Fast on testnet.
+#[cfg(feature = "mainnet")]
+const EPOCH_LENGTH: u32 = 600;
+#[cfg(not(feature = "mainnet"))]
 const EPOCH_LENGTH: u32 = 10;
 /// Base seed for the finality-committee sortition; the epoch number is appended so the jury rotates.
 const COMMITTEE_SEED: &str = "hlq-finality-committee";

@@ -833,6 +833,37 @@ pub fn conservative_aggregate(vector: &BTreeMap<String, f64>, min: bool) -> f64 
     }
 }
 
+/// Largest single-entity share of total consensus reputation, fixed-point (FP_SCALE-scaled): `max_i r_i /
+/// Σ_j r_j`. Drives the cold-start **entrenchment guard** (§1.4b): the bootstrap window halts only against
+/// capture by ONE entity, never against the honest small cohort's collective — and declared — dominance.
+/// Returns 0 when the total is 0 (genesis t=0: nobody holds a share of nothing). `no_std`/fixed-point: the
+/// ratio cancels the input scaling, so callers may pass raw consensus-reputation values.
+pub fn max_single_entity_share_fp(reps: &[i128]) -> i128 {
+    let total: i128 = reps.iter().filter(|&&r| r > 0).sum();
+    if total <= 0 {
+        return 0;
+    }
+    let max = reps.iter().cloned().filter(|&r| r > 0).max().unwrap_or(0);
+    max.saturating_mul(FP_SCALE) / total
+}
+
+/// One epoch of the cold-start **entrenchment guard** (§1.4b; parameters 2026-06-21). Given this epoch's
+/// largest single-entity `share_fp`, the halt `threshold_fp` (≈0.33·FP_SCALE), the running `counter` of
+/// consecutive over-threshold epochs, and the `required` run length to halt (7 ≈ one week at a daily
+/// epoch), returns the updated counter and whether to **HALT**. A share at or below threshold **resets**
+/// the counter — transient spikes in the volatile small-N cold-start do not trip it; the halt fires only on
+/// *sustained* single-entity entrenchment. The honest 5-founder cohort sits at ≈1/5 each → never approaches
+/// the threshold (no false halt, even with zero onboarding); a rogue farming to ≈0.48 would have to hold it
+/// for `required` epochs straight (an unambiguous signal).
+pub fn entrenchment_halt_step(share_fp: i128, threshold_fp: i128, counter: u32, required: u32) -> (u32, bool) {
+    if share_fp > threshold_fp {
+        let c = counter.saturating_add(1);
+        (c, c >= required)
+    } else {
+        (0, false)
+    }
+}
+
 /// Decay by inactivity (§1.7): uncontributed reputation evaporates. Farming then sitting still does
 /// not pay off long-term (extra anti-collusion defence). `r <- r * factor`.
 pub fn decay(reputation: &BTreeMap<String, f64>, factor: f64) -> BTreeMap<String, f64> {
@@ -842,6 +873,37 @@ pub fn decay(reputation: &BTreeMap<String, f64>, factor: f64) -> BTreeMap<String
 #[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn single_entity_share_and_entrenchment_guard() {
+        // 5 balanced founders → max share = 1/5 = 0.20 (FP_SCALE-scaled), well under the 0.33 threshold.
+        let five = [100i128, 100, 100, 100, 100];
+        let share = max_single_entity_share_fp(&five);
+        assert_eq!(share, FP_SCALE / 5); // exactly 0.20
+        // genesis t=0 (all zero) → nobody holds a share of nothing.
+        assert_eq!(max_single_entity_share_fp(&[0, 0, 0]), 0);
+        // a rogue farmed to ×4 of an honest unit → 400 vs four 100s = 400/800 = 0.50.
+        let rogue = [400i128, 100, 100, 100, 100];
+        assert_eq!(max_single_entity_share_fp(&rogue), FP_SCALE / 2);
+
+        let thr = FP_SCALE / 3; // ≈0.333
+        // honest 0.20 ≤ threshold → counter resets, never halts however long it runs.
+        let (c, halt) = entrenchment_halt_step(FP_SCALE / 5, thr, 6, 7);
+        assert_eq!((c, halt), (0, false));
+        // rogue 0.50 > threshold for 7 consecutive epochs → HALT on the 7th.
+        let mut counter = 0u32;
+        let mut halted = false;
+        for _ in 0..7 {
+            let r = entrenchment_halt_step(FP_SCALE / 2, thr, counter, 7);
+            counter = r.0;
+            halted = r.1;
+        }
+        assert_eq!((counter, halted), (7, true));
+        // a single over-threshold epoch followed by an honest one does NOT halt (spikes filtered).
+        let (c1, _) = entrenchment_halt_step(FP_SCALE / 2, thr, 0, 7); // spike: counter 1
+        let (c2, halt2) = entrenchment_halt_step(FP_SCALE / 5, thr, c1, 7); // honest: reset
+        assert_eq!((c2, halt2), (0, false));
+    }
 
     #[test]
     fn independence_fp_matches_f64() {

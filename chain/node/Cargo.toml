@@ -40,6 +40,9 @@ sp-genesis-builder = "*"
 [features]
 default = ["std"]
 std = ["harlequin-runtime/std", "polkadot-sdk/std"]
+# Production consensus/reputation cadence (#30) across node + runtime. Build the mainnet binary with
+# `cargo build --release --features mainnet`; the default build keeps fast testnet values for validation.
+mainnet = ["harlequin-runtime/mainnet"]
 
 [workspace]
 

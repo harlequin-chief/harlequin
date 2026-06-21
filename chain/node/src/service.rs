@@ -362,7 +362,12 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
             task_manager.spawn_handle().spawn("woven-trust-authoring", None, async move {
                 use std::collections::BTreeMap;
                 let station = String::from("station");
-                let tau: u32 = 3; // expected committee seats
+                // Authoring committee size (sortition τ). Production τ=60 (`PARAMETERS.md` ♠, = 3·k);
+                // small on testnet. Selected by the `mainnet` feature (#30).
+                #[cfg(feature = "mainnet")]
+                let tau: u32 = 60;
+                #[cfg(not(feature = "mainnet"))]
+                let tau: u32 = 3;
                 let mut slot: u64 = 0;
                 loop {
                     futures_timer::Delay::new(std::time::Duration::from_millis(block_time)).await;

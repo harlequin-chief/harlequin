@@ -112,11 +112,15 @@ pub fn run() -> sc_cli::Result<()> {
                             harlequin_runtime::interface::OpaqueBlock,
                             <harlequin_runtime::interface::OpaqueBlock as sp_runtime::traits::Block>::Hash,
                         >,
-                    >(config, cli.consensus)
+                    >(config, cli.consensus, cli.vote_as)
                     .map_err(sc_cli::Error::Service),
                     sc_network::config::NetworkBackendType::Litep2p =>
-                        service::new_full::<sc_network::Litep2pNetworkBackend>(config, cli.consensus)
-                            .map_err(sc_cli::Error::Service),
+                        service::new_full::<sc_network::Litep2pNetworkBackend>(
+                            config,
+                            cli.consensus,
+                            cli.vote_as,
+                        )
+                        .map_err(sc_cli::Error::Service),
                 }
             })
         },

@@ -95,6 +95,9 @@ mod runtime {
 
     #[runtime::pallet_index(6)]
     pub type Manifesto = pallet_manifesto::Pallet<Runtime>;
+
+    #[runtime::pallet_index(7)]
+    pub type Justice = pallet_justice::Pallet<Runtime>;
 }
 
 #[derive_impl(frame_system::config_preludes::SolochainDefaultConfig)]
@@ -122,6 +125,25 @@ impl pallet_transaction_payment::Config for Runtime {
     type LengthToFee = FixedFee<1, <Self as pallet_balances::Config>::Balance>;
 }
 
+// --- Reputation cadence (#30): production vs fast-testnet, selected by the `mainnet` feature. ---
+/// ρ in parts-per-million for `EvidenceRetention`. Mainnet 999_052 = 24-month half-life at a daily epoch.
+#[cfg(feature = "mainnet")]
+const EVIDENCE_RETENTION_PARTS: u32 = 999_052;
+#[cfg(not(feature = "mainnet"))]
+const EVIDENCE_RETENTION_PARTS: u32 = 900_000;
+
+parameter_types! {
+    /// ρ evidence retained per epoch (§1.7 decay / Art. VI). MAINNET (#30): `from_parts(999_052)` =
+    /// ρ=0.999052 = a **24-month half-life** at the daily recompute epoch (24 = the Harlequin's 2 faces +
+    /// 4 suits, SPEC §1.7 / LORE). TESTNET: `0.90` so decay is visible fast in validation. Selected by the
+    /// `mainnet` feature. Decays everyone, founder included.
+    pub const EvidenceRetention: Permill = Permill::from_parts(EVIDENCE_RETENTION_PARTS);
+    /// Sponsor answers for 25% of a protégé's loss per hop (§1.5c) — **PLACEHOLDER dial**. Gentler than the
+    /// old hardcoded 50% so vouching is not pure downside (pre-freeze audit, issue #4); final value is a
+    /// mutable calibration. Any value < 1 keeps the cascade convergent.
+    pub const SponsorLiability: Permill = Permill::from_percent(25);
+}
+
 impl pallet_reputation::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     /// Evidence authority: root for now (testnet placeholder for the pluggable proof system → governance).
@@ -129,11 +151,96 @@ impl pallet_reputation::Config for Runtime {
     type JusticeOrigin = EnsureRoot<Self::AccountId>;
     type MaxVouches = ConstU32<128>;
     type VouchQuotaK = ConstU32<3>;
+    type EvidenceRetention = EvidenceRetention;
+    type SponsorLiability = SponsorLiability;
+    /// Blocks per reputation recompute epoch (#30). MAINNET = 14400 ≈ **1 day** at 6s/block ("the deck is
+    /// recounted each dawn"; pairs with ρ for the 24-month half-life). TESTNET = 10 for fast validation.
+    /// The recompute runs automatically at each boundary — no root trigger (no king). Selected by `mainnet`.
+    #[cfg(feature = "mainnet")]
+    type EpochLength = ConstU32<14400>;
+    #[cfg(not(feature = "mainnet"))]
+    type EpochLength = ConstU32<10>;
 }
 
 impl pallet_manifesto::Config for Runtime {
     /// 64 KiB ceiling for the founding constitution (a charter, not a database).
     type MaxManifestoLen = ConstU32<65536>;
+}
+
+parameter_types! {
+    /// τ: expected jury size (SPEC §4 rotating panel) — PLACEHOLDER, tuned pre-mainnet with #30.
+    pub const JurySize: u32 = 12;
+    /// Hard cap on jurors stored per case (bounds storage / PoV).
+    pub const MaxJury: u32 = 32;
+    /// Max accounts explicitly flagged interested at `open_case` (bounds the exclusion list).
+    pub const MaxInterested: u32 = 16;
+    /// 2/3 supermajority of the DRAWN jury to find guilt (SPEC §4 "supermayoría honesta").
+    pub const GuiltThreshold: Permill = Permill::from_percent(67);
+    /// Sortition-weight multiplier for a depth-2-related candidate (SPEC §4i-(8); ≈10% per the
+    /// Monte-Carlo: holds P(2-hop ring blocks a verdict) under ~1.5% up to an 80-strong loyal ring,
+    /// without a hard cut that would shrink the pool / enable pool-poisoning). Tuned pre-mainnet.
+    pub const Depth2WeightPermille: Permill = Permill::from_percent(10);
+}
+
+/// Adapter: the jury draw is weighted by the reputation pallet's consensus reputation (min across suits).
+pub struct JusticeReputation;
+impl pallet_justice::ReputationInspect<<Runtime as frame_system::Config>::AccountId>
+    for JusticeReputation
+{
+    fn consensus_reputation() -> Vec<(<Runtime as frame_system::Config>::AccountId, i128)> {
+        pallet_reputation::Pallet::<Runtime>::consensus_reputation()
+    }
+}
+
+/// Adapter: the substantive interest test (Art. IX, the load-bearing exclusion of issue #5). `who` is
+/// interested if it is a party OR directly trust-tied to one (vouch edge either direction) — `is_related`
+/// returns true for `who == party` as well, so this single check covers both.
+pub struct JusticeInterest;
+impl pallet_justice::InterestInspect<<Runtime as frame_system::Config>::AccountId> for JusticeInterest {
+    fn has_interest(
+        who: &<Runtime as frame_system::Config>::AccountId,
+        parties: &[<Runtime as frame_system::Config>::AccountId],
+    ) -> bool {
+        parties.iter().any(|p| pallet_reputation::Pallet::<Runtime>::is_related(who, p))
+    }
+
+    /// Depth (1 or 2) to the nearest party in the vouch graph, bounded by `DEPTH2_MAX_VISIT` accounts
+    /// scanned (anti-DoS): justice down-weights a depth-2 ring juror by `Depth2WeightPermille`
+    /// (SPEC §4i-(8)) instead of cutting them. Wired to the reputation pallet's bounded BFS.
+    fn relation_depth(
+        who: &<Runtime as frame_system::Config>::AccountId,
+        parties: &[<Runtime as frame_system::Config>::AccountId],
+    ) -> Option<u32> {
+        const DEPTH2_MAX_VISIT: u32 = 512;
+        pallet_reputation::Pallet::<Runtime>::relation_depth(who, parties, DEPTH2_MAX_VISIT)
+    }
+}
+
+/// Adapter: a guilty verdict's only automated consequence — slash the culprit's standing in the case's
+/// suit (§1.7). Cascade depth 3 (§1.5c). No force beyond this (Art. I).
+pub struct JusticeSlasher;
+impl pallet_justice::SlashOnVerdict<<Runtime as frame_system::Config>::AccountId> for JusticeSlasher {
+    fn on_guilty(culprit: &<Runtime as frame_system::Config>::AccountId, dimension: u8, loss: u128) {
+        let suit = match dimension {
+            0 => pallet_reputation::Suit::Commerce,
+            1 => pallet_reputation::Suit::Technical,
+            2 => pallet_reputation::Suit::Judicial,
+            _ => pallet_reputation::Suit::Governance,
+        };
+        pallet_reputation::Pallet::<Runtime>::slash_for_verdict(culprit, suit, loss, 3);
+    }
+}
+
+impl pallet_justice::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type Reputation = JusticeReputation;
+    type Interest = JusticeInterest;
+    type Slasher = JusticeSlasher;
+    type JurySize = JurySize;
+    type MaxJury = MaxJury;
+    type MaxInterested = MaxInterested;
+    type Depth2WeightPermille = Depth2WeightPermille;
+    type GuiltThreshold = GuiltThreshold;
 }
 
 /// Minimal genesis presets. Concrete genesis (founding cohort §1.4 + the manifesto sealed in block 0,
@@ -166,13 +273,24 @@ mod genesis_config_presets {
             }
             let evidence = ev.join(",");
 
+            // --- Dev-only: fund the founders and make Alice sudo, so a dev/test node can drive the
+            // root-gated calls (advance_epoch, submit_evidence) to exercise the engine. NONE of this is in
+            // the real freeze genesis (§1.4/#26): the launch chain has no sudo and no pre-funded balances. ---
+            let bal = founders
+                .iter()
+                .map(|f| alloc::format!("[\"{f}\",1000000000000000000]"))
+                .collect::<Vec<_>>()
+                .join(",");
+            let sudo_key = founders[0]; // Alice
+
             // --- Manifesto sealed into block 0 (Art. XII). Placeholder until the freeze. ---
             let text: &[u8] = b"HARLEQUIN -- founding manifesto placeholder. The final constitution is \
 sealed into genesis at the freeze, after the adversarial audit (Art. XII, Permanence).";
             let bytes = text.iter().map(|b| alloc::format!("{b}")).collect::<Vec<_>>().join(",");
 
             let json = alloc::format!(
-                "{{\"reputation\":{{\"evidence\":[{evidence}]}},\"manifesto\":{{\"text\":[{bytes}]}}}}"
+                "{{\"balances\":{{\"balances\":[{bal}]}},\"sudo\":{{\"key\":\"{sudo_key}\"}},\
+\"reputation\":{{\"evidence\":[{evidence}]}},\"manifesto\":{{\"text\":[{bytes}]}}}}"
             );
             Some(json.into_bytes())
         } else {
