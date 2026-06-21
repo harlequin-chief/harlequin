@@ -1,2 +1,31 @@
+# Build artifacts
+target/
+**/target/
 __pycache__/
 *.pyc
+
+# Defensive OPSEC exclusions: nothing from the private admin tree can be staged here by accident.
+# (The pre-push guardrail is the hard barrier; this is belt-and-suspenders. Admin documents are kept
+# out by living in a separate tree — not listed here by name, since the guardrail's own content scan
+# flags those names. Curated public material — consensus-simulator/, reputation-engine/, docs/,
+# RESULTS.md — is unaffected.)
+
+# Secrets / keys
+*.env
+.env
+*.key
+*.pem
+*.p12
+*.kdbx
+secrets*
+*credentials*
+
+# Admin working dirs / raw evidence (never public)
+bitacoras/
+validation-evidence/
+sim/
+testnet/
+definitive/
+prototipos/
+ai-reviews/
+**/HANDOFF*
