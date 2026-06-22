@@ -5691,6 +5691,7 @@ dependencies = [
 name = "harlequin-node"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "clap",
  "consensus-core",
  "futures",
@@ -5717,6 +5718,8 @@ dependencies = [
  "frame-system",
  "harlequin-consensus-api",
  "pallet-balances",
+ "pallet-beacon",
+ "pallet-justice",
  "pallet-manifesto",
  "pallet-reputation",
  "pallet-sudo",
@@ -8926,6 +8929,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-beacon"
+version = "0.1.0"
+dependencies = [
+ "consensus-core",
+ "parity-scale-codec",
+ "polkadot-sdk-frame",
+ "scale-info",
+ "serde",
+]
+
+[[package]]
 name = "pallet-beefy"
 version = "49.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9597,6 +9611,17 @@ dependencies = [
  "polkadot-sdk-frame",
  "safe-mix",
  "scale-info",
+]
+
+[[package]]
+name = "pallet-justice"
+version = "0.1.0"
+dependencies = [
+ "consensus-core",
+ "parity-scale-codec",
+ "polkadot-sdk-frame",
+ "scale-info",
+ "serde",
 ]
 
 [[package]]

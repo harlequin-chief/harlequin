@@ -434,14 +434,36 @@ fn committee_for_height(client: &Arc<FullClient>, height: u32) -> BTreeSet<[u8; 
     if onchain.is_empty() {
         return BTreeSet::new();
     }
+    // §2.1 anti-grinding: draw off the commit–reveal beacon when it is populated. The key of each
+    // candidate is the secret it COMMITTED an epoch earlier (not a freely-chosen `sk-{id}`), and the seed
+    // is the un-grindable beacon — so a node cannot grind its account to lift its committee seats.
+    let committed = client.runtime_api().beacon_committed_keys(at).unwrap_or_default();
     let mut reputation: BTreeMap<String, i128> = BTreeMap::new();
     let mut keys: BTreeMap<String, String> = BTreeMap::new();
-    for (acc, rep) in &onchain {
-        let id = crate::service::hex32(acc);
-        keys.insert(id.clone(), format!("sk-{id}"));
-        reputation.insert(id, *rep);
+    let seed;
+    if committed.is_empty() {
+        // FALLBACK (genesis / bootstrap, before the beacon pipeline is populated — see BEACON-2c-DESIGN):
+        // the declared-founder window draws on reputation alone, as before. Switches to the beacon path
+        // automatically once nodes have committed+revealed (no halt at start).
+        for (acc, rep) in &onchain {
+            let id = crate::service::hex32(acc);
+            keys.insert(id.clone(), format!("sk-{id}"));
+            reputation.insert(id, *rep);
+        }
+        seed = format!("{COMMITTEE_SEED}-{epoch}");
+    } else {
+        // BEACON path: only accounts with an active committed key are eligible, keyed by it.
+        let kmap: BTreeMap<[u8; 32], String> = committed.into_iter().collect();
+        for (acc, rep) in &onchain {
+            if let Some(k) = kmap.get(acc) {
+                let id = crate::service::hex32(acc);
+                keys.insert(id.clone(), k.clone());
+                reputation.insert(id, *rep);
+            }
+        }
+        let beacon = client.runtime_api().beacon_seed(at).unwrap_or_default();
+        seed = format!("{COMMITTEE_SEED}-{}", consensus_core::beacon::hex(&beacon));
     }
-    let seed = format!("{COMMITTEE_SEED}-{epoch}");
     let elected = consensus_core::elect_committee_fp(&reputation, &keys, &seed, COMMITTEE_TAU);
     // Map the elected ids (hex of the account) back to the 32-byte accounts.
     onchain

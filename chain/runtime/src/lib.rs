@@ -98,6 +98,9 @@ mod runtime {
 
     #[runtime::pallet_index(7)]
     pub type Justice = pallet_justice::Pallet<Runtime>;
+
+    #[runtime::pallet_index(8)]
+    pub type BeaconPallet = pallet_beacon::Pallet<Runtime>;
 }
 
 #[derive_impl(frame_system::config_preludes::SolochainDefaultConfig)]
@@ -231,16 +234,48 @@ impl pallet_justice::SlashOnVerdict<<Runtime as frame_system::Config>::AccountId
     }
 }
 
+/// Adapter: the un-grindable randomness for the jury draw (§2.1) — wired to the beacon pallet's
+/// commit–reveal beacon. The draw seed is the rolling beacon; a candidate's sortition key is the secret
+/// it committed an epoch earlier (not a freely-chosen id), so the draw cannot be ground (Art. VII).
+pub struct JusticeBeacon;
+impl pallet_justice::BeaconInspect<<Runtime as frame_system::Config>::AccountId> for JusticeBeacon {
+    fn seed() -> alloc::string::String {
+        pallet_beacon::Pallet::<Runtime>::seed_hex()
+    }
+    fn committed_key(
+        who: &<Runtime as frame_system::Config>::AccountId,
+    ) -> Option<alloc::string::String> {
+        pallet_beacon::Pallet::<Runtime>::committed_key(who)
+    }
+}
+
 impl pallet_justice::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type Reputation = JusticeReputation;
     type Interest = JusticeInterest;
     type Slasher = JusticeSlasher;
+    type Beacon = JusticeBeacon;
     type JurySize = JurySize;
     type MaxJury = MaxJury;
     type MaxInterested = MaxInterested;
     type Depth2WeightPermille = Depth2WeightPermille;
     type GuiltThreshold = GuiltThreshold;
+}
+
+parameter_types! {
+    /// Max bytes of a per-epoch beacon secret (a 32-byte random secret + margin).
+    pub const BeaconMaxSecretLen: u32 = 64;
+}
+
+impl pallet_beacon::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type MaxSecretLen = BeaconMaxSecretLen;
+    /// MUST match the reputation epoch so the beacon roll aligns with the recompute (active committed
+    /// keys and the reputation snapshot belong to the same epoch). Selected by the `mainnet` feature.
+    #[cfg(feature = "mainnet")]
+    type EpochLength = ConstU32<14400>;
+    #[cfg(not(feature = "mainnet"))]
+    type EpochLength = ConstU32<10>;
 }
 
 /// Minimal genesis presets. Concrete genesis (founding cohort §1.4 + the manifesto sealed in block 0,
@@ -293,12 +328,52 @@ sealed into genesis at the freeze, after the adversarial audit (Art. XII, Perman
 \"reputation\":{{\"evidence\":[{evidence}]}},\"manifesto\":{{\"text\":[{bytes}]}}}}"
             );
             Some(json.into_bytes())
+        } else if id == "launch" {
+            // --- LAUNCH cold-start shape (§1.4b): the 5 founders, NO sudo, NO pre-funded
+            // balances, and only a SMALL declared evidence seed (10, vs the dev preset's 1000) in each
+            // suit — just enough that reputation is non-zero at block 0 so a committee can form (no
+            // genesis halt), while staying the validated 5×~0.20 share the entrenchment guard was checked
+            // against. The seed DECAYS from epoch 1 (Art. VI / decay), and the founders' SHARE dilutes as
+            // the network grows (FINDINGS-gate33), so the bootstrap advantage washes to ~0 — same end
+            // state as a pure zero start, on the already-hardware-validated reputation+decay path.
+            //
+            // Accounts here are the well-known dev keys = **PLACEHOLDERS**; the real 5 founder accounts are
+            // swapped in at the genesis ceremony (with the sealed manifesto + the BTC-beacon genesis value).
+            let founders = [
+                "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY", // Alice (placeholder)
+                "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty", // Bob   (placeholder)
+                "5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS59Y", // Charlie (placeholder)
+                "5DAAnrj7VHTznn2AWBemMuyBwZWs6FNFjdyVXUeYum3PTXFy", // Dave  (placeholder)
+                "5HGjWAeFDfFCWPsjFQdVV2Msvz2XtMktvgocEZcCj68kUMaw", // Eve   (placeholder)
+            ];
+            let suits = ["Commerce", "Technical", "Judicial", "Governance"];
+            let mut ev: Vec<alloc::string::String> = Vec::new();
+            for f in founders {
+                for s in suits {
+                    // small declared seed (tunable; only the ratio matters for the sortition).
+                    ev.push(alloc::format!("[\"{f}\",\"{s}\",10]"));
+                }
+            }
+            let evidence = ev.join(",");
+
+            // Manifesto placeholder until the freeze (Art. XII). NO sudo, NO balances in the launch shape.
+            let text: &[u8] = b"HARLEQUIN -- founding manifesto placeholder. The final constitution is \
+sealed into genesis at the freeze, after the adversarial audit (Art. XII, Permanence).";
+            let bytes = text.iter().map(|b| alloc::format!("{b}")).collect::<Vec<_>>().join(",");
+
+            let json = alloc::format!(
+                "{{\"reputation\":{{\"evidence\":[{evidence}]}},\"manifesto\":{{\"text\":[{bytes}]}}}}"
+            );
+            Some(json.into_bytes())
         } else {
             None
         }
     }
     pub fn preset_names() -> Vec<PresetId> {
-        alloc::vec![PresetId::from(sp_genesis_builder::DEV_RUNTIME_PRESET)]
+        alloc::vec![
+            PresetId::from(sp_genesis_builder::DEV_RUNTIME_PRESET),
+            PresetId::from("launch"),
+        ]
     }
 }
 
@@ -401,6 +476,17 @@ impl_runtime_apis! {
             pallet_reputation::Pallet::<Runtime>::consensus_reputation()
                 .into_iter()
                 .map(|(acc, rep)| (acc.into(), rep))
+                .collect()
+        }
+
+        fn beacon_seed() -> [u8; 32] {
+            pallet_beacon::Pallet::<Runtime>::beacon_raw()
+        }
+
+        fn beacon_committed_keys() -> Vec<([u8; 32], alloc::string::String)> {
+            pallet_beacon::Pallet::<Runtime>::active_committed_keys()
+                .into_iter()
+                .map(|(acc, key)| (acc.into(), key))
                 .collect()
         }
     }

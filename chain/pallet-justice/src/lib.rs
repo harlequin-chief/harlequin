@@ -73,9 +73,21 @@ pub trait SlashOnVerdict<AccountId> {
     fn on_guilty(culprit: &AccountId, dimension: u8, loss: u128);
 }
 
+/// Un-grindable randomness source for the jury draw (macroaudit §2.1). Wired by the runtime to the
+/// beacon pallet's commit–reveal beacon: the draw seed is unpredictable until after keys are committed,
+/// and a candidate's sortition key is the secret it COMMITTED an epoch earlier (not a freely-chosen id),
+/// so a member cannot grind its name (Art. VII lets one pick an id) against a known seed to lift its
+/// seats. A candidate with no committed key this epoch is simply not eligible for the draw.
+pub trait BeaconInspect<AccountId> {
+    /// The current beacon seed (hex) for this epoch's draw.
+    fn seed() -> alloc::string::String;
+    /// The committed sortition key (hex) of `who` this epoch, or `None` if it did not commit+reveal.
+    fn committed_key(who: &AccountId) -> Option<alloc::string::String>;
+}
+
 #[frame::pallet]
 pub mod pallet {
-    use super::{InterestInspect, ReputationInspect, SlashOnVerdict};
+    use super::{BeaconInspect, InterestInspect, ReputationInspect, SlashOnVerdict};
     use alloc::string::{String, ToString};
     use alloc::vec::Vec;
     use frame::prelude::*;
@@ -142,6 +154,9 @@ pub mod pallet {
 
         /// Reputational consequence of a guilty verdict (§1.7).
         type Slasher: SlashOnVerdict<Self::AccountId>;
+
+        /// Un-grindable randomness for the draw (§2.1) — the commit–reveal beacon (beacon pallet).
+        type Beacon: BeaconInspect<Self::AccountId>;
 
         /// `τ` for the sortition: the expected jury size (SPEC §2.2 / §4 rotating panel).
         #[pallet::constant]
@@ -418,18 +433,27 @@ pub mod pallet {
             if pool.is_empty() {
                 return Vec::new();
             }
-            // 2. key accounts by index string (consensus-core keys agents by short string ids).
+            // 2. key accounts by index string (consensus-core keys agents by short string ids). The
+            //    sortition key is each candidate's COMMITTED beacon key (macroaudit §2.1) — NOT a
+            //    freely-chosen id — so the draw cannot be ground. A candidate that did not commit+reveal
+            //    this epoch has no key and is not eligible.
             let mut reputation: BTreeMap<String, i128> = BTreeMap::new();
             let mut secret_keys: BTreeMap<String, String> = BTreeMap::new();
-            for (i, (_acc, rep)) in pool.iter().enumerate() {
-                let id = i.to_string();
-                reputation.insert(id.clone(), *rep);
-                // Deterministic per-candidate VRF surrogate (central draw). Production: real per-juror key.
-                secret_keys.insert(id.clone(), id);
+            let mut eligible: Vec<T::AccountId> = Vec::new();
+            for (acc, rep) in pool.into_iter() {
+                if let Some(key) = T::Beacon::committed_key(&acc) {
+                    let id = eligible.len().to_string();
+                    reputation.insert(id.clone(), rep);
+                    secret_keys.insert(id, key);
+                    eligible.push(acc);
+                }
             }
-            // 3. seed = case id + parent block hash → unpredictable-ish, deterministic to verify.
-            let parent = frame_system::Pallet::<T>::parent_hash();
-            let seed = alloc::format!("hlq-jury-{}-{:?}", case_id, parent);
+            if eligible.is_empty() {
+                return Vec::new();
+            }
+            // 3. seed = the un-grindable commit–reveal beacon, bound to the case id (per-case draw,
+            //    deterministic to verify). Unpredictable until after keys were committed → no grinding.
+            let seed = alloc::format!("hlq-jury-{}-{}", case_id, T::Beacon::seed());
 
             // 4. run the sortition; jurors = candidates that won at least one seat.
             let seats = consensus_core::sortition_fp::elect_committee_fp(
@@ -447,7 +471,7 @@ pub mod pallet {
             let cap = T::MaxJury::get() as usize;
             won.into_iter()
                 .take(cap)
-                .filter_map(|(i, _)| pool.get(i).map(|(acc, _)| acc.clone()))
+                .filter_map(|(i, _)| eligible.get(i).cloned())
                 .collect()
         }
     }
@@ -456,7 +480,7 @@ pub mod pallet {
 #[cfg(test)]
 mod tests {
     use crate as pallet_justice;
-    use crate::{CaseStatus, Cases, InterestInspect, ReputationInspect, SlashOnVerdict};
+    use crate::{BeaconInspect, CaseStatus, Cases, InterestInspect, ReputationInspect, SlashOnVerdict};
     use frame::testing_prelude::*;
 
     construct_runtime! {
@@ -518,6 +542,19 @@ mod tests {
         }
     }
 
+    // Beacon stub: every account has a deterministic committed key (so the pool is unchanged from the
+    // pre-beacon draw) and the seed is fixed. The grinding-resistance itself is proven in
+    // `consensus-core::beacon`; here we only check the draw consumes the beacon seam correctly.
+    pub struct MockBeacon;
+    impl BeaconInspect<u64> for MockBeacon {
+        fn seed() -> String {
+            "mock-beacon-seed".to_string()
+        }
+        fn committed_key(who: &u64) -> Option<String> {
+            Some(alloc::format!("sk-{who}"))
+        }
+    }
+
     parameter_types! {
         pub const JurySize: u32 = 12;
         pub const MaxJury: u32 = 32;
@@ -533,6 +570,7 @@ mod tests {
         type Reputation = MockRep;
         type Interest = MockInterest;
         type Slasher = MockSlasher;
+        type Beacon = MockBeacon;
         type JurySize = JurySize;
         type MaxJury = MaxJury;
         type MaxInterested = MaxInterested;

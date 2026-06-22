@@ -17,6 +17,7 @@
 
 extern crate alloc;
 
+pub mod beacon;
 pub mod finality;
 pub mod sha256;
 #[cfg(feature = "std")]

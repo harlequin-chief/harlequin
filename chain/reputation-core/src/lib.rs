@@ -864,6 +864,84 @@ pub fn entrenchment_halt_step(share_fp: i128, threshold_fp: i128, counter: u32, 
     }
 }
 
+/// Largest CLUSTER share of total consensus reputation, fixed-point (FP_SCALE-scaled): nodes are grouped
+/// by `labels` (a community / operator labelling — e.g. from [`TrustGraph::communities`]) and the guard
+/// weighs the heaviest GROUP, not the heaviest single node. This closes the **split** evasion of the
+/// cold-start entrenchment guard (§1.4b): a rogue that spreads its farmed reputation across many
+/// pseudonyms keeps each one's single-entity share below the threshold, yet the pseudonyms that vouch one
+/// another up form one detectable cluster whose COMBINED share trips the guard. `reps` and `labels` are
+/// keyed by the same node ids; a node absent from `labels` is its own singleton cluster — so this
+/// generalises [`max_single_entity_share_fp`] (with no clustering it equals it) and is always ≥ it.
+/// Returns 0 when the total is 0. The clustering itself (which graph / dimension) is the CALLER's choice;
+/// this is the pure share computation.
+pub fn max_cluster_share_fp(labels: &BTreeMap<String, String>, reps: &BTreeMap<String, i128>) -> i128 {
+    let total: i128 = reps.values().filter(|&&r| r > 0).sum();
+    if total <= 0 {
+        return 0;
+    }
+    let mut by_cluster: BTreeMap<&str, i128> = BTreeMap::new();
+    for (node, &r) in reps {
+        if r <= 0 {
+            continue;
+        }
+        // No label → the node is its own singleton cluster (keyed by its own id).
+        let cluster: &str = labels.get(node).map(|s| s.as_str()).unwrap_or(node.as_str());
+        *by_cluster.entry(cluster).or_insert(0) += r;
+    }
+    let max = by_cluster.values().cloned().max().unwrap_or(0);
+    max.saturating_mul(FP_SCALE) / total
+}
+
+/// The cold-start halt share = `max(single-entity, cluster)` (§1.4b, split-aware): the guard trips on the
+/// larger of the heaviest single node and the heaviest cluster, so neither a lone whale NOR a split ring
+/// can sit above the threshold undetected. (The cluster share already dominates via singletons; the `max`
+/// is a safety belt against a partial labelling.) Feeds [`entrenchment_halt_step`] exactly like the
+/// single-entity share, so the sustained-over-threshold halt logic is unchanged.
+pub fn cold_start_halt_share_fp(labels: &BTreeMap<String, String>, reps: &BTreeMap<String, i128>) -> i128 {
+    let single = {
+        let v: Vec<i128> = reps.values().cloned().collect();
+        max_single_entity_share_fp(&v)
+    };
+    max_cluster_share_fp(labels, reps).max(single)
+}
+
+/// Transparency-checkpoint escalation level (§1.4b cold-start, 2026-06-21). The founders periodically
+/// sign a public transparency attestation; if they go silent the response **escalates** soft→hard rather
+/// than halting outright — anti-griefing, so a missed checkpoint cannot be weaponised into an instant
+/// stop. Pure status; the consequence of each level is the caller's (pallet) policy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CheckpointState {
+    /// Within the attestation window (cadence + soft grace): all good.
+    Ok,
+    /// Past the soft grace: a visible warning / soft escalation, not yet a hard measure.
+    Soft,
+    /// Past the hard grace: hard escalation (the pallet decides — e.g. restrict, then pause).
+    Hard,
+}
+
+/// One step of the transparency-checkpoint guard (§1.4b). `epochs_since_attested` is how many epochs since
+/// the founders last signed the attestation; a checkpoint is expected every `cadence` epochs (≈30 ≈ monthly
+/// at a daily epoch). `soft_grace`/`hard_grace` are the slack (≈7 / a further margin) before escalating.
+/// `Ok` while `≤ cadence + soft_grace`; `Soft` up to `cadence + hard_grace`; `Hard` beyond. Policy-neutral:
+/// the thresholds are parameters (the 2026-06-21 design fixes cadence 30, grace 7), the consequence is the
+/// pallet's. Escalation (not instant halt) is the anti-griefing property.
+pub fn checkpoint_escalation(
+    epochs_since_attested: u32,
+    cadence: u32,
+    soft_grace: u32,
+    hard_grace: u32,
+) -> CheckpointState {
+    let soft_limit = cadence.saturating_add(soft_grace);
+    let hard_limit = cadence.saturating_add(hard_grace);
+    if epochs_since_attested <= soft_limit {
+        CheckpointState::Ok
+    } else if epochs_since_attested <= hard_limit {
+        CheckpointState::Soft
+    } else {
+        CheckpointState::Hard
+    }
+}
+
 /// Decay by inactivity (§1.7): uncontributed reputation evaporates. Farming then sitting still does
 /// not pay off long-term (extra anti-collusion defence). `r <- r * factor`.
 pub fn decay(reputation: &BTreeMap<String, f64>, factor: f64) -> BTreeMap<String, f64> {
@@ -903,6 +981,66 @@ mod tests {
         let (c1, _) = entrenchment_halt_step(FP_SCALE / 2, thr, 0, 7); // spike: counter 1
         let (c2, halt2) = entrenchment_halt_step(FP_SCALE / 5, thr, c1, 7); // honest: reset
         assert_eq!((c2, halt2), (0, false));
+    }
+
+    #[test]
+    fn cluster_share_catches_the_split_ring() {
+        // 5 honest founders, no clustering → each its own singleton cluster → cluster share = 1/5 = 0.20.
+        let mut reps: BTreeMap<String, i128> = BTreeMap::new();
+        for i in 0..5 {
+            reps.insert(format!("h{i}"), 100);
+        }
+        let no_labels: BTreeMap<String, String> = BTreeMap::new();
+        assert_eq!(max_cluster_share_fp(&no_labels, &reps), FP_SCALE / 5);
+        // with no clustering the split-aware share equals the single-entity one (it generalises it).
+        assert_eq!(cold_start_halt_share_fp(&no_labels, &reps), FP_SCALE / 5);
+
+        // A rogue splits its farmed reputation across 3 pseudonyms (120 each) among the 5 honest (100 each):
+        // ring 360 vs honest 500, total 860.
+        let mut reps2: BTreeMap<String, i128> = BTreeMap::new();
+        for i in 0..5 {
+            reps2.insert(format!("h{i}"), 100);
+        }
+        for i in 0..3 {
+            reps2.insert(format!("r{i}"), 120);
+        }
+        let thr = FP_SCALE / 3; // ≈0.333
+        // Each pseudonym alone = 120/860 ≈ 0.14 < threshold → the single-entity guard MISSES the split.
+        let singles: Vec<i128> = reps2.values().cloned().collect();
+        assert!(max_single_entity_share_fp(&singles) < thr, "single-entity must miss the split ring");
+        // But the 3 pseudonyms are one cluster = 360/860 ≈ 0.419 > threshold → cluster guard CATCHES it.
+        let mut labels: BTreeMap<String, String> = BTreeMap::new();
+        for i in 0..3 {
+            labels.insert(format!("r{i}"), "ring".to_string());
+        }
+        let cluster = max_cluster_share_fp(&labels, &reps2);
+        assert!(cluster > thr, "ring cluster must trip the guard, was {}", cluster as f64 / FP_SCALE as f64);
+        // The split-aware halt fires over the required run; honest stay at 0.20 and never would.
+        let mut counter = 0u32;
+        let mut halted = false;
+        for _ in 0..7 {
+            let r = entrenchment_halt_step(cold_start_halt_share_fp(&labels, &reps2), thr, counter, 7);
+            counter = r.0;
+            halted = r.1;
+        }
+        assert!(halted, "sustained split-ring cluster dominance must halt");
+    }
+
+    #[test]
+    fn checkpoint_escalates_soft_then_hard_not_instant() {
+        // 2026-06-21 params: cadence 30, soft grace 7, hard grace (a further margin) 14.
+        let (cadence, soft, hard) = (30u32, 7u32, 14u32);
+        // fresh / on time → Ok.
+        assert_eq!(checkpoint_escalation(0, cadence, soft, hard), CheckpointState::Ok);
+        assert_eq!(checkpoint_escalation(30, cadence, soft, hard), CheckpointState::Ok);
+        // within the soft grace (≤37) → still Ok (a late-but-tolerated checkpoint, anti-griefing).
+        assert_eq!(checkpoint_escalation(37, cadence, soft, hard), CheckpointState::Ok);
+        // past soft grace, within hard (38..=44) → Soft (warn), NOT an instant halt.
+        assert_eq!(checkpoint_escalation(38, cadence, soft, hard), CheckpointState::Soft);
+        assert_eq!(checkpoint_escalation(44, cadence, soft, hard), CheckpointState::Soft);
+        // past hard grace → Hard.
+        assert_eq!(checkpoint_escalation(45, cadence, soft, hard), CheckpointState::Hard);
+        assert_eq!(checkpoint_escalation(1000, cadence, soft, hard), CheckpointState::Hard);
     }
 
     #[test]

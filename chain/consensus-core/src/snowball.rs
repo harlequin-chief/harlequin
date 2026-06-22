@@ -1,6 +1,6 @@
 //! Per-node Snowball decision core (sub-sampled Avalanche voting, SPEC §2.2; PAPER §5.4) — the
 //! integer heart of Woven-Trust finality, ported from the validated test-rig
-//! (the consensus reference, behaviour reference). **Pure integer, `no_std`.**
+//! (`prototipos/consenso/wtc_sim/consensus.py`, behaviour reference). **Pure integer, `no_std`.**
 //!
 //! Separation of concerns: *who* a node samples each round is reputation-weighted and is the job of
 //! the sortition (`sortition_fp.rs`) + the node's p2p layer (and is where network loss happens). What
@@ -13,7 +13,7 @@
 //! that colour (Snowball); after `beta` consecutive rounds on the same colour — *and* only while it can
 //! reach a network quorum of reputation (anti-partition guard) — it finalises. Below `alpha` the streak
 //! resets. The quorum bar `alpha/k = 14/20 = 0.70` is "the wall ♠": truth in Harlequin is near-
-//! consensus, never a 51 % vote (see the consensus parameters reference).
+//! consensus, never a 51 % vote (see `prototipos/consenso/PARAMETERS.md`).
 
 /// Voting parameters. Defaults echo the test-rig and `PARAMETERS.md`: `k=20` (runs on a phone ♣),
 /// `alpha=14` (the 0.70 wall ♠), `beta=12` (confirmations before irreversibility).

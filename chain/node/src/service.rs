@@ -383,20 +383,43 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
                     let mut reputation: BTreeMap<String, i128> = BTreeMap::new();
                     let mut keys: BTreeMap<String, String> = BTreeMap::new();
                     let using_chain = !onchain.is_empty();
+                    let seed;
                     if using_chain {
-                        for (acc, rep) in &onchain {
-                            let id = hex32(acc);
-                            keys.insert(id.clone(), format!("sk-{id}"));
-                            reputation.insert(id, *rep);
+                        // §2.1 anti-grinding: once the commit–reveal beacon is populated, draw off it —
+                        // candidate key = its committed secret (not `sk-{id}`), seed = beacon ⊕ slot (the
+                        // slot keeps per-slot rotation; the beacon anchor makes it un-grindable). Before the
+                        // pipeline fills (genesis/bootstrap) fall back to the reputation-only draw (no halt).
+                        let committed = api_client
+                            .runtime_api()
+                            .beacon_committed_keys(at)
+                            .unwrap_or_default();
+                        if committed.is_empty() {
+                            for (acc, rep) in &onchain {
+                                let id = hex32(acc);
+                                keys.insert(id.clone(), format!("sk-{id}"));
+                                reputation.insert(id, *rep);
+                            }
+                            seed = format!("slot{slot}");
+                        } else {
+                            let kmap: BTreeMap<[u8; 32], String> = committed.into_iter().collect();
+                            for (acc, rep) in &onchain {
+                                if let Some(k) = kmap.get(acc) {
+                                    let id = hex32(acc);
+                                    keys.insert(id.clone(), k.clone());
+                                    reputation.insert(id, *rep);
+                                }
+                            }
+                            let beacon =
+                                api_client.runtime_api().beacon_seed(at).unwrap_or_default();
+                            seed = format!("{}-slot{slot}", consensus_core::beacon::hex(&beacon));
                         }
                     } else {
                         // Bootstrap fallback: a lone dev node so a fresh `--dev` chain still seals.
                         reputation.insert(station.clone(), 1_000_000_000);
                         keys.insert(station.clone(), String::from("sk-station-dev"));
+                        seed = format!("slot{slot}");
                     }
 
-                    // Fresh sortition seed each slot so the VRF draw rotates.
-                    let seed = format!("slot{slot}");
                     let committee =
                         consensus_core::elect_committee_fp(&reputation, &keys, &seed, tau);
                     // Author when the slot's sortition produced a committee. With on-chain reputation a

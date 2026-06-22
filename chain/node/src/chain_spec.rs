@@ -33,3 +33,21 @@ pub fn development_chain_spec() -> Result<ChainSpec, String> {
     .with_properties(props())
     .build())
 }
+
+/// The LAUNCH cold-start shape (§1.4b): 5 founders, a small declared evidence seed, NO sudo,
+/// NO pre-funded balances, manifesto + beacon placeholders. Mirrors how the real genesis will look (the
+/// founder accounts + sealed manifesto + BTC-beacon value are swapped in at the ceremony) — used to
+/// validate cold-start (committee forms from the seed, no halt; the halt guards stay sane; the seed
+/// dilutes). Accounts in the preset are dev placeholders.
+pub fn launch_chain_spec() -> Result<ChainSpec, String> {
+    Ok(ChainSpec::builder(
+        WASM_BINARY.expect("Launch wasm not available"),
+        Default::default(),
+    )
+    .with_name("Harlequin Launch (cold-start)")
+    .with_id("hlq_launch")
+    .with_chain_type(ChainType::Live)
+    .with_genesis_config_preset_name("launch")
+    .with_properties(props())
+    .build())
+}
