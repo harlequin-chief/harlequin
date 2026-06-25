@@ -1,0 +1,19 @@
+[package]
+name = "pallet-forum"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+description = "Harlequin forum index pallet — append-only, ordered index of posts on-chain (author + body content-hash + order + optional thread parent); the post BODY lives off-chain in IPFS, addressed by the on-chain hash. A post is hidden ONLY by a jury verdict (pallet-justice via a pluggable moderation origin), never by an admin: moderation is by reputation, not authority."
+
+[dependencies]
+codec = { version = "3.7.5", package = "parity-scale-codec", default-features = false, features = ["derive"] }
+frame = { version = "0.17.0", package = "polkadot-sdk-frame", default-features = false, features = ["runtime"] }
+scale-info = { version = "2.11.6", default-features = false, features = ["derive"] }
+serde = { version = "1", default-features = false, features = ["derive"] }
+
+[features]
+default = ["std"]
+std = ["codec/std", "frame/std", "scale-info/std", "serde/std"]
+
+# Own workspace so the heavy FRAME dependency tree stays out of the lean core workspace (`../Cargo.toml`).
+[workspace]

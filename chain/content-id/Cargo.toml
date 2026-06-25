@@ -1,0 +1,17 @@
+[package]
+name = "content-id"
+version = "0.1.0"
+edition = "2021"
+description = "Deterministic content addressing for Harlequin forum bodies (#651): the 32-byte digest stored on-chain and the matching IPFS CIDv1 (raw codec, sha256) the client uses to fetch the body. Bridges client <-> chain <-> IPFS so a post's body is verifiable against its on-chain hash. Dependency-free."
+license = "AGPL-3.0-or-later"
+
+[dependencies]
+consensus-core = { path = "../consensus-core", default-features = false }
+
+[features]
+default = ["std"]
+std = ["consensus-core/std"]
+
+[lib]
+name = "content_id"
+path = "src/lib.rs"

@@ -1,0 +1,19 @@
+[package]
+name = "pallet-market"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+description = "Harlequin market index pallet (level A: the offers board) — append-only, ordered index of content-addressed offers on-chain (offerer mask + detail content-hash + optional category); the offer DETAIL lives off-chain in IPFS, addressed by the on-chain hash. An offer is withdrawn by its offerer (flag) or hidden ONLY by a jury verdict (pallet-justice via a pluggable moderation origin), never by an admin. No payment, no escrow, no reputation coupling (markets are not power) — the buyer reads the seller's reputation in the client."
+
+[dependencies]
+codec = { version = "3.7.5", package = "parity-scale-codec", default-features = false, features = ["derive"] }
+frame = { version = "0.17.0", package = "polkadot-sdk-frame", default-features = false, features = ["runtime"] }
+scale-info = { version = "2.11.6", default-features = false, features = ["derive"] }
+serde = { version = "1", default-features = false, features = ["derive"] }
+
+[features]
+default = ["std"]
+std = ["codec/std", "frame/std", "scale-info/std", "serde/std"]
+
+# Own workspace so the heavy FRAME dependency tree stays out of the lean core workspace (`../Cargo.toml`).
+[workspace]

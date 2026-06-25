@@ -1,0 +1,18 @@
+[package]
+name = "tokens-core"
+version = "0.1.0"
+edition = "2021"
+description = "Harlequin economic core — two coins (HLQ daily-use, SOV reserve), checked transfers, a pre-committed disinflationary emission, fee routing and proof-of-service rewards. Dependency-free; foundation of the FRAME tokens pallet. SPEC §3."
+license = "AGPL-3.0-or-later"
+
+[dependencies]
+
+[features]
+# Mirrors the other lean cores: `no_std` (alloc only) with `default-features = false` — exactly what the
+# Substrate runtime/pallet links against. The default `std` build is for tests and host tooling.
+default = ["std"]
+std = []
+
+[lib]
+name = "tokens_core"
+path = "src/lib.rs"

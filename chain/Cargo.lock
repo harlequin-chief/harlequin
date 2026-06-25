@@ -15,6 +15,20 @@ name = "consensus-core"
 version = "0.1.0"
 
 [[package]]
+name = "content-id"
+version = "0.1.0"
+dependencies = [
+ "consensus-core",
+]
+
+[[package]]
+name = "forum-core"
+version = "0.1.0"
+dependencies = [
+ "content-id",
+]
+
+[[package]]
 name = "manifesto-core"
 version = "0.1.0"
 dependencies = [
@@ -31,4 +45,15 @@ dependencies = [
 
 [[package]]
 name = "reputation-core"
+version = "0.1.0"
+
+[[package]]
+name = "sphinx-core"
+version = "0.1.0"
+dependencies = [
+ "consensus-core",
+]
+
+[[package]]
+name = "tokens-core"
 version = "0.1.0"

@@ -1,0 +1,20 @@
+[package]
+name = "pallet-directory"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+description = "Harlequin mask directory pallet — censorship-resistant handle->pubkey registry on-chain. The pseudonymous mask name resolves to the account/public key its holder controls. No session crypto here (that is gated): registration is authorized by the holder's existing login signature (a signed origin)."
+
+[dependencies]
+codec = { version = "3.7.5", package = "parity-scale-codec", default-features = false, features = ["derive"] }
+frame = { version = "0.17.0", package = "polkadot-sdk-frame", default-features = false, features = ["runtime"] }
+consensus-core = { path = "../consensus-core", default-features = false }
+scale-info = { version = "2.11.6", default-features = false, features = ["derive"] }
+serde = { version = "1", default-features = false, features = ["derive"] }
+
+[features]
+default = ["std"]
+std = ["codec/std", "frame/std", "consensus-core/std", "scale-info/std", "serde/std"]
+
+# Own workspace so the heavy FRAME dependency tree stays out of the lean core workspace (`../Cargo.toml`).
+[workspace]

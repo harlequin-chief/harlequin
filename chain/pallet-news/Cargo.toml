@@ -1,0 +1,18 @@
+[package]
+name = "pallet-news"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+description = "Harlequin news board pallet (#665) — append-only, ordered index of the society's news/announcements (author mask + on-chain headline + body content-hash). Flat (no threads). The body lives off-chain in IPFS, addressed by the on-chain hash. An item is withdrawn by its author (flag) or hidden ONLY by a jury verdict (pallet-justice via a pluggable moderation origin), never by an admin. No reputation coupling (news is not power) — ordering/visibility by reputation is a client concern."
+
+[dependencies]
+codec = { version = "3.7.5", package = "parity-scale-codec", default-features = false, features = ["derive"] }
+frame = { version = "0.17.0", package = "polkadot-sdk-frame", default-features = false, features = ["runtime"] }
+scale-info = { version = "2.11.6", default-features = false, features = ["derive"] }
+serde = { version = "1", default-features = false, features = ["derive"] }
+
+[features]
+default = ["std"]
+std = ["codec/std", "frame/std", "scale-info/std", "serde/std"]
+
+[workspace]

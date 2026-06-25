@@ -1,0 +1,17 @@
+[package]
+name = "forum-core"
+version = "0.1.0"
+edition = "2021"
+description = "Canonical forum-post body format for Harlequin (#651): the deterministic serialization that every client hashes, so a post's body is content-addressed identically everywhere and verifiable against its on-chain digest. Bridges to content-id (IPFS CID + on-chain 32-byte hash). Dependency-free."
+license = "AGPL-3.0-or-later"
+
+[dependencies]
+content-id = { path = "../content-id", default-features = false }
+
+[features]
+default = ["std"]
+std = ["content-id/std"]
+
+[lib]
+name = "forum_core"
+path = "src/lib.rs"

@@ -1,0 +1,21 @@
+[package]
+name = "sphinx-core"
+version = "0.1.0"
+edition = "2021"
+description = "Harlequin onion transport — fixed-size Sphinx-style packet layering for ephemeral, metadata-resistant calls over the node network (chat/forum #648 §E). STRUCTURAL PROTOTYPE: per-hop crypto sits behind the `OnionCrypto` trait (the stub is a deliberately INSECURE toy group, swapped for an audited library at integration); the end-to-end session handshake (Noise/forward-secrecy) is GATED behind `SessionCrypto` (#637). Dependency-free."
+license = "AGPL-3.0-or-later"
+
+[dependencies]
+# Reuse the workspace's hand-rolled SHA-256 (no external crypto pulled onto the isolated station).
+consensus-core = { path = "../consensus-core", default-features = false }
+
+[features]
+# `std` (default) for host tests. Without it the crate is `no_std` (alloc only).
+default = ["std"]
+std = ["consensus-core/std"]
+# The INSECURE toy onion-crypto. NOT in `default` — no plain build links it. Tests opt in.
+insecure-toy-crypto = []
+
+[lib]
+name = "sphinx_core"
+path = "src/lib.rs"
