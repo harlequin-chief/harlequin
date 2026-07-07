@@ -18,6 +18,11 @@ fn props() -> Properties {
     // it indivisible — wrong for everyday money.
     properties.insert("tokenDecimals".to_string(), 12.into());
     properties.insert("tokenSymbol".to_string(), "HLQ".into());
+    // Harlequin's own SS58 address format (the maintainer): 1728 = 12³. Wallets/explorers render mask
+    // addresses in Harlequin's prefix instead of the borrowed generic. MUST match the runtime's
+    // `SS58Prefix` (frame_system::Config) — same value in both or client-generated and on-chain addresses
+    // diverge.
+    properties.insert("ss58Format".to_string(), 1728.into());
     properties
 }
 
@@ -34,7 +39,7 @@ pub fn development_chain_spec() -> Result<ChainSpec, String> {
     .build())
 }
 
-/// The LAUNCH cold-start shape (§1.4b): 5 founders, a small declared evidence seed, NO sudo,
+/// The LAUNCH cold-start shape (§1.4b "5 y punto"): 5 founders, a small declared evidence seed, NO sudo,
 /// NO pre-funded balances, manifesto + beacon placeholders. Mirrors how the real genesis will look (the
 /// founder accounts + sealed manifesto + BTC-beacon value are swapped in at the ceremony) — used to
 /// validate cold-start (committee forms from the seed, no halt; the halt guards stay sane; the seed

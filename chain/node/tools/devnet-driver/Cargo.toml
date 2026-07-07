@@ -1,0 +1,20 @@
+[package]
+name = "devnet-driver"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+description = "Devnet test driver — submits real signed extrinsics over RPC and asserts chain behaviour (iron tests). Dev tooling, never part of a release."
+publish = false
+
+[dependencies]
+harlequin-runtime = { path = "../../../runtime", features = ["std"] }
+pallet-reputation = { path = "../../../pallet-reputation", features = ["std"] }
+polkadot-sdk = { version = "2604.2.0", features = ["node", "frame-system", "pallet-sudo", "pallet-transaction-payment"] }
+codec = { package = "parity-scale-codec", version = "3" }
+serde = "1"
+serde_json = "1"
+jsonrpsee = { version = "0.24", features = ["http-client"] }
+tokio = { version = "1", features = ["rt", "macros", "time"] }
+sp-core = "*"
+sp-runtime = "*"
+clap = { version = "4", features = ["derive"] }

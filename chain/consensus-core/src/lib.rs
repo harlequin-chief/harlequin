@@ -30,7 +30,8 @@ pub mod vrf;
 pub use finality::{FinalityRound, Hash as FinalityHash};
 pub use snowball::{SnowballNode, SnowballParams};
 pub use sortition_fp::{
-    elect_committee_fp, exp_neg_fp, poisson_cdf_fp, sortition_seats_fp, vrf_value_fp,
+    elect_committee_fp, elect_finality_committee, exp_neg_fp, poisson_cdf_fp, sortition_seats_fp,
+    vrf_value_fp, FINALITY_COMMITTEE_SEED,
 };
 #[cfg(feature = "std")]
 pub use vrf::{elect_committee, sortition_seats, vrf, vrf_verify};

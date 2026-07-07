@@ -12,8 +12,15 @@ frame = { version = "0.17.0", package = "polkadot-sdk-frame", default-features =
 pallet-reputation = { path = "../pallet-reputation", default-features = false }
 pallet-justice = { path = "../pallet-justice", default-features = false }
 pallet-beacon = { path = "../pallet-beacon", default-features = false }
+pallet-multisig-upgrade = { path = "../pallet-multisig-upgrade", default-features = false }
+pallet-tokens = { path = "../pallet-tokens", default-features = false }
+pallet-participation = { path = "../pallet-participation", default-features = false }
+pallet-directory = { path = "../pallet-directory", default-features = false }
+pallet-forum = { path = "../pallet-forum", default-features = false }
+pallet-market = { path = "../pallet-market", default-features = false }
 pallet-manifesto = { path = "../pallet-manifesto", default-features = false }
 harlequin-consensus-api = { path = "../consensus-api", default-features = false }
+harlequin-tokens-api = { path = "../tokens-api", default-features = false }
 pallet-timestamp = { version = "47.0.0", default-features = false }
 pallet-balances = { version = "49.0.0", default-features = false }
 pallet-sudo = { version = "48.0.0", default-features = false }
@@ -25,10 +32,12 @@ frame-system = { version = "47.0.0", default-features = false }
 default = ["std"]
 # Production consensus/reputation cadence (#30): τ=60, β=12, daily reputation epoch, ρ for 24-month
 # half-life, hourly committee rotation. Without it, fast testnet values for validation.
-mainnet = []
+# Propagates to pallet-participation so its committee consts (EPOCH_LENGTH=600, TAU=60) match the node's
+# finality.rs under the SAME flag — otherwise the on-chain committee re-derivation diverges on mainnet.
+mainnet = ["pallet-participation/mainnet"]
 std = [
 	"codec/std", "scale-info/std", "frame/std", "frame-system/std", "pallet-reputation/std",
-	"pallet-justice/std", "pallet-beacon/std", "pallet-manifesto/std", "harlequin-consensus-api/std",
+	"pallet-justice/std", "pallet-beacon/std", "pallet-multisig-upgrade/std", "pallet-tokens/std", "pallet-participation/std", "pallet-directory/std", "pallet-forum/std", "pallet-market/std", "pallet-manifesto/std", "harlequin-consensus-api/std", "harlequin-tokens-api/std",
 	"pallet-timestamp/std", "pallet-balances/std", "pallet-sudo/std",
 	"pallet-transaction-payment/std", "pallet-transaction-payment-rpc-runtime-api/std",
 	"substrate-wasm-builder",

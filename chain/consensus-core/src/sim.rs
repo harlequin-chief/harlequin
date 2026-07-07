@@ -32,7 +32,7 @@ impl SplitMix64 {
         z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
         z ^ (z >> 31)
     }
-    /// Uniform f64 in `[0, 1)` (53-bit mantissa), matching the role of Python's `random()`.
+    /// Uniform f64 in `[0, 1)` (53-bit mantissa), matching the role of Python's `random`.
     #[inline]
     fn next_f64(&mut self) -> f64 {
         (self.next_u64() >> 11) as f64 / (1u64 << 53) as f64

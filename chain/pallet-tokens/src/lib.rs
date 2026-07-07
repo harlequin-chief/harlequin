@@ -11,7 +11,7 @@
 //! reputation (elsewhere); maintaining the network is paid here by **proof-of-service**, and that pay grants
 //! no vote.
 //!
-//! **No artificial inflation (Art. X, a hard design constraint).** New coin enters ONLY through the
+//! **No artificial inflation (Art. X, the maintainer's hard constraint).** New coin enters ONLY through the
 //! pre-committed per-coin `EmissionCurve` at each era boundary (`on_initialize`), disinflationary with a
 //! hard cap. SOV: hard cap (e.g. 54,000,000 — a deck of 54: 52 cards + 2 jokers, the joker *is* the
 //! harlequin). HLQ: rule-bound emission + a partial **fee burn** sink so it tends to a use↔burn equilibrium,
@@ -19,9 +19,10 @@
 //!
 //! ## Pre-mainnet notes (honest limitations)
 //! - **Weights are placeholders, not benchmarked** (must be benchmarked before mainnet).
-//! - The per-node anti-Sybil weight cap (§3.1) is applied here when building the reward vector; the
-//!   `ServiceWeights` are recorded by a pluggable `ServiceOrigin` (the consensus/finality reporter), which a
-//!   future increment wires to on-chain block authorship + finality (reusing the Snowball gadget).
+//! - The per-node anti-Sybil weight cap (§3.1) is applied here when building the reward vector; the service
+//!   `(account, weight)` pairs come from a pluggable [`EraServiceSource`] (P-2/#838), wired in the runtime
+//!   to pallet-participation's non-forgeable author/finality feed — NOT a Root-gated call, so emission
+//!   mints on a king-less mainnet.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -29,7 +30,7 @@ extern crate alloc;
 
 pub use pallet::*;
 
-/// The two coins. Fixed set (the two coin names): HLQ "La Bolsa" (daily use) and SOV "El Cofre"
+/// The two coins. Fixed set (LORE / the maintainer): HLQ "La Bolsa" (daily use) and SOV "El Cofre"
 /// (Soberano, reserve).
 #[derive(
     codec::Encode,
@@ -122,6 +123,20 @@ pub mod pallet {
     use super::{Balances, Coin, CurveParams};
     use frame::prelude::*;
 
+    /// The non-forgeable source of verified per-era service (P-2/#838). The emission reward split reads the
+    /// `(account, weight)` pairs from here at each era boundary and then clears the era. In the runtime this
+    /// is wired to `pallet-participation`'s `EraServiceAccumulator` — fed ONLY by the block-author inherent
+    /// (`note_participation`, whose finality votes are sr25519 + committee verified and whose author is
+    /// bound to the signing vote key by P-1). Emission therefore needs NO privileged/Root origin, so it
+    /// mints on a king-less mainnet (Root is compiled out). Replaces the dead `record_service` /
+    /// `ServiceWeights` / `ServiceOrigin` path, which could never populate service on mainnet 0-Sudo.
+    pub trait EraServiceSource<AccountId> {
+        /// Accumulated verified service `(account, weight)` for `era`.
+        fn era_service(era: u64) -> alloc::vec::Vec<(AccountId, u64)>;
+        /// Clear `era`'s accumulator once the reward split has paid it (called right after the split).
+        fn clear_era(era: u64);
+    }
+
     #[pallet::config]
     pub trait Config: frame_system::Config {
         /// The aggregate event type of the runtime.
@@ -150,10 +165,20 @@ pub mod pallet {
         #[pallet::constant]
         type ServiceCapK: Get<u32>;
 
-        /// Origin that records verified honest service (uptime + producing/finalising in turn, read from
-        /// chain). Pluggable like `EvidenceOrigin` in pallet-reputation — the pallet trusts it to have
-        /// verified the work; it confers NO power, only a claim on the reward pool.
-        type ServiceOrigin: EnsureOrigin<Self::RuntimeOrigin>;
+        /// Source of verified per-era service, read at each era boundary to build the reward split
+        /// (P-2/#838). Wired to `pallet-participation` in the runtime — the non-forgeable author/vote
+        /// inherent feed, NOT a Root-gated call. Confers NO power, only a claim on the reward pool.
+        type ServiceSource: EraServiceSource<Self::AccountId>;
+
+        /// Ceiling for FEELESS extrinsics per block, in basis points of the max block weight
+        /// (SPEC-RELAUNCH §2 R1(i)). Default 1500 = 15%: a mask farm can never fill blocks for free.
+        #[pallet::constant]
+        type FeelessBlockBps: Get<u16>;
+
+        /// Blocks per FEELESS budget epoch (the per-mask allowance resets each such epoch and is NOT
+        /// cumulative — SPEC-RELAUNCH §2 R1(iii)). ~1 day of blocks.
+        #[pallet::constant]
+        type FeelessEpochBlocks: Get<BlockNumberFor<Self>>;
     }
 
     #[pallet::pallet]
@@ -176,11 +201,19 @@ pub mod pallet {
     #[pallet::storage]
     pub type Epoch<T> = StorageValue<_, u64, ValueQuery>;
 
-    /// Verified honest-service weight accrued by each node THIS era (proof-of-service, §3.5(2)). Reset each
-    /// era after the reward split. NOT reputation, NOT stake — only measured service.
+    /// FEELESS accounting (SPEC-RELAUNCH §2): budget-epoch index in which an account was first seen
+    /// (its "age" clock — waiting is the only way to age, so farming masks buys nothing today).
     #[pallet::storage]
-    pub type ServiceWeights<T: Config> =
-        StorageMap<_, Blake2_128Concat, T::AccountId, u64, ValueQuery>;
+    pub type FeelessFirstSeen<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, u32>;
+
+    /// FEELESS uses spent by an account: `(budget_epoch_index, used)`. Resets by rollover (non-cumulative).
+    #[pallet::storage]
+    pub type FeelessUsed<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, (u32, u32), ValueQuery>;
+
+    /// Ref-time weight consumed by FEELESS extrinsics in the CURRENT block (killed each `on_initialize`).
+    /// Enforces the global per-block ceiling (`FeelessBlockBps`).
+    #[pallet::storage]
+    pub type FeelessWeightThisBlock<T> = StorageValue<_, u64, ValueQuery>;
 
     /// Genesis: a modest, declared founder allocation (SPEC §5, fair launch — no premine/ICO). The bulk of
     /// SOV is earned post-genesis by running the network. Reputation is NOT seeded here (money ≠ power).
@@ -194,8 +227,23 @@ pub mod pallet {
     #[pallet::genesis_build]
     impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
         fn build(&self) {
+            // T-HIGH1 fix (audit): reject a chain-spec that lists the same account twice. Without
+            // this, a duplicate entry OVERWRITES the balance (`Accounts::insert`) but `Minted` ACCUMULATES
+            // both amounts against the hard cap AND `inc_sufficients` fires twice (an unbalanced existence
+            // reference with no matching `dec`) — a silent, irreversible cap corruption baked into the sealed
+            // genesis. Genesis is hand-authored (no tooling), so this guard is load-bearing.
+            let mut seen = alloc::collections::BTreeSet::new();
+            for (who, _, _) in &self.balances {
+                assert!(seen.insert(who.clone()), "duplicate account in genesis token balances");
+            }
             for (who, hlq, sov) in &self.balances {
                 Accounts::<T>::insert(who, Balances { hlq: *hlq, sov: *sov });
+                // E4 fix: a genesis-funded account materialises too (existence reference), so it can pay
+                // without a phantom native balance — and so the `dec` in `debit` on spend-to-zero is
+                // balanced (one inc here, one dec there).
+                if hlq.saturating_add(*sov) > 0 {
+                    let _ = frame_system::Pallet::<T>::inc_sufficients(who);
+                }
                 // Founder allocation counts as already-minted against the cap (transparent, not free supply).
                 if *hlq > 0 {
                     Minted::<T>::mutate(Coin::Hlq, |m| *m = m.saturating_add(*hlq));
@@ -214,8 +262,6 @@ pub mod pallet {
         Transferred { coin: Coin, from: T::AccountId, to: T::AccountId, amount: u128 },
         /// An HLQ fee: `burned` removed from supply, `to_node` paid to the processing node.
         FeeCharged { payer: T::AccountId, node: T::AccountId, burned: u128, to_node: u128 },
-        /// `who` accrued `weight` of verified service this era.
-        ServiceRecorded { who: T::AccountId, weight: u64 },
         /// A new era: `hlq`/`sov` emitted into the reward pool and split among `nodes` service providers.
         EraReward { epoch: u64, hlq: u128, sov: u128, nodes: u32 },
     }
@@ -234,12 +280,24 @@ pub mod pallet {
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         /// At every era boundary the chain mints the scheduled emission for both coins and distributes it to
         /// the nodes by verified service — by ITSELF, no privileged trigger (no king). Deterministic.
-        fn on_initialize(n: BlockNumberFor<T>) -> Weight {
+        fn on_initialize(_n: BlockNumberFor<T>) -> Weight {
+            // fresh block → fresh feeless ceiling (the global per-block cap is per-block state).
+            FeelessWeightThisBlock::<T>::kill();
+            Weight::from_parts(1_000_000_000, 0) // placeholder; benchmark + offchain-worker pre-mainnet
+        }
+
+        /// Emission runs in `on_finalize` (P-2/#838), NOT `on_initialize`. `frame_executive` runs ALL
+        /// pallets' `on_initialize` (block start) before ANY `on_finalize` (block end). pallet-participation
+        /// (index 12) folds the era's last epoch into its `EraServiceAccumulator` in ITS `on_initialize`, so
+        /// by the time this runs the era is COMPLETE. The old `on_initialize` mint ran BEFORE that fold →
+        /// it lost the final epoch (~1/183 on mainnet) and stranded its weight; this is exactly-once and
+        /// loss-free. Depends on `EraLength` being an exact multiple of participation's `EpochLength` (P-5)
+        /// so no epoch straddles the era boundary.
+        fn on_finalize(n: BlockNumberFor<T>) {
             let len = T::EraLength::get();
             if !n.is_zero() && !len.is_zero() && (n % len).is_zero() {
                 Self::run_epoch();
             }
-            Weight::from_parts(1_000_000_000, 0) // placeholder; benchmark + offchain-worker pre-mainnet
         }
     }
 
@@ -261,20 +319,11 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Record verified honest service for `who` this era (proof-of-service input to the reward split).
-        /// Gated by `ServiceOrigin` — the pluggable, trusted reporter of on-chain participation. Adds to the
-        /// running weight; confers NO power (Art. VI).
-        #[pallet::call_index(1)]
-        #[pallet::weight(Weight::from_parts(10_000, 0))]
-        pub fn record_service(origin: OriginFor<T>, who: T::AccountId, weight: u64) -> DispatchResult {
-            T::ServiceOrigin::ensure_origin(origin)?;
-            let total = ServiceWeights::<T>::mutate(&who, |w| {
-                *w = w.saturating_add(weight);
-                *w
-            });
-            Self::deposit_event(Event::ServiceRecorded { who, weight: total });
-            Ok(())
-        }
+        // `record_service` (call_index 1) REMOVED in P-2/#838: it was gated by `ServiceOrigin = EnsureRoot`,
+        // and Root is compiled out of mainnet (king-less, K1) → it could NEVER populate service there, so
+        // emission minted nothing. Service now comes from the non-forgeable participation feed via
+        // `T::ServiceSource` (read in `run_epoch`). No second, unreachable path. call_index 0 (transfer)
+        // is unchanged; no index is reused (1 is simply retired) so historical encodings never collide.
     }
 
     impl<T: Config> Pallet<T> {
@@ -303,18 +352,38 @@ pub mod pallet {
 
         fn credit(coin: Coin, who: &T::AccountId, amount: u128) -> Result<(), Error<T>> {
             Accounts::<T>::try_mutate(who, |b| {
+                let total_before = b.hlq.saturating_add(b.sov);
                 let v = Self::get(coin, b).checked_add(amount).ok_or(Error::<T>::Overflow)?;
                 Self::set(coin, b, v);
+                // E4 fix (, the reviewer's stress catch): pallet-tokens is a SUFFICIENT ledger.
+                // Receiving Harlequin coin MATERIALISES the account — it takes a `frame_system` existence
+                // reference (sufficient), so its signed extrinsics validate. Without this, an account funded
+                // only via a Tokens transfer keeps `providers==0 && sufficients==0`, and `HlqCheckNonce`
+                // treats it as "not yet a mask" → InvalidTransaction::Payment on ANY paying call. On the
+                // launch genesis (no native `pallet_balances` for anyone) that would brick the whole
+                // citizen economy: earn HLQ, never able to spend it. One inc per 0→positive transition,
+                // matched by the dec in `debit` on positive→0 — balanced, independent of the newborn
+                // feeless bootstrap's own reference in `HlqCheckNonce`.
+                if total_before == 0 && amount > 0 {
+                    let _ = frame_system::Pallet::<T>::inc_sufficients(who);
+                }
                 Ok(())
             })
         }
         fn debit(coin: Coin, who: &T::AccountId, amount: u128) -> Result<(), Error<T>> {
-            Accounts::<T>::try_mutate(who, |b| {
+            Accounts::<T>::try_mutate_exists(who, |maybe_b| {
+                let b = maybe_b.get_or_insert_with(Balances::default);
                 let cur = Self::get(coin, b);
                 if cur < amount {
                     return Err(Error::<T>::InsufficientFunds);
                 }
                 Self::set(coin, b, cur - amount);
+                // Fully spent (both coins zero): reap the ledger entry and release the existence reference,
+                // so `frame_system` can reap the account when its last ref drops (mirror of `credit`).
+                if b.hlq == 0 && b.sov == 0 {
+                    *maybe_b = None;
+                    let _ = frame_system::Pallet::<T>::dec_sufficients(who);
+                }
                 Ok(())
             })
         }
@@ -367,6 +436,125 @@ pub mod pallet {
             Ok(())
         }
 
+        /// Fee-side primitives for the runtime's `OnChargeTransaction` adapter (SPEC-RELAUNCH §2 — fees
+        /// are paid in HLQ, the daily-use coin, never in a phantom native balance). Withdraw-then-settle
+        /// split so the adapter can refund the weight difference before the burn/author split.
+        /// Secure the (maximum) fee up front. Fails ⇒ the extrinsic is invalid (payment).
+        pub fn fee_withdraw(payer: &T::AccountId, amount: u128) -> Result<(), Error<T>> {
+            if amount == 0 {
+                return Ok(());
+            }
+            Self::debit(Coin::Hlq, payer, amount)
+        }
+
+        /// Return an over-withdrawn remainder to the payer (actual fee < secured fee).
+        pub fn fee_refund(payer: &T::AccountId, amount: u128) {
+            if amount > 0 {
+                let _ = Self::credit(Coin::Hlq, payer, amount);
+            }
+        }
+
+        /// Settle an already-withdrawn fee: `FeeBurnBps` is burned; the rest pays the block `author`
+        /// (the node that did the work). No author known ⇒ the whole fee is BURNED — public and
+        /// non-discretionary, never a pot anyone controls (Art. VI: no hidden hand).
+        pub fn fee_settle(payer: &T::AccountId, author: Option<&T::AccountId>, fee: u128) {
+            if fee == 0 {
+                return;
+            }
+            let burn = tokens_core::burn_amount(fee, T::FeeBurnBps::get());
+            let to_node = fee - burn;
+            let (burned, node) = match author {
+                Some(node) if to_node > 0 => {
+                    let _ = Self::credit(Coin::Hlq, node, to_node);
+                    (burn, node.clone())
+                }
+                _ => (fee, payer.clone()), // no author → burn everything (event still names the payer)
+            };
+            if burned > 0 {
+                Burned::<T>::mutate(Coin::Hlq, |x| *x = x.saturating_add(burned));
+            }
+            Self::deposit_event(Event::FeeCharged {
+                payer: payer.clone(),
+                node,
+                burned,
+                to_node: fee - burned,
+            });
+        }
+
+        /// FEELESS gate (SPEC-RELAUNCH §2, fix for audit 🔴#1's bootstrap chicken-and-egg): try to consume
+        /// one feeless use for `who` at this extrinsic's `ref_time` weight. `allowance` (uses per budget
+        /// epoch) is computed by the RUNTIME from age + reputation — this pallet only does the bookkeeping:
+        ///   (i)   global per-block ceiling: feeless weight ≤ `FeelessBlockBps` of the max block weight;
+        ///   (ii)  per-mask budget: `used < allowance` within the current budget epoch (rollover resets);
+        ///   (iii) the age clock starts at first use (`FeelessFirstSeen`).
+        /// Returns `true` if the use was granted AND recorded; `false` → the caller must charge a real fee.
+        pub fn try_feeless(who: &T::AccountId, ref_time: u64, allowance: u32) -> bool {
+            let len = T::FeelessEpochBlocks::get();
+            if len.is_zero() || allowance == 0 {
+                return false;
+            }
+            // (i) global ceiling, in bps of max block ref-time.
+            let max_block = <T as frame_system::Config>::BlockWeights::get().max_block.ref_time();
+            let bps = core::cmp::min(T::FeelessBlockBps::get(), 10_000) as u64;
+            let ceiling = max_block / 10_000 * bps;
+            let used_block = FeelessWeightThisBlock::<T>::get();
+            if used_block.saturating_add(ref_time) > ceiling {
+                return false;
+            }
+            // (ii) per-mask budget in the current budget epoch (non-cumulative).
+            let idx: u32 =
+                (frame_system::Pallet::<T>::block_number() / len).saturated_into::<u32>();
+            let (epoch_idx, used) = FeelessUsed::<T>::get(who);
+            let used = if epoch_idx == idx { used } else { 0 };
+            if used >= allowance {
+                return false;
+            }
+            // grant + record.
+            FeelessUsed::<T>::insert(who, (idx, used.saturating_add(1)));
+            if !FeelessFirstSeen::<T>::contains_key(who) {
+                FeelessFirstSeen::<T>::insert(who, idx);
+            }
+            FeelessWeightThisBlock::<T>::put(used_block.saturating_add(ref_time));
+            true
+        }
+
+        /// Read-only twin of `try_feeless` (for `can_withdraw_fee` validation): would the use be granted?
+        /// Checks the same ceiling + budget but records NOTHING.
+        pub fn can_feeless(who: &T::AccountId, ref_time: u64, allowance: u32) -> bool {
+            let len = T::FeelessEpochBlocks::get();
+            if len.is_zero() || allowance == 0 {
+                return false;
+            }
+            let max_block = <T as frame_system::Config>::BlockWeights::get().max_block.ref_time();
+            let bps = core::cmp::min(T::FeelessBlockBps::get(), 10_000) as u64;
+            let ceiling = max_block / 10_000 * bps;
+            if FeelessWeightThisBlock::<T>::get().saturating_add(ref_time) > ceiling {
+                return false;
+            }
+            let idx: u32 =
+                (frame_system::Pallet::<T>::block_number() / len).saturated_into::<u32>();
+            let (epoch_idx, used) = FeelessUsed::<T>::get(who);
+            let used = if epoch_idx == idx { used } else { 0 };
+            used < allowance
+        }
+
+        /// Age of `who` in FEELESS budget epochs (0 if never seen). Input to the runtime's allowance curve:
+        /// only waiting ages a mask, so minting fresh masks buys no budget today (SPEC-RELAUNCH §2 R1(ii)).
+        pub fn feeless_age(who: &T::AccountId) -> u32 {
+            let len = T::FeelessEpochBlocks::get();
+            if len.is_zero() {
+                return 0;
+            }
+            match FeelessFirstSeen::<T>::get(who) {
+                None => 0,
+                Some(first) => {
+                    let idx: u32 =
+                        (frame_system::Pallet::<T>::block_number() / len).saturated_into::<u32>();
+                    idx.saturating_sub(first)
+                }
+            }
+        }
+
         /// Mint a coin's scheduled emission for `epoch` into a pool (respecting the hard cap), returning the
         /// amount. Reuses `tokens-core` so the pallet enforces the same rule as the host engine.
         fn mint_pool(coin: Coin, params: CurveParams, epoch: u64) -> u128 {
@@ -382,10 +570,16 @@ pub mod pallet {
         pub(crate) fn run_epoch() {
             let epoch = Epoch::<T>::get();
 
-            // Collect this era's service weights in a fixed (account-ordered) vector.
+            // Service for THIS era comes from the non-forgeable participation feed (P-2/#838), read at the
+            // era boundary in `on_finalize` (after participation's fold). `epoch` is the tokens era counter,
+            // bumped once per era boundary from 0: on the k-th boundary (block k·EraLength) it reads as
+            // `k-1`, which is exactly the era index participation keys its accumulator by
+            // (`ended_epoch_start / EraLength`) for the era that just closed — so `era_service(epoch)`
+            // returns the just-ended era. (Byte-exact review point: equivalence holds while `EraLength` is
+            // constant and `Epoch` starts at 0 at genesis; P-5 keeps `EraLength` a multiple of EpochLength.)
             let mut who: alloc::vec::Vec<T::AccountId> = alloc::vec::Vec::new();
             let mut weights: alloc::vec::Vec<u64> = alloc::vec::Vec::new();
-            for (acct, w) in ServiceWeights::<T>::iter() {
+            for (acct, w) in T::ServiceSource::era_service(epoch) {
                 if w > 0 {
                     who.push(acct);
                     weights.push(w);
@@ -393,10 +587,15 @@ pub mod pallet {
             }
             Self::cap_weights(&mut weights); // §3.1 anti-Sybil cap, BEFORE the split
 
-            let hlq_pool = Self::mint_pool(Coin::Hlq, T::HlqCurve::get(), epoch);
-            let sov_pool = Self::mint_pool(Coin::Sov, T::SovCurve::get(), epoch);
-
-            if !who.is_empty() {
+            // The curve is a MAXIMUM emission, never forced (SPEC-RELAUNCH §2, audit 🔴#2): with no
+            // verified service this era, NOTHING is minted — the tranche simply stays unminted under the
+            // hard cap. The old order (mint, then look for receivers) vaporised the era's emission into
+            // `Minted` with no one credited: phantom supply that permanently ate the cap.
+            let (hlq_pool, sov_pool) = if who.is_empty() {
+                (0, 0)
+            } else {
+                let hlq_pool = Self::mint_pool(Coin::Hlq, T::HlqCurve::get(), epoch);
+                let sov_pool = Self::mint_pool(Coin::Sov, T::SovCurve::get(), epoch);
                 let hlq_shares = tokens_core::split_service_reward(hlq_pool, &weights);
                 let sov_shares = tokens_core::split_service_reward(sov_pool, &weights);
                 for (i, acct) in who.iter().enumerate() {
@@ -407,10 +606,11 @@ pub mod pallet {
                         let _ = Self::credit(Coin::Sov, acct, sov_shares[i]);
                     }
                 }
-            }
+                (hlq_pool, sov_pool)
+            };
 
-            // Clear the era's weights and advance.
-            let _ = ServiceWeights::<T>::clear(u32::MAX, None);
+            // Clear the era's accumulator (in the feed source) and advance.
+            T::ServiceSource::clear_era(epoch);
             Epoch::<T>::put(epoch.saturating_add(1));
             Self::deposit_event(Event::EraReward {
                 epoch,
@@ -445,7 +645,7 @@ pub mod pallet {
 #[cfg(test)]
 mod tests {
     use crate as pallet_tokens;
-    use crate::{Burned, Coin, CurveParams, Epoch, Error, Minted, ServiceWeights};
+    use crate::{Accounts, Burned, Coin, CurveParams, Epoch, Error, Minted};
     use frame::testing_prelude::*;
 
     construct_runtime! {
@@ -476,14 +676,52 @@ mod tests {
         type EraLength = ConstU64<5>; // run_epoch fires at blocks 5,10,15,...
         type FeeBurnBps = ConstU16<5000>; // 50/50 burn split
         type ServiceCapK = ConstU32<2>; // anti-Sybil cap = ceil(median·2)
-        type ServiceOrigin = EnsureRoot<Self::AccountId>;
+        type ServiceSource = MockServiceSource; // P-2: tests seed service via `seed_service`
+        type FeelessBlockBps = ConstU16<1500>; // 15% of block weight for feeless
+        type FeelessEpochBlocks = ConstU64<10>; // short budget epoch for tests
+    }
+
+    // Mock service source (P-2/#838): tests seed verified `(account, weight)` here; `run_epoch` reads it as
+    // the era's service and `clear_era` empties it — the unit-test stand-in for pallet-participation's
+    // non-forgeable accumulator, replacing the removed Root-gated `record_service` extrinsic.
+    std::thread_local! {
+        static SERVICE: core::cell::RefCell<Vec<(u64, u64)>> = const { core::cell::RefCell::new(Vec::new()) };
+    }
+    pub struct MockServiceSource;
+    impl pallet_tokens::EraServiceSource<u64> for MockServiceSource {
+        fn era_service(_era: u64) -> Vec<(u64, u64)> {
+            SERVICE.with(|s| s.borrow().clone())
+        }
+        fn clear_era(_era: u64) {
+            SERVICE.with(|s| s.borrow_mut().clear());
+        }
+    }
+    /// Seed (accumulate) verified service for `who` — the P-2 replacement for the old `record_service`.
+    fn seed_service(who: u64, weight: u64) {
+        SERVICE.with(|s| {
+            let mut v = s.borrow_mut();
+            match v.iter_mut().find(|(a, _)| *a == who) {
+                Some(e) => e.1 = e.1.saturating_add(weight),
+                None => v.push((who, weight)),
+            }
+        });
+    }
+    /// Current seeded service of `who` (0 if none) — replaces `ServiceWeights::get` in assertions.
+    fn service_of(who: u64) -> u64 {
+        SERVICE.with(|s| s.borrow().iter().find(|(a, _)| *a == who).map(|(_, w)| *w).unwrap_or(0))
+    }
+    /// Reset the mock feed — every ext starts with no seeded service (thread_local can outlive one test).
+    fn reset_service() {
+        SERVICE.with(|s| s.borrow_mut().clear());
     }
 
     fn new_test_ext() -> TestState {
+        reset_service();
         frame_system::GenesisConfig::<Test>::default().build_storage().unwrap().into()
     }
 
     fn ext_with_balances(balances: Vec<(u64, u128, u128)>) -> TestState {
+        reset_service();
         RuntimeGenesisConfig {
             system: Default::default(),
             tokens: pallet_tokens::GenesisConfig { balances },
@@ -527,6 +765,55 @@ mod tests {
         });
     }
 
+    // --- E4: existence via the sufficient ledger (the reviewer's stress catch) ---
+
+    #[test]
+    fn receiving_coin_materialises_the_account_and_spending_reaps_it() {
+        // A fresh mask funded ONLY via a Tokens transfer must gain a frame_system existence reference
+        // (sufficients>0), else HlqCheckNonce rejects its paying extrinsics as "not yet a mask". Spending
+        // to zero releases the reference and reaps the ledger entry.
+        ext_with_balances(vec![(1, 100, 0)]).execute_with(|| {
+            assert_eq!(frame_system::Account::<Test>::get(2).sufficients, 0);
+            assert_ok!(Tokens::transfer(RuntimeOrigin::signed(1), Coin::Hlq, 2, 40));
+            assert_eq!(frame_system::Account::<Test>::get(2).sufficients, 1);
+            assert!(Accounts::<Test>::contains_key(2));
+            // spend it all back
+            assert_ok!(Tokens::transfer(RuntimeOrigin::signed(2), Coin::Hlq, 1, 40));
+            assert!(!Accounts::<Test>::contains_key(2));
+            assert_eq!(frame_system::Account::<Test>::get(2).sufficients, 0);
+        });
+    }
+
+    #[test]
+    fn genesis_funded_account_is_materialised() {
+        // Founders seeded in genesis exist without any phantom native balance — one sufficient ref each.
+        ext_with_balances(vec![(1, 100, 5)]).execute_with(|| {
+            assert_eq!(frame_system::Account::<Test>::get(1).sufficients, 1);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "duplicate account in genesis token balances")]
+    fn genesis_rejects_duplicate_balances() {
+        // T-HIGH1 (audit): a chain-spec listing the same account twice would silently corrupt
+        // the Minted-vs-cap accounting (Minted accumulates BOTH amounts against the hard cap while the
+        // balance keeps only the last) and fire inc_sufficients twice — an irreversible corruption baked
+        // into the sealed genesis. The build must reject it rather than proceed.
+        let _ = ext_with_balances(vec![(1, 100, 0), (1, 50, 0)]);
+    }
+
+    #[test]
+    fn partial_spend_keeps_the_account_alive() {
+        // Draining one coin to zero while the other stays positive must NOT reap or drop the reference.
+        ext_with_balances(vec![(1, 100, 7)]).execute_with(|| {
+            assert_ok!(Tokens::transfer(RuntimeOrigin::signed(1), Coin::Hlq, 2, 100));
+            // account 1 still holds SOV → stays materialised
+            assert_eq!(frame_system::Account::<Test>::get(1).sufficients, 1);
+            assert!(Accounts::<Test>::contains_key(1));
+            assert_eq!(Tokens::balance(&1, Coin::Sov), 7);
+        });
+    }
+
     // --- fee burn split (TOKENOMICS §2: 50/50) ---
 
     #[test]
@@ -545,20 +832,19 @@ mod tests {
         });
     }
 
-    // --- proof-of-service recording: gated, confers no power ---
+    // --- proof-of-service: emission reads the non-forgeable feed, NO Root/origin (P-2/#838) ---
 
     #[test]
-    fn record_service_requires_origin() {
+    fn emission_reads_service_source_no_origin() {
         new_test_ext().execute_with(|| {
-            // a plain signed account cannot self-assert service
-            assert_noop!(
-                Tokens::record_service(RuntimeOrigin::signed(1), 1, 10),
-                DispatchError::BadOrigin
-            );
-            // the trusted ServiceOrigin (root in the mock) can, and weight accrues
-            assert_ok!(Tokens::record_service(RuntimeOrigin::root(), 1, 10));
-            assert_ok!(Tokens::record_service(RuntimeOrigin::root(), 1, 5));
-            assert_eq!(ServiceWeights::<Test>::get(1u64), 15);
+            // No extrinsic, no Root: service arrives via the feed (participation's inherent, mocked here).
+            seed_service(1, 15);
+            assert_eq!(service_of(1), 15);
+            Tokens::run_epoch(); // the era boundary reads the feed and mints — no privileged call anywhere
+            // the whole HLQ pool (1000) went to the single provider; feed cleared afterwards
+            assert_eq!(Tokens::balance(&1, Coin::Hlq), 1000);
+            assert!(Minted::<Test>::get(Coin::Hlq) > 0);
+            assert_eq!(service_of(1), 0, "clear_era must empty the feed after the split");
         });
     }
 
@@ -568,8 +854,8 @@ mod tests {
     fn era_mints_and_splits_by_service() {
         new_test_ext().execute_with(|| {
             // two equal-service nodes
-            assert_ok!(Tokens::record_service(RuntimeOrigin::root(), 1, 5));
-            assert_ok!(Tokens::record_service(RuntimeOrigin::root(), 2, 5));
+            seed_service(1, 5);
+            seed_service(2, 5);
             Tokens::run_epoch();
             // HLQ pool this era = 1000 (flat), split 50/50
             assert_eq!(Tokens::balance(&1, Coin::Hlq), 500);
@@ -581,8 +867,8 @@ mod tests {
             assert_eq!(Minted::<Test>::get(Coin::Hlq), 1000);
             assert_eq!(Minted::<Test>::get(Coin::Sov), 100);
             assert_eq!(Epoch::<Test>::get(), 1);
-            assert_eq!(ServiceWeights::<Test>::get(1u64), 0);
-            assert_eq!(ServiceWeights::<Test>::get(2u64), 0);
+            assert_eq!(service_of(1), 0);
+            assert_eq!(service_of(2), 0);
         });
     }
 
@@ -600,10 +886,10 @@ mod tests {
     fn whale_cannot_drain_the_pool() {
         new_test_ext().execute_with(|| {
             // three honest small nodes + one Sybil whale claiming 100x the service
-            assert_ok!(Tokens::record_service(RuntimeOrigin::root(), 1, 1));
-            assert_ok!(Tokens::record_service(RuntimeOrigin::root(), 2, 1));
-            assert_ok!(Tokens::record_service(RuntimeOrigin::root(), 3, 1));
-            assert_ok!(Tokens::record_service(RuntimeOrigin::root(), 9, 100));
+            seed_service(1, 1);
+            seed_service(2, 1);
+            seed_service(3, 1);
+            seed_service(9, 100);
             Tokens::run_epoch();
             let small = Tokens::balance(&1, Coin::Hlq);
             let whale = Tokens::balance(&9, Coin::Hlq);
@@ -619,7 +905,7 @@ mod tests {
     fn sov_hard_cap_is_never_exceeded() {
         new_test_ext().execute_with(|| {
             for _ in 0..20 {
-                assert_ok!(Tokens::record_service(RuntimeOrigin::root(), 1, 1));
+                seed_service(1, 1); // run_epoch's clear_era empties the feed each iteration
                 Tokens::run_epoch();
             }
             // SOV cap is 150 — cumulative minted must stop there, never above
@@ -628,18 +914,18 @@ mod tests {
         });
     }
 
-    // --- no-king: the era fires by block hook, not by a privileged call ---
+    // --- no-king: the era fires by block hook (on_finalize, P-2), not by a privileged call ---
 
     #[test]
-    fn on_initialize_fires_only_on_era_boundary() {
+    fn on_finalize_fires_only_on_era_boundary() {
         new_test_ext().execute_with(|| {
-            assert_ok!(Tokens::record_service(RuntimeOrigin::root(), 1, 1));
+            seed_service(1, 1);
             // non-boundary block: nothing happens
-            Tokens::on_initialize(3);
+            Tokens::on_finalize(3);
             assert_eq!(Epoch::<Test>::get(), 0);
             assert_eq!(Minted::<Test>::get(Coin::Hlq), 0);
-            // EraLength=5 boundary: the chain mints + distributes by itself
-            Tokens::on_initialize(5);
+            // EraLength=5 boundary: the chain mints + distributes by itself, in on_finalize
+            Tokens::on_finalize(5);
             assert_eq!(Epoch::<Test>::get(), 1);
             assert_eq!(Tokens::balance(&1, Coin::Hlq), 1000);
         });
@@ -657,6 +943,107 @@ mod tests {
             assert_eq!(Minted::<Test>::get(Coin::Sov), 200);
             assert_eq!(Tokens::circulating(Coin::Hlq), 500);
             assert_eq!(Tokens::circulating(Coin::Sov), 200);
+        });
+    }
+
+    // --- balance-read: the primitive the typed runtime API (`TokensApi::balance_of`) exposes ---
+
+    #[test]
+    fn balance_of_absent_account_is_zero() {
+        // ValueQuery: an account that holds nothing — or was never seen — reads as 0, not an error.
+        // The wallet-UI / node console rely on this never panicking on an unknown id.
+        new_test_ext().execute_with(|| {
+            assert_eq!(Tokens::balance(&42, Coin::Hlq), 0);
+            assert_eq!(Tokens::balance(&42, Coin::Sov), 0);
+        });
+    }
+
+    // --- 🔴#2 fix: the curve is a MAXIMUM — an era with no verified service mints NOTHING ---
+
+    #[test]
+    fn era_without_receivers_mints_nothing() {
+        new_test_ext().execute_with(|| {
+            // era 0: nobody recorded service → no mint, cap untouched, era still advances
+            Tokens::run_epoch();
+            assert_eq!(Minted::<Test>::get(Coin::Hlq), 0, "vaporised emission into Minted");
+            assert_eq!(Minted::<Test>::get(Coin::Sov), 0);
+            assert_eq!(Epoch::<Test>::get(), 1);
+            // next era WITH service mints and distributes normally — nothing was lost
+            seed_service(1, 1);
+            Tokens::run_epoch();
+            assert!(Tokens::balance(&1, Coin::Hlq) > 0);
+            assert_eq!(Minted::<Test>::get(Coin::Hlq), Tokens::balance(&1, Coin::Hlq));
+        });
+    }
+
+    // --- feeless gate (SPEC-RELAUNCH §2): budget, rollover, global ceiling, age clock ---
+
+    #[test]
+    fn feeless_budget_and_rollover() {
+        new_test_ext().execute_with(|| {
+            frame_system::Pallet::<Test>::set_block_number(1);
+            Tokens::on_initialize(1);
+            // allowance 2: two uses granted, third refused
+            assert!(Tokens::try_feeless(&1, 10, 2));
+            assert!(Tokens::try_feeless(&1, 10, 2));
+            assert!(!Tokens::try_feeless(&1, 10, 2), "budget must exhaust");
+            // allowance 0 never grants
+            assert!(!Tokens::try_feeless(&2, 10, 0));
+            // next budget epoch (FeelessEpochBlocks=10): budget resets, does NOT accumulate
+            frame_system::Pallet::<Test>::set_block_number(11);
+            Tokens::on_initialize(11);
+            assert!(Tokens::try_feeless(&1, 10, 2));
+            assert!(Tokens::try_feeless(&1, 10, 2));
+            assert!(!Tokens::try_feeless(&1, 10, 2), "rollover must not accumulate");
+        });
+    }
+
+    #[test]
+    fn feeless_global_block_ceiling() {
+        new_test_ext().execute_with(|| {
+            frame_system::Pallet::<Test>::set_block_number(1);
+            Tokens::on_initialize(1);
+            let bw: frame_system::limits::BlockWeights =
+                <Test as frame_system::Config>::BlockWeights::get();
+            let max = bw.max_block.ref_time();
+            let ceiling = max / 10_000 * 1500; // 15%
+            // one huge feeless tx fills the whole block ceiling…
+            assert!(Tokens::try_feeless(&1, ceiling, 10));
+            // …then NOBODY else rides free this block, even with budget left
+            assert!(!Tokens::try_feeless(&2, 1, 10), "global ceiling must bind");
+            // fresh block → ceiling resets
+            Tokens::on_initialize(2);
+            assert!(Tokens::try_feeless(&2, 1, 10));
+        });
+    }
+
+    #[test]
+    fn feeless_age_clock_starts_at_first_use() {
+        new_test_ext().execute_with(|| {
+            frame_system::Pallet::<Test>::set_block_number(1);
+            assert_eq!(Tokens::feeless_age(&1), 0, "never seen = 0");
+            assert!(Tokens::try_feeless(&1, 1, 1));
+            // 5 budget epochs later (10 blocks each) the mask has aged 5 — only waiting ages it
+            frame_system::Pallet::<Test>::set_block_number(51);
+            assert_eq!(Tokens::feeless_age(&1), 5);
+            // a mask minted "now" starts at 0 regardless of how many exist
+            assert!(Tokens::try_feeless(&2, 1, 1));
+            assert_eq!(Tokens::feeless_age(&2), 0);
+        });
+    }
+
+    #[test]
+    fn balance_of_reads_each_coin_independently() {
+        // The two coins are separate ledgers: a read of one must never bleed into the other.
+        ext_with_balances(vec![(1, 500, 200)]).execute_with(|| {
+            assert_eq!(Tokens::balance(&1, Coin::Hlq), 500);
+            assert_eq!(Tokens::balance(&1, Coin::Sov), 200);
+            // moving HLQ leaves SOV untouched
+            assert_ok!(Tokens::transfer(RuntimeOrigin::signed(1), Coin::Hlq, 2, 100));
+            assert_eq!(Tokens::balance(&1, Coin::Hlq), 400);
+            assert_eq!(Tokens::balance(&1, Coin::Sov), 200);
+            assert_eq!(Tokens::balance(&2, Coin::Hlq), 100);
+            assert_eq!(Tokens::balance(&2, Coin::Sov), 0);
         });
     }
 }

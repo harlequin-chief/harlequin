@@ -88,7 +88,7 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
     out
 }
 
-/// Lowercase hex of a digest (matches Python's `hexdigest()`).
+/// Lowercase hex of a digest (matches Python's `hexdigest`).
 pub fn hex(digest: &[u8; 32]) -> String {
     let mut s = String::with_capacity(64);
     for b in digest {

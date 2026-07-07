@@ -1,10 +1,16 @@
 # Reputation pallet — design
 
+> ⚠️ **DESFASADO — ver handback.** Este doc describe extrinsics y storage que NO existen en
+> `pallet-reputation/` tal como está compilado: `advance_epoch` y `graduate(protege)` (el recompute es
+> automático en `on_initialize`, sin trigger), y storage `VouchRegistry` / `GenesisCohort` / `Beacon`.
+> El "Epoch flow" con offchain-worker + verify-by-recompute sigue **sin implementar** (el recompute vive
+> en `on_initialize` sin bound — 🟠 del handback). No reescribir aún; sincronizar en la sesión de cadena.
+
 How the validated `reputation-core` engine becomes an on-chain Substrate pallet. Anchors:
 `SPEC §1` (reputation), `§1.4` (two gates / genesis), `§2.2` (sortition), `§4` (justice/slashing).
 
-**Status (2026-06-16): the pallet is BUILT.** `pallet-reputation/` implements this design on
-`polkadot-sdk-frame` (Chief authorised pulling it): storage (Evidence, Vouches, ReputationSnapshot,
+**Status (): the pallet is BUILT.** `pallet-reputation/` implements this design on
+`polkadot-sdk-frame` (the maintainer authorised pulling it): storage (Evidence, Vouches, ReputationSnapshot,
 Epoch, LastReport), calls (`submit_evidence`, `vouch`/`revoke_vouch` with the sublinear all-suits quota,
 `advance_epoch` = recompute + telemetry, `report_fraud` = cascade slashing), and a genesis cohort. It
 runs `reputation-core` on the deterministic fixed-point path, builds `std` + `no_std`/`wasm32`, and
@@ -81,12 +87,12 @@ where zero-knowledge / minimal-disclosure proofs plug in later (§1.8 open).
 1. ✅ `reputation-core` + `consensus-core` → `no_std`/`wasm32` + deterministic fixed-point (engine,
    sortition, vouch scoring), all cross-validated against the f64 prototype.
 2. ✅ Epoch state machine (`protocol-core`) — genesis → recompute → committee → telemetry, deterministic.
-3. ⛔ **DECISION FOR CHIEF:** pull `polkadot-sdk` onto the station (OPSEC — external supply chain on the
+3. ⛔ **DECISION FOR THE MAINTAINER:** pull `polkadot-sdk` onto the station (OPSEC — external supply chain on the
    isolated admin disk). Until then the pallet code can be written but not compiled.
 4. Minimal Substrate solochain (node template) + this pallet, genesis cohort seeded (§1.4), reusing the
    `*_fp` APIs above (wrap, don't reimplement).
 5. Wire `elect_committee_fp` as committee/validator selection; offchain-worker recompute per the epoch
    flow above.
 6. Sub-sampled finality + light clients (§2.3). The async voting behaviour is already validated in the
-   Python test-rig (`consensus-simulator/testrig/`, 11/11); the production transport is Substrate/libp2p,
+   Python test-rig (`prototipos/consenso/testrig/`, 11/11); the production transport is Substrate/libp2p,
    not a re-port of the simulator.

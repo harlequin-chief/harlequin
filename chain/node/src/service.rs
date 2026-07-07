@@ -234,6 +234,25 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
         Consensus::WovenTrust(t) | Consensus::WovenTrustVoteOnly(t) => Some(*t),
         _ => None,
     };
+    // This node's committee identity (sr25519 public of `--vote-as`) — used by the slot-leader
+    // election (only the leader authors) AND declared as the author in the participation inherent
+    // (F2 piece 6c). Computed once, BEFORE `finality::start` moves `vote_as`.
+    let my_pub: Option<[u8; 32]> = {
+        use sp_core::Pair as _;
+        vote_as
+            .as_deref()
+            .and_then(|s| sp_core::sr25519::Pair::from_string(s, None).ok())
+            .map(|p| p.public().0)
+    };
+    // P-1/#838: keep the `--vote-as` KEYPAIR (not just the public) so the participation inherent can SIGN
+    // each block's authorship proof (`author_message`). Cloned into each authoring path's inherent provider;
+    // a keyless node signs nothing and the pallet credits it as nobody.
+    let my_vote_pair: Option<sp_core::sr25519::Pair> = {
+        use sp_core::Pair as _;
+        vote_as
+            .as_deref()
+            .and_then(|s| sp_core::sr25519::Pair::from_string(s, None).ok())
+    };
     if let (Some(notification_service), Some(block_time)) = (finality_notif, finality_block_time) {
         let (worker, driver) = crate::finality::start(
             client.clone(),
@@ -287,6 +306,8 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
 
     match consensus {
         Consensus::InstantSeal => {
+            let inherent_client = client.clone();
+            let inherent_vote_pair = my_vote_pair.clone();
             let params = sc_consensus_manual_seal::InstantSealParams {
                 block_import: client.clone(),
                 env: proposer,
@@ -294,8 +315,15 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
                 pool: transaction_pool,
                 select_chain,
                 consensus_data_provider: None,
-                create_inherent_data_providers: move |_, ()| async move {
-                    Ok(sp_timestamp::InherentDataProvider::from_system_time())
+                create_inherent_data_providers: move |parent, ()| {
+                    let client = inherent_client.clone();
+                    let vote_pair = inherent_vote_pair.clone();
+                    async move {
+                        // MANDATORY participation inherent (F2 piece 6): every block carries its record.
+                        let participation =
+                            crate::participation_inherent::provider_for(&client, parent, vote_pair.as_ref());
+                        Ok((sp_timestamp::InherentDataProvider::from_system_time(), participation))
+                    }
                 },
             };
 
@@ -312,7 +340,7 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
             task_manager.spawn_handle().spawn("block_authoring", None, async move {
                 loop {
                     futures_timer::Delay::new(std::time::Duration::from_millis(block_time)).await;
-                    // Don't panic in the authoring loop (audit 2026-06-17): if the seal engine is gone
+                    // Don't panic in the authoring loop (audit): if the seal engine is gone
                     // (node shutting down) stop cleanly; if its channel is momentarily full, skip this slot.
                     if let Err(e) = sink.try_send(sc_consensus_manual_seal::EngineCommand::SealNewBlock {
                         create_empty: true,
@@ -327,6 +355,8 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
                 }
             });
 
+            let inherent_client = client.clone();
+            let inherent_vote_pair = my_vote_pair.clone();
             let params = sc_consensus_manual_seal::ManualSealParams {
                 block_import: client.clone(),
                 env: proposer,
@@ -335,8 +365,14 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
                 select_chain,
                 commands_stream: Box::pin(commands_stream),
                 consensus_data_provider: None,
-                create_inherent_data_providers: move |_, ()| async move {
-                    Ok(sp_timestamp::InherentDataProvider::from_system_time())
+                create_inherent_data_providers: move |parent, ()| {
+                    let client = inherent_client.clone();
+                    let vote_pair = inherent_vote_pair.clone();
+                    async move {
+                        let participation =
+                            crate::participation_inherent::provider_for(&client, parent, vote_pair.as_ref());
+                        Ok((sp_timestamp::InherentDataProvider::from_system_time(), participation))
+                    }
                 },
             };
             let authorship_future = sc_consensus_manual_seal::run_manual_seal(params);
@@ -368,10 +404,25 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
                 let tau: u32 = 60;
                 #[cfg(not(feature = "mainnet"))]
                 let tau: u32 = 3;
-                let mut slot: u64 = 0;
+                // This node's vote identity (computed once above), used to elect a single slot leader
+                // so exactly ONE node authors per slot. A node with no vote key never leads (and so
+                // never authors on a live chain) — it only follows.
+                let mut last_slot: u64 = 0;
                 loop {
                     futures_timer::Delay::new(std::time::Duration::from_millis(block_time)).await;
-                    slot += 1;
+                    // WALL-CLOCK slot (Aura-style): every node derives the SAME slot number from real
+                    // time, so the single leader (below) is globally agreed and exactly ONE block is
+                    // produced per `block_time`. A per-node counter would let offset nodes each march
+                    // their own slot stream and author in parallel — defeating single-leader + re-forking.
+                    let slot = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_millis() as u64)
+                        .unwrap_or(0)
+                        / block_time.max(1);
+                    if slot == last_slot {
+                        continue; // this slot already handled (poll/clock jitter) — never author it twice
+                    }
+                    last_slot = slot;
 
                     // Read the chain's consensus reputation at the current best block.
                     let at = api_client.info().best_hash;
@@ -422,11 +473,34 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
 
                     let committee =
                         consensus_core::elect_committee_fp(&reputation, &keys, &seed, tau);
-                    // Author when the slot's sortition produced a committee. With on-chain reputation a
-                    // non-empty committee means a block is produced this slot, driven by real reputation;
-                    // enforcing WHICH elected member authors lands with session keys.
+                    // SINGLE LEADER per slot. Of the elected committee, the member minimising
+                    // `H(seed | id)` is the slot leader and the ONLY one that authors. Every node derives
+                    // the same committee + leader from the AGREED seed (beacon ⊕ slot, or `slot{n}` before
+                    // the beacon fills), so exactly one block is produced per slot — no per-slot forks.
+                    //   Liveness: the seed rotates every slot, so the leader rotates; a down leader only
+                    //   skips ITS slots and the chain produces on every slot whose leader is up. No single
+                    //   node owns all slots, so offline nodes cannot freeze production. (Finality then
+                    //   tolerates up to ⌊(1-0.70)·k⌋ faults via the alpha quorum: at k=5, alpha=4 → 1 down
+                    //   still finalises, 2 down pauses finality safely and resumes when a node returns.)
+                    //   Safety: the leader is a deterministic function of agreed state only, identical on
+                    //   every node — no ambiguity over who authors.
                     let elected = if using_chain {
-                        !committee.is_empty()
+                        let leader = committee
+                            .keys()
+                            .min_by_key(|id| sp_core::blake2_256(format!("{seed}|{id}").as_bytes()));
+                        // This node's committee identity: a session key delegates for a founder account
+                        // (genesis voteKeys); fall back to the raw key if there is no delegation.
+                        let my_id = my_pub.map(|pk| {
+                            let rev = api_client.runtime_api().vote_keys(at).unwrap_or_default();
+                            rev.into_iter()
+                                .find(|(_, sess)| *sess == pk)
+                                .map(|(acc, _)| hex32(&acc))
+                                .unwrap_or_else(|| hex32(&pk))
+                        });
+                        match (leader, my_id.as_deref()) {
+                            (Some(l), Some(me)) => l.as_str() == me,
+                            _ => false,
+                        }
                     } else {
                         committee.contains_key(&station)
                     };
@@ -449,6 +523,8 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
                 }
             });
 
+            let inherent_client = client.clone();
+            let inherent_vote_pair = my_vote_pair.clone();
             let params = sc_consensus_manual_seal::ManualSealParams {
                 block_import: client.clone(),
                 env: proposer,
@@ -457,8 +533,16 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
                 select_chain,
                 commands_stream: Box::pin(commands_stream),
                 consensus_data_provider: None,
-                create_inherent_data_providers: move |_, ()| async move {
-                    Ok(sp_timestamp::InherentDataProvider::from_system_time())
+                create_inherent_data_providers: move |parent, ()| {
+                    let client = inherent_client.clone();
+                    let vote_pair = inherent_vote_pair.clone();
+                    async move {
+                        // F2 piece 6c: the author's record — identity + the canonical finality votes
+                        // since the on-chain cursor (never gossip; the runtime re-verifies anyway).
+                        let participation =
+                            crate::participation_inherent::provider_for(&client, parent, vote_pair.as_ref());
+                        Ok((sp_timestamp::InherentDataProvider::from_system_time(), participation))
+                    }
                 },
             };
             let authorship_future = sc_consensus_manual_seal::run_manual_seal(params);

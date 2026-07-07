@@ -106,6 +106,20 @@ pub fn run() -> sc_cli::Result<()> {
         },
         None => {
             let runner = cli.create_runner(&cli.run)?;
+            // Resolve the finality-signing secret: prefer `--vote-as-file` (read 0600 file, keeps the
+            // hot session secret out of argv); fall back to `--vote-as`. clap enforces they aren't both set.
+            let vote_as: Option<String> = match (cli.vote_as.clone(), cli.vote_as_file.clone()) {
+                (Some(s), _) => Some(s),
+                (None, Some(path)) => Some(
+                    std::fs::read_to_string(&path)
+                        .map_err(|e| {
+                            sc_cli::Error::Input(format!("cannot read --vote-as-file `{path}`: {e}"))
+                        })?
+                        .trim()
+                        .to_string(),
+                ),
+                (None, None) => None,
+            };
             runner.run_node_until_exit(|config| async move {
                 match config.network.network_backend {
                     sc_network::config::NetworkBackendType::Libp2p => service::new_full::<
@@ -113,13 +127,13 @@ pub fn run() -> sc_cli::Result<()> {
                             harlequin_runtime::interface::OpaqueBlock,
                             <harlequin_runtime::interface::OpaqueBlock as sp_runtime::traits::Block>::Hash,
                         >,
-                    >(config, cli.consensus, cli.vote_as)
+                    >(config, cli.consensus, vote_as.clone())
                     .map_err(sc_cli::Error::Service),
                     sc_network::config::NetworkBackendType::Litep2p =>
                         service::new_full::<sc_network::Litep2pNetworkBackend>(
                             config,
                             cli.consensus,
-                            cli.vote_as,
+                            vote_as.clone(),
                         )
                         .map_err(sc_cli::Error::Service),
                 }

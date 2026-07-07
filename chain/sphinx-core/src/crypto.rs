@@ -9,7 +9,7 @@
 //! end-to-end round-trip in the tests actually works), but it is **cryptographically WORTHLESS** — a
 //! 61-bit group is broken by hand. Its only job is to exercise the routing control-flow.
 //!
-//! AT INTEGRATION (the audited library is swept in): swap `StubOnionCrypto` for an *audited* Sphinx primitive set
+//! AT INTEGRATION (the reviewer sweeps): swap `StubOnionCrypto` for an *audited* Sphinx primitive set
 //! (X25519 group, ChaCha20 keystream, a real MAC). Nothing else in this crate changes — that is the
 //! point of the seam. No external crate is pulled onto the isolated station here; the audited library
 //! is vetted and integrated downstream, not committed from the build box.
@@ -54,7 +54,7 @@ pub trait OnionCrypto {
 // ---------------------------------------------------------------------------------------------------
 // Toy group: multiplicative group mod P = 2^61 - 1. INSECURE — prototype only.
 //
-// SAFETY GUARDRAIL: the toy lives behind the `insecure-toy-crypto` feature, which is NOT in
+// SAFETY GUARDRAIL (the reviewer): the toy lives behind the `insecure-toy-crypto` feature, which is NOT in
 // the default set. A plain `cargo build` (release or debug) compiles NONE of this — there is no build
 // path that links the toy into anything network-facing. Tests opt in with `--features insecure-toy-crypto`.
 // `INSECURE_DO_NOT_SHIP` is a loud, asserted marker (see the test below).

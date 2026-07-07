@@ -10,7 +10,7 @@
 //! Pipeline (one node, across epochs):
 //!  1. `commit(H(s_next))` — bind a fresh per-epoch secret BEFORE the next beacon is folded.
 //!  2. `reveal(s)` — open last epoch's commitment; the secret is staged.
-//!  3. `roll()` (automatic at each epoch boundary, like the reputation recompute — **no privileged
+//!  3. `roll` (automatic at each epoch boundary, like the reputation recompute — **no privileged
 //!     trigger, no king**) folds the staged reveals into the rolling beacon (deferred seed) and promotes
 //!     them to this epoch's **active committed keys**. The draw value `H(s | beacon)` is over a secret
 //!     committed a full epoch earlier → not grindable against the seed. The reputation anchor stays the

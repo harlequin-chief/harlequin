@@ -37,7 +37,7 @@ pub mod pallet {
     use frame::prelude::*;
 
     /// Pre-publish gate (anti-spam / anti-DoS). Production wires it to the B6 micro-fee or a reputation /
-    /// registered-mask check; the default `()` impl is a no-op. The hook lives here so the policy can be
+    /// registered-mask check; the default `` impl is a no-op. The hook lives here so the policy can be
     /// switched on in the runtime without changing this pallet.
     pub trait PublishGate<AccountId> {
         fn ensure_can_publish(who: &AccountId) -> DispatchResult;
@@ -88,7 +88,7 @@ pub mod pallet {
         /// the other pallets' privileged origins. NOT a signed admin: moderation is by reputation.
         type ModerationOrigin: EnsureOrigin<Self::RuntimeOrigin>;
 
-        /// Pre-publish gate (anti-spam). Default `()` = no-op; production wires the B6 micro-fee here.
+        /// Pre-publish gate (anti-spam). Default `` = no-op; production wires the B6 micro-fee here.
         type Postage: PublishGate<Self::AccountId>;
 
         /// Max length of the optional category tag.

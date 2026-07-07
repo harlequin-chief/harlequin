@@ -1,6 +1,6 @@
 //! Path selection — pick `k` relays weighted by reputation, not by pure chance.
 //!
-//! Hops are chosen by reputation so a flood of fresh Sybil relays cannot expect to land
+//! the maintainer + the reviewer: hops are chosen by reputation so a flood of fresh Sybil relays cannot expect to land
 //! on a circuit. This mirrors the consensus sortition (reputation = the scarce, earned weight) rather
 //! than committing to a node-count majority. The selection here is deterministic given a public `seed`
 //! (so it is verifiable / reproducible); in production the seed comes from the same kind of public

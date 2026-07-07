@@ -1,0 +1,27 @@
+[package]
+name = "pallet-participation"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+description = "Harlequin participation feed — records verified on-chain node participation (block authorship in committee turn + finality votes in committee) per epoch, via a node-provided inherent (no privileged origin). This is the single source that BOTH proof-of-service rewards (pallet-tokens) AND production reputation (pallet-reputation) consume. Invariant §0 / Art. VI: this is measured participation only — it confers NO power; money ≠ power, and running a node does not buy consensus weight."
+
+[dependencies]
+codec = { version = "3.7.5", package = "parity-scale-codec", default-features = false, features = ["derive"] }
+frame = { version = "0.17.0", package = "polkadot-sdk-frame", default-features = false, features = ["runtime"] }
+scale-info = { version = "2.11.6", default-features = false, features = ["derive"] }
+serde = { version = "1", default-features = false, features = ["derive"] }
+# The committee sortition — the SINGLE source of truth, reused (never reimplemented) so the on-chain
+# re-derivation matches the node byte-for-byte. no_std, alloc-only, float-free (fixed-point).
+consensus-core = { path = "../consensus-core", default-features = false }
+
+[features]
+default = ["std"]
+std = ["codec/std", "frame/std", "scale-info/std", "serde/std", "consensus-core/std"]
+# Production committee cadence — COMMITTEE_EPOCH_LENGTH=600 + COMMITTEE_TAU=60, matching the node's
+# finality.rs under the same flag. Without it: testnet values (10 / 4). The runtime propagates its own
+# `mainnet` to this so the pallet and the node agree byte-for-byte.
+mainnet = []
+
+# Own workspace so the heavy FRAME dependency tree stays out of the lean core workspace (`../Cargo.toml`),
+# matching pallet-tokens / the other FRAME pallets.
+[workspace]

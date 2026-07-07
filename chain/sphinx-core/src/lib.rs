@@ -24,7 +24,7 @@
 //!   to test the routing end-to-end. At integration this seam is filled by an *audited* Sphinx library
 //!   (Nym `sphinx-packet`), in the node's transport crate — **not** in `chain/`.
 //! - [`session::SessionCrypto`] — the end-to-end session handshake (Noise + forward secrecy). This is
-//!   **GATED behind #637** (cabled in a dedicated session); the stub refuses to derive keys
+//!   **GATED behind #637** (cabled with the maintainer); the stub refuses to derive keys
 //!   ([`session::SessionError::Gated637`]). There is no toy fallback for the session.
 //!
 //! ## Module map

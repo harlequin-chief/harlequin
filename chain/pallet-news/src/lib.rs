@@ -30,7 +30,7 @@ pub mod pallet {
     use frame::prelude::*;
 
     /// Pre-publish gate (anti-spam). Production wires it to the B6 micro-fee or a reputation /
-    /// registered-mask check; the default `()` impl is a no-op.
+    /// registered-mask check; the default `` impl is a no-op.
     pub trait PublishGate<AccountId> {
         fn ensure_can_publish(who: &AccountId) -> DispatchResult;
     }
@@ -76,7 +76,7 @@ pub mod pallet {
         /// Origin allowed to hide an item — the **jury verdict** path (`pallet-justice`). NOT a signed admin.
         type ModerationOrigin: EnsureOrigin<Self::RuntimeOrigin>;
 
-        /// Pre-publish gate (anti-spam). Default `()` = no-op; production wires the B6 micro-fee here.
+        /// Pre-publish gate (anti-spam). Default `` = no-op; production wires the B6 micro-fee here.
         type Postage: PublishGate<Self::AccountId>;
 
         /// Max length of the on-chain headline (keep small to bound on-chain state, e.g. ≤128 bytes).

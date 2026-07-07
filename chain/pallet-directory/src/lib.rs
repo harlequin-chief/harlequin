@@ -12,7 +12,7 @@
 //!   no gate, no fee here. You register your own mask; nobody registers it for you and nobody can refuse it.
 //!
 //! **No session crypto here.** This pallet only binds a public handle to a public key. The chat's session
-//! handshake / forward secrecy is a separate, **gated** concern (#637, built in a dedicated session); it is NOT
+//! handshake / forward secrecy is a separate, **gated** concern (#637, built with the maintainer present); it is NOT
 //! in this crate. Registration authorization is the member's existing login signature (the signed origin).
 //!
 //! The on-chain handle is the raw 16-byte truncated SHA-256 (the chain's canonical dep-free hash, reused
@@ -26,7 +26,7 @@ extern crate alloc;
 
 pub use pallet::*;
 
-/// A mask handle: the first 16 bytes of `sha256(account.encode())`. Self-certifying — derivable by anyone
+/// A mask handle: the first 16 bytes of `sha256(account.encode)`. Self-certifying — derivable by anyone
 /// from the account, so it cannot be squatted. Displayed client-side (e.g. base32); stored raw here.
 pub type Handle = [u8; 16];
 
@@ -113,7 +113,7 @@ pub mod pallet {
     }
 
     impl<T: Config> Pallet<T> {
-        /// The canonical mask-handle derivation: `sha256(account.encode())[..16]`. Reuses the chain's
+        /// The canonical mask-handle derivation: `sha256(account.encode)[..16]`. Reuses the chain's
         /// dep-free SHA-256 (the same primitive as the beacon) so the derivation is identical everywhere.
         /// The client MUST reproduce this exactly for `handle == derive(pubkey)` to hold off-chain.
         pub fn derive(who: &T::AccountId) -> Handle {

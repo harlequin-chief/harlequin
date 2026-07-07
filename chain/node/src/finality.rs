@@ -56,7 +56,7 @@ pub const PROTOCOL_NAME: &str = "/harlequin/snowball-finality/1";
 /// Consensus engine id stamped on the justifications this gadget produces.
 pub const ENGINE_ID: sp_runtime::ConsensusEngineId = *b"WTC1";
 
-// --- Production cadence (#30, network-modelled 2026-06-20) vs fast testnet values. Selected by the
+// --- Production cadence (#30, network-modelled) vs fast testnet values. Selected by the
 // --- `mainnet` cargo feature. Mainnet: β=12, STEP=10 (≈60s), τ=60, epoch=600 (≈1h committee rotation).
 /// Confirmations before a height is irreversible. β=12 in production (`PARAMETERS.md` ♥ "the twelve":
 /// `Q1^12` is astronomically safe); a small fast value on testnet.
@@ -69,10 +69,33 @@ const FINALITY_BETA: u32 = 4;
 /// finality from lagging block production unboundedly. Must be ≥ the blocks produced during one
 /// finalisation (~`beta`). Production = 10 blocks (≈60s at 6s/block, a clean 1-minute cadence; lag bounded
 /// to ~`STEP`+`beta`, time-to-finality ~1–2 min).
+// Production STEP=15: with single-leader authoring (1 block / 6s ≈ 10/min) a finalisation takes
+// ~beta·round ≈ 72s, during which ~12 blocks are produced — so STEP must exceed 12 to keep finality
+// AHEAD of production (15 → ~12.5/min finalised > ~10/min produced). The gap then stabilises ~STEP
+// behind the tip instead of growing without bound (validated: STEP=10 lagged ~10/min vs 8.3/min).
 #[cfg(feature = "mainnet")]
-const FINALITY_STEP: u32 = 10;
+const FINALITY_STEP: u32 = 15;
 #[cfg(not(feature = "mainnet"))]
 const FINALITY_STEP: u32 = 8;
+/// Self-heal recovery burial (iron test, the author four-eyes Q1 + the reviewer sizing): the recovery
+/// anchor `H_r` is read at best (non-final, reorg-able). Re-anchoring the finalization of a halt band to an
+/// `H_r` that could still reorg to a version with a different `cleared_at` would be a safety break. So
+/// `H_r` is only used once it is buried by ≥ this many blocks OVER it (best_number − H_r ≥ RECOVERY_BURIAL):
+/// an attacker who wants to reorg `hash(H_r)` must out-run the honest chain over exactly those blocks.
+/// This path fires right after someone held > 1/3, so the context is ADVERSARIAL, not benign — MAINNET
+/// uses 32 (≈2× step): with the share provably diluted < 1/3 at H_r, reversion probability ≈ (1/2)^32 ≈
+/// 1e-9, a cryptographic margin. The cost is only a few blocks' extra delay before finality crosses the
+/// band — cheap against a finality split. TESTNET uses 15 so the devnet self-heal test validates quickly.
+#[cfg(feature = "mainnet")]
+const RECOVERY_BURIAL: u32 = 32;
+#[cfg(not(feature = "mainnet"))]
+const RECOVERY_BURIAL: u32 = 15;
+/// Under-quorum observability (F3 wedge): first WARN after this many consecutive round
+/// ticks below the 60% vote quorum at one height, then repeat every `QUORUM_WARN_EVERY_TICKS`. The
+/// stall itself is deliberate (safety over liveness) — these only make it loud and diagnosable
+/// (votes seen / committee expected), never change behaviour.
+const QUORUM_WARN_AFTER_TICKS: u32 = 10;
+const QUORUM_WARN_EVERY_TICKS: u32 = 60;
 /// Expected committee seats elected from reputation (sortition `tau`). Production τ=60 (`PARAMETERS.md` ♠
 /// the rotating jury; = 3·k, honest supermajority w.h.p. below the threshold — the liveness knob); a small
 /// value over the dev cohort on testnet.
@@ -81,15 +104,16 @@ const COMMITTEE_TAU: u32 = 60;
 #[cfg(not(feature = "mainnet"))]
 const COMMITTEE_TAU: u32 = 4;
 /// Blocks per finality epoch — the committee is re-drawn each epoch (Art. VI — no one keeps power), seed
-/// bound to the epoch number so the jury rotates. Production = 600 blocks ≈ **1 hour** at 6s/block (aura
+/// bound to the epoch number so the jury rotates. Production = 300 blocks ≈ **1 hour** at 12s/block (D1 12s re-derivation) (aura
 /// 60↔60: 60 seats re-drawn every 60 minutes; well above time-to-finality ~1–2 min and well below the
 /// daily reputation recompute = 24 committees/day over the same reputation, fresh beacon). Fast on testnet.
 #[cfg(feature = "mainnet")]
-const EPOCH_LENGTH: u32 = 600;
+const EPOCH_LENGTH: u32 = 300;
 #[cfg(not(feature = "mainnet"))]
 const EPOCH_LENGTH: u32 = 10;
 /// Base seed for the finality-committee sortition; the epoch number is appended so the jury rotates.
-const COMMITTEE_SEED: &str = "hlq-finality-committee";
+/// Single definition lives in consensus-core (the pallets pass the SAME prefix to the SAME election).
+const COMMITTEE_SEED: &str = consensus_core::FINALITY_COMMITTEE_SEED;
 
 /// The finality epoch a block height belongs to. Deterministic from the height, so every node agrees on
 /// which committee secures which block.
@@ -251,7 +275,13 @@ where
     // the same `Arc<Mutex<>>` to send/subscribe. They take turns on the mutex.
     let driver = {
         let gossip = gossip.clone();
-        futures::future::poll_fn(move |cx| gossip.lock().expect("gossip mutex").poll_unpin(cx))
+        futures::future::poll_fn(move |cx| {
+            let r = gossip.lock().expect("gossip mutex").poll_unpin(cx);
+            if r.is_ready() {
+                log::warn!(target: "woven-trust", "vote gossip engine terminated (network stream closed)");
+            }
+            r
+        })
     };
 
     // Derive this node's finality-vote key from the secret URI (e.g. `//Alice`). A node without one
@@ -294,9 +324,16 @@ async fn run_worker(
     // votes. The FULL `Vote` (signer + signature) is kept so the finality justification can carry the
     // signed-vote proof that any peer verifies on import (step 3b).
     let mut votes: BTreeMap<[u8; 32], Vote> = BTreeMap::new();
-    // Finality committee (reputation accounts) for the current height's epoch; refreshed each tick.
-    let mut committee: BTreeSet<[u8; 32]> = committee_for_height(&client, height);
+    // Finality committee + session-key delegation for the current height's epoch; refreshed each tick.
+    // Both are read at the SAME epoch-pinned block (`at`) so membership and signer→account resolution
+    // never diverge.
+    let mut at = epoch_pinned_at(&client, height);
+    let mut committee: BTreeSet<[u8; 32]> = committee_for_height(&client, height, at);
+    let mut vote_keys_rev: BTreeMap<[u8; 32], [u8; 32]> = vote_keys_rev_for_height(&client, at);
     let mut votes_rx = gossip.lock().expect("gossip mutex").messages_for(topic(height as u64));
+    // Consecutive round ticks the current height has sat below the 60% vote quorum (see the guard in
+    // the tick branch). Reset on quorum or when the target height moves.
+    let mut below_quorum_ticks: u32 = 0;
 
     let mut timer = futures_timer::Delay::new(std::time::Duration::from_millis(round_ms)).fuse();
 
@@ -316,7 +353,19 @@ async fn run_worker(
 
                 // Refresh the committee for THIS height's epoch (sortition over reputation at the epoch
                 // start). No cohort yet (fresh chain) -> empty committee -> no finality until it exists.
-                committee = committee_for_height(&client, height);
+                at = epoch_pinned_at(&client, height);
+                committee = committee_for_height(&client, height, at);
+                vote_keys_rev = vote_keys_rev_for_height(&client, at);
+                // I1 fix (, epoch-boundary STALE-COMMITTEE race — root cause of the permanent
+                // finality split): re-validate the accumulated votes against the CURRENT committee every
+                // tick. When `height` advanced across an epoch boundary on the previous finalisation, the
+                // committee it carried was the PREVIOUS epoch's; a vote for the new height admitted by the
+                // receive branch in that ≤round window (against that stale committee) would persist here,
+                // be tallied, and be packed into the proof — a signature that every other node (computing
+                // the correct committee for that height) rejects as out-of-committee, so the proof fails
+                // to verify anywhere and finality wedges permanently. Pruning to the current committee
+                // guarantees the tally AND the emitted proof only ever contain in-committee votes.
+                votes.retain(|acc, _| committee.contains(acc));
                 let committee_size = committee.len() as u32;
                 if committee_size == 0 {
                     continue;
@@ -332,8 +381,11 @@ async fn run_worker(
                         g.register_gossip_message(topic(height as u64), v.encode());
                         g.gossip_message(topic(height as u64), v.encode(), true);
                     }
-                    if committee.contains(&signer) {
-                        votes.insert(signer, v);
+                    // This node signs with its HOT session key; resolve it to the cold committee
+                    // account it votes for, and tally under the account (one slot per member).
+                    let account = resolve_voter(&signer, &vote_keys_rev);
+                    if committee.contains(&account) {
+                        votes.insert(account, v);
                     }
                 }
 
@@ -349,13 +401,23 @@ async fn run_worker(
                 let tally: Vec<[u8; 32]> = votes.values().map(|v| v.hash).collect();
                 // Anti-partition guard: only finalise while ≥60% of the committee is seen voting.
                 let reaches_quorum = (votes.len() as u32) * 10 >= committee_size * 6;
-
-                log::debug!(
-                    target: "woven-trust",
-                    "round h={height} committee={committee_size} seen={} k={k} alpha={alpha} quorum={reaches_quorum} pref={:02x?}",
-                    votes.len(),
-                    &pref[..4],
-                );
+                // Under-quorum is a DELIBERATE stall (safety over liveness) but used to be silent —
+                // an epoch whose committee cannot muster 60% live votes wedges finality at this height
+                // with no trace (F3 wedge). Make the wait loud and diagnosable.
+                if !reaches_quorum {
+                    below_quorum_ticks = below_quorum_ticks.saturating_add(1);
+                    if below_quorum_ticks == QUORUM_WARN_AFTER_TICKS
+                        || below_quorum_ticks % QUORUM_WARN_EVERY_TICKS == 0
+                    {
+                        log::warn!(
+                            target: "woven-trust",
+                            "⏳ finality below quorum at #{height}: {}/{} committee votes (need ≥60%) for {} rounds — waiting, not finalising (safety over liveness)",
+                            votes.len(), committee_size, below_quorum_ticks
+                        );
+                    }
+                } else {
+                    below_quorum_ticks = 0;
+                }
 
                 if let Some(decided) = round.observe_round(&tally, &params, reaches_quorum) {
                     let decided_hash = Hash::from(decided);
@@ -373,6 +435,16 @@ async fn run_worker(
                             // Aim the next chunk: STEP past the new finalised tip (which is now `height`,
                             // since finalising it finalised every ancestor). Keeps finality near the head.
                             height = client.info().finalized_number + FINALITY_STEP;
+                            // I1 fix: refresh the committee/vote-key view for the NEW height
+                            // IMMEDIATELY on advance, so the vote-receive branch below validates incoming
+                            // votes against the correct committee even before the next timer tick. This
+                            // closes the epoch-boundary window where the receive path would otherwise admit
+                            // an out-of-committee vote against the just-superseded committee. (The prune at
+                            // the top of each tick is the belt; this is the suspenders.)
+                            at = epoch_pinned_at(&client, height);
+                            committee = committee_for_height(&client, height, at);
+                            vote_keys_rev = vote_keys_rev_for_height(&client, at);
+                            below_quorum_ticks = 0;
                             votes.clear();
                             round = FinalityRound::new(
                                 target_hash(&client, height).unwrap_or_default().0,
@@ -389,13 +461,28 @@ async fn run_worker(
                 }
             }
 
-            notification = votes_rx.select_next_some() => {
+            // `.next` (not `select_next_some`): if the gossip receiver terminates (the engine's
+            // notification stream closed — a startup race on constrained hardware), `select_next_some`
+            // would panic the whole node ("SelectNextSome polled after terminated"). Handle `None`
+            // gracefully by re-subscribing so the worker survives instead of crashing.
+            maybe_notification = votes_rx.next() => {
+                let notification = match maybe_notification {
+                    Some(n) => n,
+                    None => {
+                        log::warn!(target: "woven-trust", "vote stream terminated at h={height}; resubscribing");
+                        votes_rx = gossip.lock().expect("gossip mutex").messages_for(topic(height as u64));
+                        continue;
+                    }
+                };
                 if let Some(v) = Vote::decode(&notification.message) {
                     // Count a vote only if (1) it is for the current height, (2) its sr25519 signature
                     // is valid, and (3) the signer is an elected committee member. Anything else is
                     // dropped — this is what makes finality Byzantine-safe (sybils cannot vote).
-                    if v.height == height as u64 && v.verify_sig() && committee.contains(&v.signer) {
-                        votes.insert(v.signer, v);
+                    // The signer may be a hot session key — resolve to its cold committee account
+                    // before the membership check, and dedup the tally by account.
+                    let account = resolve_voter(&v.signer, &vote_keys_rev);
+                    if v.height == height as u64 && v.verify_sig() && committee.contains(&account) {
+                        votes.insert(account, v);
                     }
                 }
             }
@@ -420,57 +507,112 @@ fn target_hash(client: &Arc<FullClient>, height: u32) -> Option<([u8; 32], bool)
 /// **rotates** each epoch (Art. VI — no one keeps power, step 3d), and the reputation snapshot is read at
 /// the epoch's first block so every node — voter, importer, follower — agrees on the same committee for a
 /// given block regardless of when it evaluates. Empty on a fresh chain with no consensus reputation yet.
-fn committee_for_height(client: &Arc<FullClient>, height: u32) -> BTreeSet<[u8; 32]> {
+/// The block at which an epoch's on-chain state is read for `height`: the epoch's first block (genesis
+/// for epoch 0), falling back to the current best block if that block isn't on this node yet. Computed
+/// ONCE per height and passed to BOTH [`committee_for_height`] and [`vote_keys_rev_for_height`] so the
+/// committee and the session→account map are read at the IDENTICAL state — a divergence here (e.g. one
+/// reads the pinned block, the other falls back) would resolve votes against a different account set
+/// than the committee and split finality. Single source of `at` = no such divergence.
+fn epoch_pinned_at(client: &Arc<FullClient>, height: u32) -> Hash {
     use harlequin_consensus_api::HarlequinConsensusApi;
-    let epoch = epoch_of(height);
-    // Reputation snapshot pinned to the epoch's first block (genesis for epoch 0). Pinning makes the
-    // committee a deterministic function of (epoch), not of each node's fleeting best block.
-    let epoch_start = epoch * EPOCH_LENGTH;
-    let at = match client.hash(epoch_start) {
+    let epoch_start = epoch_of(height) * EPOCH_LENGTH;
+    let normal = match client.hash(epoch_start) {
         Ok(Some(h)) => h,
-        _ => client.info().best_hash, // epoch start not on chain yet -> best-effort
+        _ => return client.info().best_hash, // epoch start not on chain yet -> best-effort
     };
-    let onchain = client.runtime_api().consensus_reputation(at).unwrap_or_default();
-    if onchain.is_empty() {
-        return BTreeSet::new();
-    }
-    // §2.1 anti-grinding: draw off the commit–reveal beacon when it is populated. The key of each
-    // candidate is the secret it COMMITTED an epoch earlier (not a freely-chosen `sk-{id}`), and the seed
-    // is the un-grindable beacon — so a node cannot grind its account to lift its committee seats.
-    let committed = client.runtime_api().beacon_committed_keys(at).unwrap_or_default();
-    let mut reputation: BTreeMap<String, i128> = BTreeMap::new();
-    let mut keys: BTreeMap<String, String> = BTreeMap::new();
-    let seed;
-    if committed.is_empty() {
-        // FALLBACK (genesis / bootstrap, before the beacon pipeline is populated — see BEACON-2c-DESIGN):
-        // the declared-founder window draws on reputation alone, as before. Switches to the beacon path
-        // automatically once nodes have committed+revealed (no halt at start).
-        for (acc, rep) in &onchain {
-            let id = crate::service::hex32(acc);
-            keys.insert(id.clone(), format!("sk-{id}"));
-            reputation.insert(id, *rep);
-        }
-        seed = format!("{COMMITTEE_SEED}-{epoch}");
-    } else {
-        // BEACON path: only accounts with an active committed key are eligible, keyed by it.
-        let kmap: BTreeMap<[u8; 32], String> = committed.into_iter().collect();
-        for (acc, rep) in &onchain {
-            if let Some(k) = kmap.get(acc) {
-                let id = crate::service::hex32(acc);
-                keys.insert(id.clone(), k.clone());
-                reputation.insert(id, *rep);
+    // SELF-HEAL (iron test): if this height's epoch-start state has the guard HALTED, the band's
+    // committee is frozen empty and finality would deadlock (committee_for_height returns empty forever, and
+    // the target only advances STEP from the stuck point → never crosses the band). Re-anchor the WHOLE read
+    // (committee AND vote_keys — they share this single `at`, the reviewer's fork catch) to the recovery height
+    // H_r: the block where the share diluted back < 1/3, whose reputation is HEALTHY. Finality then crosses
+    // the band validated by a sane committee, never finalising under the compromised one. The runtime
+    // resolves the band that covers `height` deterministically (range-aware, multi-halt-safe).
+    let best = client.info();
+    if client.runtime_api().entrenchment_halted(normal).unwrap_or(false) {
+        if let Ok(Some(h_r)) =
+            client.runtime_api().entrenchment_recovery_for(best.best_hash, height)
+        {
+            // Q1 burial guard (the author): only anchor to an H_r that is beyond realistic reorg, so a reorg of
+            // H_r to a version with a different `cleared_at` cannot retroactively invalidate a finalisation.
+            // While H_r is too fresh we keep the empty committee (finality waits); production buries it fast.
+            if h_r >= epoch_start && best.best_number.saturating_sub(h_r) >= RECOVERY_BURIAL {
+                if let Ok(Some(hr_hash)) = client.hash(h_r) {
+                    return hr_hash;
+                }
             }
         }
-        let beacon = client.runtime_api().beacon_seed(at).unwrap_or_default();
-        seed = format!("{COMMITTEE_SEED}-{}", consensus_core::beacon::hex(&beacon));
     }
-    let elected = consensus_core::elect_committee_fp(&reputation, &keys, &seed, COMMITTEE_TAU);
-    // Map the elected ids (hex of the account) back to the 32-byte accounts.
-    onchain
-        .iter()
-        .filter(|(acc, _)| elected.contains_key(&crate::service::hex32(acc)))
-        .map(|(acc, _)| *acc)
+    normal
+}
+
+fn committee_for_height(client: &Arc<FullClient>, height: u32, at: Hash) -> BTreeSet<[u8; 32]> {
+    use harlequin_consensus_api::HarlequinConsensusApi;
+    let epoch = epoch_of(height);
+    // `at` is the epoch-pinned block (see `epoch_pinned_at`), shared with the vote-key map read so both
+    // see the same state. Pinning makes the committee a deterministic function of (epoch).
+    //
+    // SINGLE-SOURCE (F2 piece 6): this fn now only FEEDS on-chain state into
+    // `consensus_core::elect_finality_committee` — the one election the pallets call too, so node and
+    // runtime can never disagree about who the committee is. The semantics live there (byte-exact
+    // extraction of the draw that used to be inline here): entrenchment halt → empty committee
+    // (finality freezes, self-heals via `epoch_pinned_at`); beacon populated → §2.1 anti-grinding
+    // draw off committed keys; else the genesis/bootstrap fallback draw.
+    // I1 hygiene: a runtime-API error here used to default SILENTLY. A silent empty
+    // `consensus_reputation` collapses the draw to an EMPTY committee (finality stalls with no trace); a
+    // silent default on the others skews the draw. None should ever be invisible — log and let the caller
+    // see the degraded input (empty committee ⇒ the tick simply waits, never finalises on a guess).
+    let onchain = client.runtime_api().consensus_reputation(at).unwrap_or_else(|e| {
+        log::warn!(target: "woven-trust", "committee@{at:?}: consensus_reputation API error: {e:?} — treating as EMPTY (no finality this tick)");
+        Default::default()
+    });
+    let halted = client.runtime_api().entrenchment_halted(at).unwrap_or_else(|e| {
+        log::warn!(target: "woven-trust", "committee@{at:?}: entrenchment_halted API error: {e:?} — treating as not-halted");
+        false
+    });
+    let committed = client.runtime_api().beacon_committed_keys(at).unwrap_or_else(|e| {
+        log::warn!(target: "woven-trust", "committee@{at:?}: beacon_committed_keys API error: {e:?} — treating as empty");
+        Default::default()
+    });
+    let beacon_seed = client.runtime_api().beacon_seed(at).unwrap_or_else(|e| {
+        log::warn!(target: "woven-trust", "committee@{at:?}: beacon_seed API error: {e:?} — treating as zero");
+        Default::default()
+    });
+    consensus_core::elect_finality_committee(
+        &onchain,
+        &committed,
+        &beacon_seed,
+        epoch,
+        COMMITTEE_TAU,
+        COMMITTEE_SEED,
+        halted,
+    )
+}
+
+/// Reverse finality-vote delegation: **hot session pubkey → cold committee account**, read from
+/// on-chain state at the SAME epoch-pinned block as [`committee_for_height`]. Reading it from chain
+/// state (never local node config) is what makes every node — voter, importer, follower — resolve a
+/// vote's signer → its committee account IDENTICALLY; a divergence here would split finality. Empty →
+/// every vote resolves to its own signer (direct/legacy signing, dev path).
+fn vote_keys_rev_for_height(client: &Arc<FullClient>, at: Hash) -> BTreeMap<[u8; 32], [u8; 32]> {
+    use harlequin_consensus_api::HarlequinConsensusApi;
+    // `at` is the SAME epoch-pinned block passed to `committee_for_height` (see `epoch_pinned_at`), so
+    // the session→account map is read at the identical state as the committee — never divergently.
+    client
+        .runtime_api()
+        .vote_keys(at)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(account, session)| (session, account)) // index by the hot key that actually signs
         .collect()
+}
+
+/// Resolve a vote's `signer` (which may be a hot **session key**) to the COLD committee **account**
+/// it votes for. A signer with no delegation resolves to itself (direct signing). Committee membership
+/// is ALWAYS checked against the returned account, so a founder's sovereign key never has to sign — its
+/// genesis-delegated session key does, and the vote still counts for (and is deduped under) the account.
+#[inline]
+fn resolve_voter(signer: &[u8; 32], rev: &BTreeMap<[u8; 32], [u8; 32]>) -> [u8; 32] {
+    rev.get(signer).copied().unwrap_or(*signer)
 }
 
 // ───────────────────────── STEP 3b: verifiable finality justifications ─────────────────────────
@@ -505,13 +647,14 @@ fn encode_proof(height: u64, hash: &[u8; 32], votes: &BTreeMap<[u8; 32], Vote>) 
 
 /// Verify a finality proof: the block at `(number, hash)` was finalised by **≥alpha distinct elected
 /// committee members**, each signing `height||hash` with their sr25519 account key. `committee` is the
-/// elected finality committee at that height. `Ok(())` iff the proof is sound — the SAME `k/alpha` wall
+/// elected finality committee at that height. `Ok` iff the proof is sound — the SAME `k/alpha` wall
 /// (0.70 quorum) the worker uses, so a proof that passes here is exactly one the committee could produce.
 fn verify_proof(
     hash: &[u8; 32],
     number: u64,
     proof: &[u8],
     committee: &BTreeSet<[u8; 32]>,
+    vote_keys_rev: &BTreeMap<[u8; 32], [u8; 32]>,
 ) -> Result<(), &'static str> {
     if proof.len() < PROOF_HEADER {
         return Err("proof too short");
@@ -550,16 +693,21 @@ fn verify_proof(
         signer.copy_from_slice(&proof[off..off + 32]);
         let mut sig = [0u8; 64];
         sig.copy_from_slice(&proof[off + 32..off + PROOF_VOTE]);
-        // Count only valid signatures from distinct elected committee members.
-        if !committee.contains(&signer) {
+        // The proof carries the HOT session key that actually signed. Resolve it to the cold
+        // committee account (identical resolution to the worker's tally — same on every node) and
+        // count only valid signatures from distinct elected committee members.
+        let account = resolve_voter(&signer, vote_keys_rev);
+        if !committee.contains(&account) {
             continue;
         }
+        // The signature is verified against the SIGNER (the session pubkey that made it), while
+        // membership and the distinct-member count are keyed by the resolved account.
         let public = sr25519::Public::from_raw(signer);
         let signature = sr25519::Signature::from_raw(sig);
         if !sr25519::Pair::verify(&signature, &msg, &public) {
             continue;
         }
-        seen.insert(signer);
+        seen.insert(account);
     }
     if (seen.len() as u32) >= alpha {
         Ok(())
@@ -605,8 +753,10 @@ where
             if let Some(proof) = justifications.get(ENGINE_ID) {
                 let hash = block.post_hash();
                 let number = (*block.header.number()) as u64;
-                let committee = committee_for_height(&self.client, number as u32);
-                verify_proof(&hash.0, number, proof, &committee).map_err(|e| {
+                let at = epoch_pinned_at(&self.client, number as u32);
+                let committee = committee_for_height(&self.client, number as u32, at);
+                let vote_keys_rev = vote_keys_rev_for_height(&self.client, at);
+                verify_proof(&hash.0, number, proof, &committee, &vote_keys_rev).map_err(|e| {
                     ConsensusError::ClientImport(format!(
                         "woven-trust finality proof rejected at #{number}: {e}"
                     ))
@@ -648,8 +798,10 @@ impl JustificationImport<Block> for WovenTrustJustificationImport {
         if engine != ENGINE_ID {
             return Ok(()); // not our finality — ignore
         }
-        let committee = committee_for_height(&self.client, number as u32);
-        verify_proof(&hash.0, number as u64, &proof, &committee).map_err(|e| {
+        let at = epoch_pinned_at(&self.client, number as u32);
+        let committee = committee_for_height(&self.client, number as u32, at);
+        let vote_keys_rev = vote_keys_rev_for_height(&self.client, at);
+        verify_proof(&hash.0, number as u64, &proof, &committee, &vote_keys_rev).map_err(|e| {
             ConsensusError::ClientImport(format!(
                 "woven-trust justification rejected at #{number}: {e}"
             ))
@@ -818,7 +970,13 @@ where
 
     let driver = {
         let gossip = gossip.clone();
-        futures::future::poll_fn(move |cx| gossip.lock().expect("proof gossip mutex").poll_unpin(cx))
+        futures::future::poll_fn(move |cx| {
+            let r = gossip.lock().expect("proof gossip mutex").poll_unpin(cx);
+            if r.is_ready() {
+                log::warn!(target: "woven-trust", "proof gossip engine terminated (network stream closed)");
+            }
+            r
+        })
     };
     log::info!(
         target: "woven-trust",
@@ -871,7 +1029,17 @@ async fn run_proof_worker(
                 }
             }
 
-            notification = proofs_rx.select_next_some() => {
+            // `.next` (not `select_next_some`): survive gossip-receiver termination instead of
+            // panicking the node (see the vote worker for the full rationale).
+            maybe_notification = proofs_rx.next() => {
+                let notification = match maybe_notification {
+                    Some(n) => n,
+                    None => {
+                        log::warn!(target: "woven-trust", "proof stream terminated; resubscribing");
+                        proofs_rx = gossip.lock().expect("proof gossip mutex").messages_for(proof_topic());
+                        continue;
+                    }
+                };
                 if let Some((height, hash)) = proof_header(&notification.message) {
                     if height > watermark.load(Ordering::Relaxed) {
                         // Cache the highest proof; apply immediately if the block is already here.
@@ -906,10 +1074,57 @@ fn try_apply_proof(
     // We must have the block at this height on our chain, with exactly this hash.
     match client.hash(height as u32) {
         Ok(Some(local)) if local.0 == *hash => {}
-        _ => return false,
+        Ok(Some(local)) => {
+            // I1: a silent early-return here wedged n2 invisibly. A hash divergence at a
+            // finalised height is a real fork signal — never swallow it.
+            log::warn!(
+                target: "woven-trust",
+                "import proof #{height}: local block {:?} != proof hash {:?} — not applying (fork?)",
+                local, Hash::from(*hash)
+            );
+            return false;
+        }
+        _ => {
+            // The block at this height is not on our chain yet (still syncing). Not an error: the retry
+            // loop re-applies once the block arrives. Logged so the wait is visible, not silent (I1).
+            log::debug!(
+                target: "woven-trust",
+                "import proof #{height}: block not on chain yet — will retry when it arrives"
+            );
+            return false;
+        }
     }
-    let committee = committee_for_height(client, height as u32);
-    if verify_proof(hash, height, proof, &committee).is_err() {
+    let at = epoch_pinned_at(client, height as u32);
+    let committee = committee_for_height(client, height as u32, at);
+    let vote_keys_rev = vote_keys_rev_for_height(client, at);
+    if let Err(e) = verify_proof(hash, height, proof, &committee, &vote_keys_rev) {
+        // I1 root-cause probe: this early-return was SILENT and is where n2's wedge lived —
+        // it received a valid proof(#40) but never finalised, with no trace. Dump the EXACT committee this
+        // node computed AND the proof's signers (resolved to accounts, marked in/OUT of that committee),
+        // so the divergent member is visible on sight — settles whether the input (consensus_reputation
+        // at the epoch-pinned block) diverges or the vote-key resolution does.
+        let committee_hex: Vec<String> = committee.iter().map(consensus_core::beacon::hex).collect();
+        let mut signer_hex: Vec<String> = Vec::new();
+        if proof.len() >= PROOF_HEADER {
+            let mut c = [0u8; 2];
+            c.copy_from_slice(&proof[40..42]);
+            let count = u16::from_le_bytes(c) as usize;
+            for i in 0..count {
+                let off = PROOF_HEADER + i * PROOF_VOTE;
+                if off + 32 <= proof.len() {
+                    let mut s = [0u8; 32];
+                    s.copy_from_slice(&proof[off..off + 32]);
+                    let acc = resolve_voter(&s, &vote_keys_rev);
+                    let mark = if committee.contains(&acc) { "in" } else { "OUT" };
+                    signer_hex.push(format!("{}({mark})", consensus_core::beacon::hex(&acc)));
+                }
+            }
+        }
+        log::warn!(
+            target: "woven-trust",
+            "import proof #{height} REJECTED: {e} | committee(size {}): {:?} | proof signers: {:?}",
+            committee.len(), committee_hex, signer_hex
+        );
         return false;
     }
     let bh = Hash::from(*hash);
@@ -995,7 +1210,7 @@ mod tests {
         // 5 of 6 founders sign -> meets alpha.
         let m = votes_map(pairs.iter().take(5).map(|p| vote(p, 3, hash)).collect());
         let proof = encode_proof(3, &hash, &m);
-        assert!(verify_proof(&hash, 3, &proof, &committee).is_ok());
+        assert!(verify_proof(&hash, 3, &proof, &committee, &BTreeMap::new()).is_ok());
     }
 
     #[test]
@@ -1004,7 +1219,7 @@ mod tests {
         let hash = [7u8; 32];
         let m = votes_map(pairs.iter().take(4).map(|p| vote(p, 3, hash)).collect()); // only 4
         let proof = encode_proof(3, &hash, &m);
-        assert_eq!(verify_proof(&hash, 3, &proof, &committee), Err("insufficient committee signatures"));
+        assert_eq!(verify_proof(&hash, 3, &proof, &committee, &BTreeMap::new()), Err("insufficient committee signatures"));
     }
 
     #[test]
@@ -1018,7 +1233,7 @@ mod tests {
         let mut all: Vec<Vote> = pairs.iter().take(4).map(|p| vote(p, 3, hash)).collect();
         all.extend(outsiders.iter().map(|p| vote(p, 3, hash)));
         let proof = encode_proof(3, &hash, &votes_map(all));
-        assert!(verify_proof(&hash, 3, &proof, &committee).is_err());
+        assert!(verify_proof(&hash, 3, &proof, &committee, &BTreeMap::new()).is_err());
     }
 
     #[test]
@@ -1028,8 +1243,8 @@ mod tests {
         let m = votes_map(pairs.iter().take(5).map(|p| vote(p, 3, hash)).collect());
         let proof = encode_proof(3, &hash, &m);
         // Same proof, different block hash / height -> rejected (binding check).
-        assert_eq!(verify_proof(&[9u8; 32], 3, &proof, &committee), Err("hash mismatch"));
-        assert_eq!(verify_proof(&hash, 4, &proof, &committee), Err("height mismatch"));
+        assert_eq!(verify_proof(&[9u8; 32], 3, &proof, &committee, &BTreeMap::new()), Err("hash mismatch"));
+        assert_eq!(verify_proof(&hash, 4, &proof, &committee, &BTreeMap::new()), Err("height mismatch"));
     }
 
     #[test]
@@ -1039,7 +1254,7 @@ mod tests {
         let mut votes: Vec<Vote> = pairs.iter().take(5).map(|p| vote(p, 3, hash)).collect();
         votes[0].sig[0] ^= 0xff; // corrupt one signature -> 4 valid left -> below alpha
         let proof = encode_proof(3, &hash, &votes_map(votes));
-        assert!(verify_proof(&hash, 3, &proof, &committee).is_err());
+        assert!(verify_proof(&hash, 3, &proof, &committee, &BTreeMap::new()).is_err());
     }
 
     #[test]
@@ -1048,7 +1263,51 @@ mod tests {
         let hash = [7u8; 32];
         let m = votes_map(pairs.iter().map(|p| vote(p, 1, hash)).collect());
         let proof = encode_proof(1, &hash, &m);
-        assert_eq!(verify_proof(&hash, 1, &proof, &BTreeSet::new()), Err("empty committee"));
+        assert_eq!(verify_proof(&hash, 1, &proof, &BTreeSet::new(), &BTreeMap::new()), Err("empty committee"));
+    }
+
+    /// Session-key delegation: the committee is the COLD founder accounts, but the votes are signed by
+    /// distinct HOT session keys mapped to those founders. A proof of ≥alpha session signatures
+    /// finalises FOR the cold founders — the sovereign keys never sign. This is the core of the
+    /// cold-sovereign / hot-session model.
+    #[test]
+    fn session_keys_finalise_for_cold_founders() {
+        let (cold, committee) = founders(6); // k=6 -> alpha=5; these accounts NEVER sign
+        let hash = [7u8; 32];
+        let sessions: Vec<sr25519::Pair> = (0..6)
+            .map(|i| sr25519::Pair::from_string(&format!("//S{i}"), None).unwrap())
+            .collect();
+        // What the runtime API yields, reversed by the node: hot session pubkey -> cold account.
+        let rev: BTreeMap<[u8; 32], [u8; 32]> =
+            sessions.iter().zip(cold.iter()).map(|(s, f)| (s.public().0, f.public().0)).collect();
+        // 5 of 6 session keys sign -> alpha met, each resolves to a distinct cold founder.
+        let m = votes_map(sessions.iter().take(5).map(|p| vote(p, 3, hash)).collect());
+        let proof = encode_proof(3, &hash, &m);
+        assert!(
+            verify_proof(&hash, 3, &proof, &committee, &rev).is_ok(),
+            "delegated session keys finalise for the cold founders without the sovereign keys signing"
+        );
+    }
+
+    /// A session key with NO genesis delegation resolves to itself, is not in the committee, and so
+    /// cannot move finality — an impostor cannot mint authority by inventing a hot key.
+    #[test]
+    fn undelegated_session_key_is_impostor() {
+        let (cold, committee) = founders(6); // alpha=5
+        let hash = [7u8; 32];
+        let sessions: Vec<sr25519::Pair> = (0..6)
+            .map(|i| sr25519::Pair::from_string(&format!("//S{i}"), None).unwrap())
+            .collect();
+        // Only 4 founders delegated; the other 2 session keys are not in the map (impostors).
+        let rev: BTreeMap<[u8; 32], [u8; 32]> =
+            sessions.iter().take(4).zip(cold.iter()).map(|(s, f)| (s.public().0, f.public().0)).collect();
+        // All 6 session keys sign, but only 4 resolve to committee accounts -> below alpha=5 -> rejected.
+        let m = votes_map(sessions.iter().map(|p| vote(p, 3, hash)).collect());
+        let proof = encode_proof(3, &hash, &m);
+        assert!(
+            verify_proof(&hash, 3, &proof, &committee, &rev).is_err(),
+            "session keys with no genesis delegation cannot move finality"
+        );
     }
 }
 

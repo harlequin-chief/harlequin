@@ -42,7 +42,7 @@ pub struct SurbReplyKeys {
 /// Build a SURB whose return path runs through `relays` (in order) and terminates at `caller_pub`
 /// (the caller's mask key, the FINAL hop). Returns the SURB to hand out and the keys to keep.
 ///
-/// `relays.len() + 1 <= MAX_HOPS`. `eph_seed` must be fresh per SURB (single-use).
+/// `relays.len + 1 <= MAX_HOPS`. `eph_seed` must be fresh per SURB (single-use).
 pub fn create_surb<C: OnionCrypto>(
     crypto: &C,
     relays: &[[u8; 32]],

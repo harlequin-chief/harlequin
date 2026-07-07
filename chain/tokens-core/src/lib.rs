@@ -1,6 +1,6 @@
 //! Harlequin economic core — **two coins**, dependency-free, deterministic, integer-only.
 //!
-//! Spec anchor: **SPEC §3** (instrumentos económicos). The two coins (the two coin names):
+//! Spec anchor: **SPEC §3** (instrumentos económicos). The two coins (LORE / the maintainer):
 //!   - **HLQ (Harlequin)** — daily-use medium of exchange. Liquid, low-friction (SPEC §3.2, option C: no
 //!     peg promise — value is *moved* in HLQ, *stored* in SOV).
 //!   - **SOV (Soberano)** — scarce store of value. Cap-fixed, disinflationary emission with a hard cut,
@@ -69,7 +69,7 @@ pub enum Error {
 /// Why a rational ratio and not just halving: a pure halving (r=1/2) front-loads emission — >50% of the cap
 /// in the first era — so early node operators capture nearly everything and later ones get crumbs, which
 /// fights "earned by service over time" (SPEC §3.5). A flatter ratio (r≈3/4) spreads emission across
-/// operator generations (long tail), anti early-capture (per the emission model).
+/// operator generations (long tail), anti early-capture (the reviewer's `emission_model.py`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct EmissionCurve {
     /// Per-epoch reward in era 0 (before any decay).
@@ -393,7 +393,7 @@ mod tests {
 
     #[test]
     fn rational_decay_is_flatter_than_halving() {
-        // Design recommendation: r = 3/4 spreads emission across operator generations vs the front-loaded
+        // the reviewer's recommendation: r = 3/4 spreads emission across operator generations vs the front-loaded
         // halving. Same initial + era_length; the 0.75 curve must decay slower (higher reward each later era).
         let halving = EmissionCurve { initial: 1000, decay_num: 1, decay_den: 2, era_length: 1, cap: u128::MAX };
         let flat75 = EmissionCurve { initial: 1000, decay_num: 3, decay_den: 4, era_length: 1, cap: u128::MAX };

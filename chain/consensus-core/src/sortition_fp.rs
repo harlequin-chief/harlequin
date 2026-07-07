@@ -189,13 +189,225 @@ pub fn elect_committee_fp(
         }
         let share = fp_div(r, total); // r/total in FP
         let lam_fp = fp_mul(tau_fp, share); // tau * r/total
-        let value_fp = vrf_value_fp(&secret_keys[node], seed);
+        // C-MED1 fix (audit): a reputable node absent from `secret_keys` must be SKIPPED
+        // (not eligible — it can't produce a VRF value), never `secret_keys[node]` which would panic
+        // IDENTICALLY on every node computing this committee = a synchronised network-wide crash. Fail-safe:
+        // exclude the keyless node from the draw. (All current callers build the maps in lockstep; this
+        // guards a future/mis-wired caller — e.g. the participation electorate — against a fork-class panic.)
+        let value_fp = match secret_keys.get(node) {
+            Some(sk) => vrf_value_fp(sk, seed),
+            None => continue,
+        };
         let seats = sortition_seats_fp(value_fp, lam_fp, 64);
         if seats > 0 {
             committee.insert(node.clone(), seats);
         }
     }
     committee
+}
+
+/// The finality-committee seed prefix — ONE definition (node's finality.rs and the pallets both pass
+/// it to [`elect_finality_committee`]; a diverging prefix would mean a diverging committee).
+pub const FINALITY_COMMITTEE_SEED: &str = "hlq-finality-committee";
+
+/// SINGLE-SOURCE finality-committee election (F2 piece 6, single-source fix): the node's
+/// `finality.rs::committee_for_height` AND the on-chain pallets (participation `is_member`, multisig
+/// renewal electorate when wired) call THIS — one election, drift impossible. Byte-exact extraction of
+/// the node's draw, in its exact order:
+/// - `halted` (entrenchment guard §1.4b) or empty reputation → EMPTY committee.
+/// - `committed_keys` empty → FALLBACK path (genesis/bootstrap, beacon pipeline unpopulated): every
+///   reputable account is eligible, keyed `"sk-{hex(acc)}"`, seed `"{seed_prefix}-{epoch}"`.
+/// - beacon populated → only accounts WITH a committed key are eligible, keyed by that committed key
+///   (§2.1 anti-grinding: the sortition key is the secret committed an epoch earlier, not a chosen
+///   id), seed `"{seed_prefix}-{hex(beacon_seed)}"`.
+/// Returns the elected COLD accounts. Hot→cold vote-key resolution stays OUTSIDE (resolve the signer
+/// to its account first, then test membership here). All inputs by parameter — zero I/O, `no_std`.
+pub fn elect_finality_committee(
+    reputation: &[([u8; 32], i128)],
+    committed_keys: &[([u8; 32], String)],
+    beacon_seed: &[u8; 32],
+    epoch: u32,
+    tau: u32,
+    seed_prefix: &str,
+    halted: bool,
+) -> alloc::collections::BTreeSet<[u8; 32]> {
+    use alloc::format;
+    let hex = crate::beacon::hex;
+    if halted || reputation.is_empty() {
+        return alloc::collections::BTreeSet::new();
+    }
+    let mut rep_by_id: BTreeMap<String, i128> = BTreeMap::new();
+    let mut keys: BTreeMap<String, String> = BTreeMap::new();
+    let seed;
+    if committed_keys.is_empty() {
+        for (acc, rep) in reputation {
+            let id = hex(acc);
+            keys.insert(id.clone(), format!("sk-{id}"));
+            rep_by_id.insert(id, *rep);
+        }
+        seed = format!("{seed_prefix}-{epoch}");
+    } else {
+        let kmap: BTreeMap<[u8; 32], &String> =
+            committed_keys.iter().map(|(a, k)| (*a, k)).collect();
+        for (acc, rep) in reputation {
+            if let Some(k) = kmap.get(acc) {
+                let id = hex(acc);
+                keys.insert(id.clone(), (*k).clone());
+                rep_by_id.insert(id, *rep);
+            }
+        }
+        seed = format!("{seed_prefix}-{}", hex(beacon_seed));
+    }
+    let elected = elect_committee_fp(&rep_by_id, &keys, &seed, tau);
+    // LIVENESS FLOOR (F3 wedge + I1): the Poisson draw is size-blind — it can elect
+    // NOBODY (testnet τ=4 over 6 uniform accounts → ~1.8% of epochs EMPTY; the fixed epoch seed then
+    // wedges finality FOREVER — reproduced at devnet block #32, both F3 runs), and it can seat a
+    // committee TOO SMALL to tolerate a single fault (alpha(3)=3/3 → one member down stalls the
+    // epoch; I1 catch). Both are liveness holes, not safety features. Floor = min(4, eligible):
+    // 4 is the smallest committee whose alpha tolerates 1 faulty member. Below it, re-draw with a
+    // salted seed (deterministic — every node and pallet computes the same retries), keeping the
+    // LARGEST draw seen (bounded, 32 retries). `halted` / empty-reputation still return EMPTY
+    // above: the entrenchment guard's freeze semantics are untouched — this floor only exists
+    // where a committee is ALLOWED to exist.
+    let eligible = rep_by_id.values().filter(|r| **r > 0).count() as u32;
+    let floor = core::cmp::min(4, eligible);
+    let mut best = elected;
+    let mut retry = 0u32;
+    while (best.len() as u32) < floor && retry < 32 {
+        retry += 1;
+        let redraw = elect_committee_fp(&rep_by_id, &keys, &format!("{seed}-retry-{retry}"), tau);
+        if redraw.len() > best.len() {
+            best = redraw;
+        }
+    }
+    reputation
+        .iter()
+        .filter(|(acc, _)| best.contains_key(&hex(acc)))
+        .map(|(acc, _)| *acc)
+        .collect()
+}
+
+#[cfg(test)]
+mod finality_committee_tests {
+    use super::*;
+    use alloc::collections::BTreeSet;
+    use alloc::format;
+    use alloc::string::ToString;
+
+    fn acc(n: u8) -> [u8; 32] {
+        [n; 32]
+    }
+
+    #[test]
+    fn fallback_path_is_byte_identical_to_the_node_draw() {
+        // The pure fn must reproduce EXACTLY what finality.rs::committee_for_height computed inline:
+        // ids = hex(acc), keys = "sk-{id}", seed = "{prefix}-{epoch}".
+        let reputation = alloc::vec![(acc(1), 100i128), (acc(2), 100), (acc(3), 100)];
+        let got = elect_finality_committee(&reputation, &[], &[0u8; 32], 7, 4, "hlq-finality-committee", false);
+        // manual reconstruction, the node's original code shape
+        let mut rep_map = BTreeMap::new();
+        let mut keys = BTreeMap::new();
+        for (a, r) in &reputation {
+            let id = crate::beacon::hex(a);
+            keys.insert(id.clone(), format!("sk-{id}"));
+            rep_map.insert(id, *r);
+        }
+        // Mirror the FULL election algorithm including the liveness floor (min(4, eligible) with
+        // salted re-draws keeping the largest): the pinned property is that the extracted fn and
+        // this manual reconstruction can never diverge by a single byte.
+        let mut best = elect_committee_fp(&rep_map, &keys, "hlq-finality-committee-7", 4);
+        let floor = core::cmp::min(4, 3u32); // 3 eligible accounts
+        let mut retry = 0u32;
+        while (best.len() as u32) < floor && retry < 32 {
+            retry += 1;
+            let redraw = elect_committee_fp(
+                &rep_map,
+                &keys,
+                &format!("hlq-finality-committee-7-retry-{retry}"),
+                4,
+            );
+            if redraw.len() > best.len() {
+                best = redraw;
+            }
+        }
+        let want: BTreeSet<[u8; 32]> = reputation
+            .iter()
+            .filter(|(a, _)| best.contains_key(&crate::beacon::hex(a)))
+            .map(|(a, _)| *a)
+            .collect();
+        assert_eq!(got, want, "extraction must not change the draw by a single byte");
+        assert!(
+            got.len() >= 3,
+            "3 eligible → floor is all three (a 3-cohort cannot tolerate faults, that's fundamental)"
+        );
+    }
+
+    #[test]
+    fn beacon_path_only_committed_accounts_are_eligible() {
+        // §2.1: with the beacon populated, an account WITHOUT a committed key is simply not drawn.
+        let reputation = alloc::vec![(acc(1), 100i128), (acc(2), 100)];
+        let committed = alloc::vec![(acc(1), "committed-secret-1".to_string())];
+        let got = elect_finality_committee(&reputation, &committed, &[9u8; 32], 3, 8, "hlq-finality-committee", false);
+        assert!(!got.contains(&acc(2)), "no committed key → not eligible");
+        assert!(got.contains(&acc(1)), "the only committed reputable account takes the seats");
+    }
+
+    #[test]
+    fn halted_guard_seats_nobody() {
+        let reputation = alloc::vec![(acc(1), 100i128)];
+        let got = elect_finality_committee(&reputation, &[], &[0u8; 32], 1, 4, "x", true);
+        assert!(got.is_empty(), "entrenchment halt → empty committee, finality freezes");
+    }
+
+    /// REGRESSION — F3 wedge: the six dev accounts (sr25519 //Alice..//Ferdie), uniform
+    /// reputation, fallback path, testnet τ=4. The raw Poisson draw for epoch 4's seed elects
+    /// NOBODY (verified against elect_committee_fp directly below), which wedged devnet finality
+    /// permanently at block #32 in two independent runs. The liveness floor must re-draw with a
+    /// salted seed until someone is elected — while the halt path above stays empty.
+    #[test]
+    fn empty_draw_liveness_floor_devnet_epoch_4() {
+        fn unhex(s: &str) -> [u8; 32] {
+            let mut a = [0u8; 32];
+            for i in 0..32 {
+                a[i] = u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap();
+            }
+            a
+        }
+        let accounts = [
+            "d43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d", // Alice
+            "8eaf04151687736326c9fea17e25fc5287613693c912909cb226aa4794f26a48", // Bob
+            "90b5ab205c6974c9ea841be688864633dc9ca8a357843eeacf2314649965fe22", // Charlie
+            "306721211d5404bd9da88e0204360a1a9ab8b87c66c1bc2fcdd37f3c2222cc20", // Dave
+            "e659a7a1628cdd93febc04a4e0646ea20e9f5f0ce097d9a05290d4a9e054df4e", // Eve
+            "1cbd2d43530a44705ad088af313e18f80b53ef16b36177cd4b77b846f2a5f07c", // Ferdie
+        ];
+        let reputation: alloc::vec::Vec<([u8; 32], i128)> =
+            accounts.iter().map(|h| (unhex(h), 1_000_000i128)).collect();
+
+        // 1. the RAW draw for epoch 4 is empty — the wedge's root cause, pinned so it can't drift.
+        let mut rep_map = BTreeMap::new();
+        let mut keys = BTreeMap::new();
+        for (a, r) in &reputation {
+            let id = crate::beacon::hex(a);
+            keys.insert(id.clone(), format!("sk-{id}"));
+            rep_map.insert(id, *r);
+        }
+        let raw = elect_committee_fp(&rep_map, &keys, "hlq-finality-committee-4", 4);
+        assert!(raw.is_empty(), "epoch 4 raw draw must be the historical empty draw");
+
+        // 2. the floored election seats ≥ min(4, eligible) (salted re-draw) → finality cannot
+        //    wedge on an empty epoch NOR on a size-3 committee that tolerates zero faults (I1).
+        let got = elect_finality_committee(
+            &reputation, &[], &[0u8; 32], 4, 4, "hlq-finality-committee", false,
+        );
+        assert!(got.len() >= 4, "size floor: ≥ min(4, eligible) so 1 member down never stalls");
+
+        // 3. determinism: two computations agree (every node/pallet must draw identically).
+        let again = elect_finality_committee(
+            &reputation, &[], &[0u8; 32], 4, 4, "hlq-finality-committee", false,
+        );
+        assert_eq!(got, again);
+    }
 }
 
 #[cfg(test)]
@@ -260,6 +472,19 @@ mod tests {
         let c2 = elect_committee_fp(&reps, &keys2, "seed-y", 60);
         let sybils = c2.keys().filter(|n| n.starts_with('s')).count();
         assert_eq!(sybils, 0, "sybils must not enter the committee, got {sybils}");
+    }
+
+    #[test]
+    fn keyless_reputable_node_is_skipped_not_panicked() {
+        // C-MED1 (audit): a reputable node with NO secret_keys entry must be EXCLUDED from the
+        // draw, never `secret_keys[node]` (an Index panic that fires identically on every node computing
+        // this committee = a fork-class network halt). This constructs exactly that mismatch.
+        let reps: BTreeMap<String, i128> = (0..10).map(|i| (format!("h{i}"), FP)).collect();
+        // keys for everyone EXCEPT h7
+        let keys: BTreeMap<String, String> =
+            reps.keys().filter(|n| *n != "h7").map(|n| (n.clone(), format!("sk-{n}"))).collect();
+        let c = elect_committee_fp(&reps, &keys, "seed-z", 60); // must NOT panic
+        assert!(!c.contains_key("h7"), "keyless node must be excluded from the committee");
     }
 
     /// Helper: worst |f64 − fixed-point| seat gap over a fine VRF-value grid, for a given lam.

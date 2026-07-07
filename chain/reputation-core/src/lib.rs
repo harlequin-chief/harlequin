@@ -833,6 +833,30 @@ pub fn conservative_aggregate(vector: &BTreeMap<String, f64>, min: bool) -> f64 
     }
 }
 
+/// Concave conservative aggregate (§1.2c, C4), fixed-point/`no_std`: `(1−λ)·min + λ·median` over the suit
+/// vector. Softens the hard MIN (§1.2b) so a single suit knocked to 0 no longer collapses a *balanced*
+/// member's whole weight (the "MIN as a weapon", paper §8.5), while imbalance still costs — a one-suit
+/// specialist has median≈0, so its aggregate stays ≈0 (anti-specialization preserved). `lambda_fp` is
+/// `FP_SCALE`-scaled in `[0, FP_SCALE]`; `λ=0` reduces to the hard MIN. The `FP_SCALE` cancels, so callers
+/// may pass raw consensus-reputation values. **Re-validation gate:** adopting this reopens the
+/// anti-specialization property (ledger #1) → re-run the attack suite before wiring it to the pallet.
+pub fn concave_aggregate_fp(suits: &[i128], lambda_fp: i128) -> i128 {
+    if suits.is_empty() {
+        return 0;
+    }
+    let mut v: alloc::vec::Vec<i128> = suits.to_vec();
+    v.sort_unstable();
+    let n = v.len();
+    let min = v[0];
+    let median = if n % 2 == 1 {
+        v[n / 2]
+    } else {
+        (v[n / 2 - 1] + v[n / 2]) / 2
+    };
+    let lam = lambda_fp.clamp(0, FP_SCALE);
+    ((FP_SCALE - lam).saturating_mul(min) + lam.saturating_mul(median)) / FP_SCALE
+}
+
 /// Largest single-entity share of total consensus reputation, fixed-point (FP_SCALE-scaled): `max_i r_i /
 /// Σ_j r_j`. Drives the cold-start **entrenchment guard** (§1.4b): the bootstrap window halts only against
 /// capture by ONE entity, never against the honest small cohort's collective — and declared — dominance.
@@ -847,7 +871,7 @@ pub fn max_single_entity_share_fp(reps: &[i128]) -> i128 {
     max.saturating_mul(FP_SCALE) / total
 }
 
-/// One epoch of the cold-start **entrenchment guard** (§1.4b; parameters 2026-06-21). Given this epoch's
+/// One epoch of the cold-start **entrenchment guard** (§1.4b; parameters). Given this epoch's
 /// largest single-entity `share_fp`, the halt `threshold_fp` (≈0.33·FP_SCALE), the running `counter` of
 /// consecutive over-threshold epochs, and the `required` run length to halt (7 ≈ one week at a daily
 /// epoch), returns the updated counter and whether to **HALT**. A share at or below threshold **resets**
@@ -905,7 +929,7 @@ pub fn cold_start_halt_share_fp(labels: &BTreeMap<String, String>, reps: &BTreeM
     max_cluster_share_fp(labels, reps).max(single)
 }
 
-/// Transparency-checkpoint escalation level (§1.4b cold-start, 2026-06-21). The founders periodically
+/// Transparency-checkpoint escalation level (§1.4b cold-start). The founders periodically
 /// sign a public transparency attestation; if they go silent the response **escalates** soft→hard rather
 /// than halting outright — anti-griefing, so a missed checkpoint cannot be weaponised into an instant
 /// stop. Pure status; the consequence of each level is the caller's (pallet) policy.
@@ -923,7 +947,7 @@ pub enum CheckpointState {
 /// the founders last signed the attestation; a checkpoint is expected every `cadence` epochs (≈30 ≈ monthly
 /// at a daily epoch). `soft_grace`/`hard_grace` are the slack (≈7 / a further margin) before escalating.
 /// `Ok` while `≤ cadence + soft_grace`; `Soft` up to `cadence + hard_grace`; `Hard` beyond. Policy-neutral:
-/// the thresholds are parameters (the 2026-06-21 design fixes cadence 30, grace 7), the consequence is the
+/// the thresholds are parameters (the design fixes cadence 30, grace 7), the consequence is the
 /// pallet's. Escalation (not instant halt) is the anti-griefing property.
 pub fn checkpoint_escalation(
     epochs_since_attested: u32,
@@ -1028,7 +1052,7 @@ mod tests {
 
     #[test]
     fn checkpoint_escalates_soft_then_hard_not_instant() {
-        // 2026-06-21 params: cadence 30, soft grace 7, hard grace (a further margin) 14.
+        // params: cadence 30, soft grace 7, hard grace (a further margin) 14.
         let (cadence, soft, hard) = (30u32, 7u32, 14u32);
         // fresh / on time → Ok.
         assert_eq!(checkpoint_escalation(0, cadence, soft, hard), CheckpointState::Ok);
@@ -1277,7 +1301,7 @@ mod tests {
         assert!(rep["h0"] > rep["sybil"] * 10.0, "honest must dominate the sybil");
     }
 
-    // ---- adversarial deepening (macro-audit 2026-06-16): probe attacks not in the base suite ----
+    // ---- adversarial deepening (macro-audit): probe attacks not in the base suite ----
 
     #[test]
     fn cross_community_collusion_without_evidence_gets_nothing() {
@@ -1420,8 +1444,23 @@ mod tests {
     }
 
     #[test]
+    fn concave_aggregate_resists_single_suit_zeroing_but_punishes_imbalance() {
+        // §1.2c / C4: λ = 0.20. The concave aggregate softens the MIN weapon without rewarding imbalance.
+        let lam = FP_SCALE / 5; // 0.20
+        // balanced member, all four suits equal → aggregate = that value (min == median)
+        assert_eq!(concave_aggregate_fp(&[100, 100, 100, 100], lam), 100);
+        // a balanced member with ONE suit knocked to 0: hard MIN would collapse to 0 (the weapon, §8.5);
+        // the concave aggregate keeps λ·median = 0.20·100 = 20 (not 0) — recoverable when the suit is restored.
+        assert_eq!(concave_aggregate_fp(&[0, 100, 100, 100], lam), 20);
+        // λ = 0 reduces to the hard MIN → 0 (the very weapon we are softening)
+        assert_eq!(concave_aggregate_fp(&[0, 100, 100, 100], 0), 0);
+        // a one-suit SPECIALIST still gets ≈0 (median of [100,0,0,0] is 0) → anti-specialization preserved
+        assert_eq!(concave_aggregate_fp(&[100, 0, 0, 0], lam), 0);
+    }
+
+    #[test]
     fn suit_coverage_collusion_does_not_lift_the_conservative_min() {
-        // Adversarial (auditoría nocturna 2026-06-17): NEW angle. 4 colluders, each genuinely strong in ONE
+        // Adversarial (auditoría nocturna): NEW angle. 4 colluders, each genuinely strong in ONE
         // distinct suit and empty in the other three, vouch each other ACROSS suits trying to "cover" each
         // other's weak suits and so lift everyone's conservative MIN (the real power, §1.2b) above zero.
         // It fails by construction: reputation is PER-SUIT and you can only DELEGATE trust in a suit where
@@ -1476,7 +1515,7 @@ mod tests {
             for s in suits { v.insert(s.to_string(), solo_per[s]["solo"]); }
             conservative_aggregate(&v, true)
         };
-        // Measured (2026-06-17): solo=0.00, ring colluder≈6.92, balanced honest≈270.62.
+        // Measured: solo=0.00, ring colluder≈6.92, balanced honest≈270.62.
         assert!(solo_min < 1.0, "a single-suit specialist with no ring must have min ~0, was {solo_min}");
         // The ring DOES leak a sliver of min into the covered suits (the coverage attack is not fully zeroed)
         // — documented residual. But the anti-collusion damping (community + independence) crushes it to
@@ -1539,7 +1578,7 @@ mod tests {
 
     #[test]
     fn bribed_whale_vouch_does_not_buy_global_authority() {
-        // Bribery attack (new 2026-06-16): a GENUINELY reputed whale `w0` (lots of real evidence) is
+        // Bribery attack (new): a GENUINELY reputed whale `w0` (lots of real evidence) is
         // bribed to vouch a no-evidence target `x0`. This dodges the ring/in-concentration detectors
         // (a single trusted voucher is not a community and not a funnel). Within the bought suit, x0
         // DOES gain delegated trust — that is correct EigenTrust, not a leak. The defences are:

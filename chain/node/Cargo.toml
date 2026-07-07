@@ -11,10 +11,14 @@ harlequin-runtime = { path = "../runtime", features = ["std"] }
 consensus-core = { path = "../consensus-core" }
 # Runtime API to read on-chain consensus reputation (drives the sortition off real chain state).
 harlequin-consensus-api = { path = "../consensus-api" }
+# The participation inherent's record/types (F2 piece 6c): the node-side provider builds the exact
+# struct the runtime's MANDATORY inherent expects (author + canonical finality votes per block).
+pallet-participation = { path = "../pallet-participation", features = ["std"] }
+sp-inherents = "*"
 # polkadot-sdk umbrella pinned to 2604.2.0 = frame 0.17.0 / sp-api 42 (CONFIRMED match with the runtime).
 # Pinning the umbrella keeps all sc-*/sp-* internally consistent (the unversioned-sc-* route picks ancient
 # crates and breaks). Only the `node` (client) feature — `experimental` added nothing we use (lock unchanged).
-# AUDIT NOTE 2026-06-17: the `node` feature is a kitchen-sink — it pulls pallet-revive (EVM) + parachain/
+# AUDIT NOTE: the `node` feature is a kitchen-sink — it pulls pallet-revive (EVM) + parachain/
 # bridge TEST utilities (→ ~20 alloy/Ethereum crates we don't use). Tightening this = moving off the umbrella
 # to individual sc-* crates (the version-pinning headache); deferred to a pre-mainnet dep-slimming pass.
 polkadot-sdk = { version = "2604.2.0", features = ["node"] }
@@ -45,10 +49,11 @@ std = ["harlequin-runtime/std", "polkadot-sdk/std"]
 mainnet = ["harlequin-runtime/mainnet"]
 
 [workspace]
+members = [".", "tools/devnet-driver"]
 
 # core2 0.4.0 (needed transitively by multihash 0.17 → litep2p → sc-network) was YANKED from crates.io
 # (the author yanked the whole crate), so a fresh resolve fails. The source still exists on git; patch to it.
-# Authorised by Chief (2026-06-16). Pinned to an immutable rev for reproducibility (set after first resolve).
+# Authorised by the maintainer (). Pinned to an immutable rev for reproducibility (set after first resolve).
 [patch.crates-io]
 # rev 545e84b = "Bump version to 0.4.0" (the next commit deprecated/gutted the crate). Immutable pin =
 # the exact 0.4.0 source, reproducible. Widely-used crate (46M downloads), yanked wholesale by the author.

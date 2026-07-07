@@ -72,7 +72,7 @@ pub struct EpochReport {
 
 impl Protocol {
     /// Start the chain from a genesis cohort (SPEC §1.4): the founding members that seed pre-trust.
-    /// Each should be marked `.genesis()` and carry the evidence that anchors the bootstrap.
+    /// Each should be marked `.genesis` and carry the evidence that anchors the bootstrap.
     pub fn genesis(cohort: Vec<Agent>, params: Params, tau: f64) -> Self {
         let mut p = Protocol {
             agents: Vec::new(),

@@ -14,7 +14,7 @@ use alloc::vec::Vec;
 /// Build a fixed-size packet routed through `path` (relays in order) ending at the last entry, carrying
 /// `payload` (zero-padded / truncated to `PAYLOAD_LEN`). `eph_seed` seeds the ephemeral key.
 ///
-/// `path` holds the **public keys** of each hop, in forward order. `2 <= path.len() <= MAX_HOPS`.
+/// `path` holds the **public keys** of each hop, in forward order. `2 <= path.len <= MAX_HOPS`.
 pub fn create_packet<C: OnionCrypto>(
     crypto: &C,
     path: &[[u8; 32]],

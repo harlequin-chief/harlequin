@@ -5,6 +5,7 @@ mod chain_spec;
 mod cli;
 mod command;
 mod finality;
+mod participation_inherent;
 mod rpc;
 mod service;
 

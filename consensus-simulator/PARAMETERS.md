@@ -79,7 +79,7 @@ Each epoch, VRF sortition elects an expected **60** seats, weighted by reputatio
   on each epoch.
 - Status: **PARAMETER** (τ=60; finalise with sortition-failure modelling, task #18).
 
-## Empirical confirmation (test-rig sweeps, 2026-06-15)
+## Empirical confirmation (test-rig sweeps,)
 Sweeps with `testrig/` (committee + async network) locate the operating point — not guessed:
 
 **Quorum α (k=20, τ=60):** raising α hardens safety but costs liveness — the trade is real and measured.
@@ -117,8 +117,8 @@ The inequalities behind all of the above — safety `f < α/k`, liveness `f ≤ 
 
 ## The four dimensions of reputation are the four suits — CANON
 Reputation is **vectorial** (SPEC §1.2b): the engine uses four dimensions. They are not an arbitrary
-list — they are the **four suits of Harlequin** (`LORE.md`). Canonical mapping (blessed by Chief,
-2026-06-15):
+list — they are the **four suits of Harlequin** (`LORE.md`). Canonical mapping (blessed by the maintainer,
+):
 
 | Suit | Meaning | Reputation dimension | Why |
 |---|---|---|---|

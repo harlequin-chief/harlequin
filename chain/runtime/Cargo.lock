@@ -1743,19 +1743,35 @@ version = "0.1.0"
 dependencies = [
  "frame-system",
  "harlequin-consensus-api",
+ "harlequin-tokens-api",
  "pallet-balances",
  "pallet-beacon",
+ "pallet-directory",
+ "pallet-forum",
  "pallet-justice",
  "pallet-manifesto",
+ "pallet-market",
+ "pallet-multisig-upgrade",
+ "pallet-participation",
  "pallet-reputation",
  "pallet-sudo",
  "pallet-timestamp",
+ "pallet-tokens",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc-runtime-api",
  "parity-scale-codec",
  "polkadot-sdk-frame",
  "scale-info",
  "substrate-wasm-builder",
+]
+
+[[package]]
+name = "harlequin-tokens-api"
+version = "0.1.0"
+dependencies = [
+ "parity-scale-codec",
+ "scale-info",
+ "sp-api",
 ]
 
 [[package]]
@@ -2507,6 +2523,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-directory"
+version = "0.1.0"
+dependencies = [
+ "consensus-core",
+ "parity-scale-codec",
+ "polkadot-sdk-frame",
+ "scale-info",
+ "serde",
+]
+
+[[package]]
+name = "pallet-forum"
+version = "0.1.0"
+dependencies = [
+ "parity-scale-codec",
+ "polkadot-sdk-frame",
+ "scale-info",
+ "serde",
+]
+
+[[package]]
 name = "pallet-justice"
 version = "0.1.0"
 dependencies = [
@@ -2522,6 +2559,37 @@ name = "pallet-manifesto"
 version = "0.1.0"
 dependencies = [
  "manifesto-core",
+ "parity-scale-codec",
+ "polkadot-sdk-frame",
+ "scale-info",
+ "serde",
+]
+
+[[package]]
+name = "pallet-market"
+version = "0.1.0"
+dependencies = [
+ "parity-scale-codec",
+ "polkadot-sdk-frame",
+ "scale-info",
+ "serde",
+]
+
+[[package]]
+name = "pallet-multisig-upgrade"
+version = "0.1.0"
+dependencies = [
+ "parity-scale-codec",
+ "polkadot-sdk-frame",
+ "scale-info",
+ "serde",
+]
+
+[[package]]
+name = "pallet-participation"
+version = "0.1.0"
+dependencies = [
+ "consensus-core",
  "parity-scale-codec",
  "polkadot-sdk-frame",
  "scale-info",
@@ -2572,6 +2640,17 @@ dependencies = [
  "sp-runtime",
  "sp-storage",
  "sp-timestamp",
+]
+
+[[package]]
+name = "pallet-tokens"
+version = "0.1.0"
+dependencies = [
+ "parity-scale-codec",
+ "polkadot-sdk-frame",
+ "scale-info",
+ "serde",
+ "tokens-core",
 ]
 
 [[package]]
@@ -4329,6 +4408,10 @@ name = "tinyvec_macros"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
+
+[[package]]
+name = "tokens-core"
+version = "0.1.0"
 
 [[package]]
 name = "tokio"

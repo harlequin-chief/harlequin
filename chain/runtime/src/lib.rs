@@ -6,9 +6,10 @@
 //! seal, no Aura/Grandpa) so a node boots and produces blocks; the **Woven-Trust** committee-by-reputation
 //! engine replaces it afterwards. Sovereign chain. See `../PALLET-DESIGN.md`, SPEC §2.
 //!
-//! NOTE: `Sudo` (root) is a TESTNET placeholder for privileged ops and runtime upgrades; pre-mainnet it
-//! MUST be replaced by reputation governance (SPEC §2.5) — a single upgrade key is a centralisation
-//! backdoor (Art. VI/XII).
+//! NOTE: `Sudo` (root) exists ONLY in dev/testnet builds — the drivers need root to seed reputation
+//! and drive epochs. In the MAINNET build the pallet is **not compiled in** (`#[cfg(not(feature =
+//! "mainnet"))]`, F3 blocker #1): a single root key is a centralisation backdoor (Art.
+//! VI/XII, SPEC §8 "Sin sudo"), and "no king" must be provable from the binary's metadata alone.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -24,13 +25,17 @@ use frame::prelude::*;
 use frame::runtime::{apis, prelude::*};
 use pallet_transaction_payment::{FeeDetails, RuntimeDispatchInfo};
 
+/// `frame_system::CheckNonce` fork with the permissionless cold-start lane (SPEC-RELAUNCH §2, B2).
+pub mod check_nonce;
+
 /// Runtime version. `spec_version` bumps on every runtime upgrade (forkless, SPEC §2.5).
 #[runtime_version]
 pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_name: alloc::borrow::Cow::Borrowed("harlequin-runtime"),
     impl_name: alloc::borrow::Cow::Borrowed("harlequin-runtime"),
     authoring_version: 1,
-    spec_version: 0,
+    // 1 = first F2/relaunch runtime (F3 gate A1: SPEC §3 hygiene — genesis ships >0, bumps each upgrade).
+    spec_version: 1,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -49,7 +54,10 @@ type TxExtension = (
     frame_system::CheckTxVersion<Runtime>,
     frame_system::CheckGenesis<Runtime>,
     frame_system::CheckEra<Runtime>,
-    frame_system::CheckNonce<Runtime>,
+    // HLQ fork of `frame_system::CheckNonce`: lets a NEWBORN mask's first feeless-eligible extrinsic
+    // create its own account (SPEC-RELAUNCH §2 cold-start, gate B2); budget still enforced by
+    // `ChargeTransactionPayment` below. Same IDENTIFIER/encoding — transparent to clients.
+    check_nonce::HlqCheckNonce,
     frame_system::CheckWeight<Runtime>,
     pallet_transaction_payment::ChargeTransactionPayment<Runtime>,
     frame_system::WeightReclaim<Runtime>,
@@ -87,6 +95,11 @@ mod runtime {
     #[runtime::pallet_index(3)]
     pub type Balances = pallet_balances::Pallet<Runtime>;
 
+    /// TESTNET/DEV ONLY (F3 blocker #1): root is a centralisation backdoor (Art. VI/XII,
+    /// SPEC §8 "Sin sudo"), so the MAINNET binary does not merely null the key — the pallet is NOT
+    /// COMPILED IN. Provably king-less: mainnet metadata must not list `Sudo` (the reviewer's K1 check).
+    /// Dev/testnet keep it — the drivers need root to seed reputation and drive epochs.
+    #[cfg(not(feature = "mainnet"))]
     #[runtime::pallet_index(4)]
     pub type Sudo = pallet_sudo::Pallet<Runtime>;
 
@@ -101,6 +114,24 @@ mod runtime {
 
     #[runtime::pallet_index(8)]
     pub type BeaconPallet = pallet_beacon::Pallet<Runtime>;
+
+    #[runtime::pallet_index(9)]
+    pub type Tokens = pallet_tokens::Pallet<Runtime>;
+
+    #[runtime::pallet_index(10)]
+    pub type Directory = pallet_directory::Pallet<Runtime>;
+
+    #[runtime::pallet_index(11)]
+    pub type Forum = pallet_forum::Pallet<Runtime>;
+
+    #[runtime::pallet_index(12)]
+    pub type Participation = pallet_participation::Pallet<Runtime>;
+
+    #[runtime::pallet_index(13)]
+    pub type Market = pallet_market::Pallet<Runtime>;
+
+    #[runtime::pallet_index(14)]
+    pub type MultisigUpgrade = pallet_multisig_upgrade::Pallet<Runtime>;
 }
 
 #[derive_impl(frame_system::config_preludes::SolochainDefaultConfig)]
@@ -108,6 +139,19 @@ impl frame_system::Config for Runtime {
     type Block = Block;
     type Version = Version;
     type AccountData = pallet_balances::AccountData<<Runtime as pallet_balances::Config>::Balance>;
+    /// Mortal-tx horizon (H2 audit): the prelude's 256 ≈ 51 min at 12s — too tight for offline
+    /// signing. 2400 blocks = 8 h.
+    type BlockHashCount = ConstU32<2400>;
+    /// B1 (v3.1 — the one line the v3 build missed, caught by the reviewer's const-dump): the prelude's
+    /// `` made every storage read/write weigh ZERO, so `CheckWeight` under-counted DB-heavy calls
+    /// (a "many cheap storage ops" DoS lane inside the 5 MB length cap). Real RocksDB constants.
+    type DbWeight = frame::deps::frame_support::weights::constants::RocksDbWeight;
+    /// Harlequin's own SS58 address prefix (the maintainer): **1728 = 12³** — the "great gross", the
+    /// summit of duodecimal counting (base-12 is the people's old reckoning — dozens, gross, the clock,
+    /// the year's months — against the State's imposed base-10/metric), and the twelve that recurs by
+    /// design (the 12 s woven-trust slot, the 12 manifesto articles, HLQ's 12 decimals, a deck's 12 court
+    /// figures = the masks). Replaces the borrowed generic (0) so a Harlequin mask address is its own.
+    type SS58Prefix = ConstU16<1728>;
 }
 
 #[derive_impl(pallet_balances::config_preludes::TestDefaultConfig)]
@@ -115,17 +159,200 @@ impl pallet_balances::Config for Runtime {
     type AccountStore = System;
 }
 
+#[cfg(not(feature = "mainnet"))]
 #[derive_impl(pallet_sudo::config_preludes::TestDefaultConfig)]
 impl pallet_sudo::Config for Runtime {}
 
 #[derive_impl(pallet_timestamp::config_preludes::TestDefaultConfig)]
-impl pallet_timestamp::Config for Runtime {}
+impl pallet_timestamp::Config for Runtime {
+    /// Substrate convention: half the 12s woven-trust slot (F3 batch; the prelude's `1` was inert but
+    /// let a block author stall the clock — timestamps must now advance ≥6s per block).
+    type MinimumPeriod = ConstU64<6000>;
+}
+
+/// SPEC-RELAUNCH §2 (audit 🔴#1): transaction fees are paid in **HLQ** — the daily-use coin people can
+/// actually earn — through pallet-tokens' burn/author split, plus the permanent **feeless-with-budget**
+/// lane so a fresh mask can earn its first reputation with ZERO coin (no premine, no chicken-and-egg).
+/// The old adapter charged the native `pallet_balances` balance, which nobody could ever obtain:
+/// every signed extrinsic was unpayable — the v1 chain was transactionally inert by construction.
+pub struct HlqTxPayment;
+
+/// What `withdraw_fee` secured, settled in `correct_and_deposit_fee`.
+#[derive(Default)]
+pub enum HlqFeeLiquidity {
+    /// Fee was zero — nothing to settle.
+    #[default]
+    Free,
+    /// Granted a feeless-budget use (SPEC-RELAUNCH §2 R1) — nothing withdrawn.
+    Feeless,
+    /// `amount` of HLQ withdrawn up front; refunded down to the corrected fee, then split.
+    Secured(u64),
+}
+
+impl pallet_transaction_payment::TxCreditHold<Runtime> for HlqTxPayment {
+    type Credit = ();
+}
+
+impl HlqTxPayment {
+    /// Bootstrap-critical calls that may ride the feeless lane: earning reputation (attest/claim/vouch),
+    /// feeding the beacon, jury duty, and the upgrade bridge (§3: fixing the chain must never depend on
+    /// holding coin — the multisig calls are already signer-gated/thresholded, and the per-mask feeless
+    /// budget rations the open ones). Everything else pays HLQ.
+    fn feeless_eligible(call: &RuntimeCall) -> bool {
+        matches!(
+            call,
+            RuntimeCall::Reputation(pallet_reputation::Call::attest_evidence { .. })
+                | RuntimeCall::Reputation(pallet_reputation::Call::claim_attested_evidence { .. })
+                | RuntimeCall::Reputation(pallet_reputation::Call::vouch { .. })
+                | RuntimeCall::Reputation(pallet_reputation::Call::revoke_vouch { .. })
+                | RuntimeCall::BeaconPallet(pallet_beacon::Call::commit { .. })
+                | RuntimeCall::BeaconPallet(pallet_beacon::Call::reveal { .. })
+                | RuntimeCall::Justice(pallet_justice::Call::cast_vote { .. })
+                | RuntimeCall::MultisigUpgrade(..)
+        )
+    }
+
+    /// Feeless allowance per budget epoch (SPEC-RELAUNCH §2 R1(ii)): a fresh mask starts near zero and
+    /// the budget grows SUBLINEARLY with age (only waiting ages a mask — minting 10,000 masks today buys
+    /// 10,000 × almost-nothing), plus a small bump for masks with standing reputation. Hard-capped.
+    fn allowance(who: &interface::AccountId) -> u32 {
+        let age = pallet_tokens::Pallet::<Runtime>::feeless_age(who);
+        let has_rep = [
+            pallet_reputation::Suit::Commerce,
+            pallet_reputation::Suit::Technical,
+            pallet_reputation::Suit::Judicial,
+            pallet_reputation::Suit::Governance,
+        ]
+        .iter()
+        .any(|s| pallet_reputation::ReputationSnapshot::<Runtime>::get(who, s) > 0);
+        let mut isqrt = 0u32;
+        while (isqrt + 1).saturating_mul(isqrt + 1) <= age {
+            isqrt += 1;
+        }
+        core::cmp::min(1 + isqrt + if has_rep { 4 } else { 0 }, 16)
+    }
+}
+
+impl pallet_transaction_payment::OnChargeTransaction<Runtime> for HlqTxPayment {
+    // The fee-computation integer stays u64 (= `interface::Balance`, what the payment RPC APIs expose);
+    // amounts are widened to u128 at the pallet-tokens boundary (HLQ ledger precision).
+    type Balance = u64;
+    type LiquidityInfo = HlqFeeLiquidity;
+
+    fn withdraw_fee(
+        who: &interface::AccountId,
+        call: &RuntimeCall,
+        dispatch_info: &DispatchInfoOf<RuntimeCall>,
+        fee_with_tip: u64,
+        _tip: u64,
+    ) -> Result<HlqFeeLiquidity, TransactionValidityError> {
+        if fee_with_tip == 0 {
+            return Ok(HlqFeeLiquidity::Free);
+        }
+        if Self::feeless_eligible(call)
+            && pallet_tokens::Pallet::<Runtime>::try_feeless(
+                who,
+                dispatch_info.total_weight().ref_time(),
+                Self::allowance(who),
+            )
+        {
+            return Ok(HlqFeeLiquidity::Feeless);
+        }
+        pallet_tokens::Pallet::<Runtime>::fee_withdraw(who, fee_with_tip as u128)
+            .map_err(|_| TransactionValidityError::Invalid(InvalidTransaction::Payment))?;
+        Ok(HlqFeeLiquidity::Secured(fee_with_tip))
+    }
+
+    fn can_withdraw_fee(
+        who: &interface::AccountId,
+        call: &RuntimeCall,
+        dispatch_info: &DispatchInfoOf<RuntimeCall>,
+        fee_with_tip: u64,
+        _tip: u64,
+    ) -> Result<(), TransactionValidityError> {
+        if fee_with_tip == 0 {
+            return Ok(());
+        }
+        if Self::feeless_eligible(call)
+            && pallet_tokens::Pallet::<Runtime>::can_feeless(
+                who,
+                dispatch_info.total_weight().ref_time(),
+                Self::allowance(who),
+            )
+        {
+            return Ok(());
+        }
+        if pallet_tokens::Pallet::<Runtime>::balance(who, pallet_tokens::Coin::Hlq)
+            >= fee_with_tip as u128
+        {
+            Ok(())
+        } else {
+            Err(TransactionValidityError::Invalid(InvalidTransaction::Payment))
+        }
+    }
+
+    fn correct_and_deposit_fee(
+        who: &interface::AccountId,
+        _dispatch_info: &DispatchInfoOf<RuntimeCall>,
+        _post_info: &frame::deps::sp_runtime::traits::PostDispatchInfoOf<RuntimeCall>,
+        corrected_fee_with_tip: u64,
+        _tip: u64,
+        liquidity: HlqFeeLiquidity,
+    ) -> Result<(), TransactionValidityError> {
+        match liquidity {
+            HlqFeeLiquidity::Free | HlqFeeLiquidity::Feeless => Ok(()),
+            HlqFeeLiquidity::Secured(secured) => {
+                let fee = core::cmp::min(corrected_fee_with_tip, secured);
+                pallet_tokens::Pallet::<Runtime>::fee_refund(who, (secured - fee) as u128);
+                // node-share goes to this block's author (from the participation inherent);
+                // no author declared ⇒ the whole fee burns (public, non-discretionary).
+                let author = pallet_participation::BlockAuthor::<Runtime>::get();
+                pallet_tokens::Pallet::<Runtime>::fee_settle(who, author.as_ref(), fee as u128);
+                Ok(())
+            }
+        }
+    }
+
+    #[cfg(feature = "runtime-benchmarks")]
+    fn endow_account(who: &interface::AccountId, amount: u64) {
+        pallet_tokens::Pallet::<Runtime>::fee_refund(who, amount as u128);
+    }
+
+    #[cfg(feature = "runtime-benchmarks")]
+    fn minimum_balance() -> u64 {
+        0
+    }
+}
+
+parameter_types! {
+    /// B1 fee constants (F3, acta) — "length CHARGES, weight PROTECTS": bytes are the one
+    /// resource measurable without benchmarking, so they carry the price; honest manual weights on the
+    /// heavy calls cap per-block execution via `CheckWeight` (admission, not price).
+    ///
+    /// 8_000_000 plancton/byte → a typical signed transfer (~150 B) costs 1.2×10⁹ plancton =
+    /// **0.0012 HLQ**: the house twelve (12 articles, 12 s blocks, 12 jurors, 12 decimals). 1 HLQ ≈
+    /// 830 transfers. Sustained full-block spam ≈ 226,500 HLQ/day (≈0.042% of the cap), half BURNED —
+    /// the attacker funds everyone's deflation and pays the nodes enduring the attack.
+    pub const LengthFeePlanctonPerByte: u64 = 8_000_000;
+    /// v3.2 (the reviewer's empirical B1 catch): k=100 made the ~1.08×10⁸ ref_time `base_extrinsic`
+    /// weight — which EVERY extrinsic pays — cost 0.0108 HLQ, i.e. 90% of the bill: the design
+    /// inverted into weight-charges. k=1 makes ALL weight true noise in the PRICE (base ≈ 10⁻⁷ HLQ;
+    /// honest-weighted justice calls ≈ 0.0075 HLQ) while weight still counts IN FULL for admission
+    /// (`CheckWeight`) — which is the actual protection. Real benchmarking = post-launch (H2).
+    pub const WeightFeePlanctonPerRefTime: u64 = 1;
+}
 
 #[derive_impl(pallet_transaction_payment::config_preludes::TestDefaultConfig)]
 impl pallet_transaction_payment::Config for Runtime {
-    type OnChargeTransaction = pallet_transaction_payment::FungibleAdapter<Balances, ()>;
-    type WeightToFee = NoFee<<Self as pallet_balances::Config>::Balance>;
-    type LengthToFee = FixedFee<1, <Self as pallet_balances::Config>::Balance>;
+    /// HLQ fee adapter (SPEC-RELAUNCH §2): real, payable fees + the feeless bootstrap lane.
+    type OnChargeTransaction = HlqTxPayment;
+    type WeightToFee =
+        frame::deps::frame_support::weights::ConstantMultiplier<u64, WeightFeePlanctonPerRefTime>;
+    type LengthToFee =
+        frame::deps::frame_support::weights::ConstantMultiplier<u64, LengthFeePlanctonPerByte>;
+    /// Substrate convention (H2 audit): operational-class extrinsics pay 5× — the prelude's ``
+    /// meant 0×. No operational calls exist today; pinned for hygiene.
+    type OperationalFeeMultiplier = ConstU8<5>;
 }
 
 // --- Reputation cadence (#30): production vs fast-testnet, selected by the `mainnet` feature. ---
@@ -145,6 +372,11 @@ parameter_types! {
     /// old hardcoded 50% so vouching is not pure downside (pre-freeze audit, issue #4); final value is a
     /// mutable calibration. Any value < 1 keeps the cascade convergent.
     pub const SponsorLiability: Permill = Permill::from_percent(25);
+    /// (🔴#5-iii, SPEC-RELAUNCH §7) ABSOLUTE attester floor: one thousandth of the woven mass
+    /// (FP_SCALE/1000 — network consensus reputation sums to ≈FP_SCALE). A witness must hold at least a
+    /// thousandth of the network's woven trust for its testimony to admit evidence; the live floor is
+    /// `max(p25 of the rep>0 set, this)`, recomputed each epoch. PARÁMETRO (calibration dial).
+    pub const AttestFloorMin: i128 = pallet_reputation::FP_SCALE / 1000;
 }
 
 impl pallet_reputation::Config for Runtime {
@@ -156,18 +388,224 @@ impl pallet_reputation::Config for Runtime {
     type VouchQuotaK = ConstU32<3>;
     type EvidenceRetention = EvidenceRetention;
     type SponsorLiability = SponsorLiability;
-    /// Blocks per reputation recompute epoch (#30). MAINNET = 14400 ≈ **1 day** at 6s/block ("the deck is
+    /// Blocks per reputation recompute epoch (#30). MAINNET = 7200 ≈ **1 day** at 12s/block (D1 12s re-derivation) ("the deck is
     /// recounted each dawn"; pairs with ρ for the 24-month half-life). TESTNET = 10 for fast validation.
     /// The recompute runs automatically at each boundary — no root trigger (no king). Selected by `mainnet`.
     #[cfg(feature = "mainnet")]
-    type EpochLength = ConstU32<14400>;
+    type EpochLength = ConstU32<7200>;
     #[cfg(not(feature = "mainnet"))]
     type EpochLength = ConstU32<10>;
+    /// (🔴#5-i) 8 attests per attester per epoch (SPEC-RELAUNCH §7 default): 8 = the two faces × the
+    /// four suits — one full day's honest testimony, and a wall against mask farms.
+    type AttestBudget = ConstU32<8>;
+    type AttestFloorMinFp = AttestFloorMin;
+    /// (🔴#5-v, gate F1b) c = 1: one attest admits at most the attester's OWN evidence in the suit —
+    /// nobody vouches more weight than they themselves carry. PARÁMETRO.
+    type AttestStakeMultiplier = ConstU32<1>;
+    /// (F2 piece 6) Service → evidence, straight from participation's verified counters.
+    type ServiceFeed = ParticipationServiceFeed;
+    /// One block authored in turn / one committee vote = ONE unit of Technical evidence ("un bloque
+    /// honesto, una unidad de verdad"). PARÁMETRO — joint F3 review calibrates it against the decay
+    /// and the founders' launch seed before the ceremony.
+    type ServiceEvidenceRate = ConstU128<1>;
 }
 
 impl pallet_manifesto::Config for Runtime {
     /// 64 KiB ceiling for the founding constitution (a charter, not a database).
     type MaxManifestoLen = ConstU32<65536>;
+}
+
+/// Mask directory (#650): self-certifying handle→account registry. No config beyond the event — the handle
+/// is derived from the key, registration is a plain signed self-assertion (censorship-resistant). Session
+/// crypto stays out of the runtime (gated, #637).
+impl pallet_directory::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+}
+
+/// Forum index (#651): append-only ordered post index; body in IPFS, hide only by jury verdict. The
+/// `ModerationOrigin` is root for now (testnet placeholder for the pallet-justice verdict path → a moderation
+/// case whose guilty verdict calls `hide_post`); it is NOT a signed admin.
+impl pallet_forum::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type ModerationOrigin = EnsureRoot<Self::AccountId>;
+    /// Cap thread nesting (bounds reply chains / display cost). A deployment parameter.
+    type MaxThreadDepth = ConstU32<16>;
+}
+
+/// The mask-to-mask offer board (Act IV of the citizen rite). Offers carry only a content HASH on-chain
+/// (operator-blind: the listing text lives off-chain), so mounting this never exposes what anyone trades.
+impl pallet_market::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    /// Hiding an offer is the jury-verdict path (root placeholder for pallet-justice, like the other
+    /// pallets); on the launch chain there is no sudo, so no authority silently hides an offer.
+    type ModerationOrigin = EnsureRoot<Self::AccountId>;
+    /// v1 anti-spam = the per-mask active-offer cap alone (no-op gate): a newcomer's first listing is never
+    /// gated behind holding HLQ (open entry). Swap to the B6 micro-fee here if real spam appears.
+    type Postage = ();
+    /// Max length of the optional category tag. Deployment parameter.
+    type MaxCategoryLen = ConstU32<16>;
+    /// Max simultaneous active offers per mask — the sole v1 anti-spam bound. Deployment parameter.
+    type MaxPerMask = ConstU32<32>;
+}
+
+// --- Tokenomics (#595 / SPEC §3, §9): two coins (HLQ daily-use, SOV reserve), hard-capped disinflationary
+// emission, money ≠ power. Numbers LOCKED by the maintainer: SOV hard cap 54,000,000 (deck of 54), HLQ hard cap
+// 540,000,000 (×10), decay r=3/4, founders 4% (declared, counts against the cap), fee burn 50/50. The
+// per-era `initial` is DERIVED, not decreed: with r=3/4 the geometric series sums to `initial·4`, so
+// `initial = cap/4` makes cumulative emission converge to the cap (founder allocation is pre-minted against
+// it). The block cadence (`EraLength`) sets the ~6-month era; ONE decay step per era (`era_length: 1`). The
+// MAINNET curve is calibration pending the maintainer's final sign-off; the TESTNET curve is fast so an era boundary
+// fires within a short devnet (the figure validated in hardware). Selected by the `mainnet` feature. ---
+
+/// Smallest-unit scale: 12 decimals (HLQ/SOV divisible, SPEC §3.2). 1 coin = 10^12 base units.
+#[cfg(feature = "mainnet")]
+const COIN_UNIT: u128 = 1_000_000_000_000;
+
+#[cfg(feature = "mainnet")]
+parameter_types! {
+    /// HLQ — hard cap 540M, r=3/4, `initial = cap/4` ⇒ converges to the cap. No founder HLQ premine. DERIVED.
+    pub const HlqCurve: pallet_tokens::CurveParams = pallet_tokens::CurveParams {
+        initial: 135_000_000 * COIN_UNIT, decay_num: 3, decay_den: 4, era_length: 1,
+        cap: 540_000_000 * COIN_UNIT,
+    };
+    /// SOV — hard cap 54M, r=3/4. `initial = (cap − 4% founder)/4 = 51.84M/4` ⇒ the curve emits 51.84M over
+    /// ~7 years while the declared 2.16M founder allocation fills the rest of the 54M cap. DERIVED.
+    pub const SovCurve: pallet_tokens::CurveParams = pallet_tokens::CurveParams {
+        initial: 12_960_000 * COIN_UNIT, decay_num: 3, decay_den: 4, era_length: 1,
+        cap: 54_000_000 * COIN_UNIT,
+    };
+}
+
+#[cfg(not(feature = "mainnet"))]
+parameter_types! {
+    /// TESTNET HLQ: flat 1000/era, small hard cap — round numbers so emission + cap are easy to observe.
+    pub const HlqCurve: pallet_tokens::CurveParams = pallet_tokens::CurveParams {
+        initial: 1000, decay_num: 1, decay_den: 1, era_length: 1, cap: 1_000_000,
+    };
+    /// TESTNET SOV: 100/era halving, small hard cap so the cap bites quickly during validation.
+    pub const SovCurve: pallet_tokens::CurveParams = pallet_tokens::CurveParams {
+        initial: 100, decay_num: 1, decay_den: 2, era_length: 1, cap: 10_000,
+    };
+}
+
+impl pallet_tokens::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type HlqCurve = HlqCurve;
+    type SovCurve = SovCurve;
+    /// Blocks per emission era. MAINNET = 1,317,600 = 183×7200 (EXACT EpochLength multiple, P-5: a non-multiple
+    /// leaves an epoch straddling the era boundary → lost/mis-attributed service credit) ≈ **6 months** at 12s/block.
+    /// TESTNET = 10 so an era boundary fires within a short devnet run. `on_initialize` mints + distributes
+    /// at the boundary by itself — no privileged trigger (no king). Selected by `mainnet`.
+    #[cfg(feature = "mainnet")]
+    type EraLength = ConstU32<1_317_600>;
+    #[cfg(not(feature = "mainnet"))]
+    type EraLength = ConstU32<10>;
+    /// 50% of an HLQ fee is burned, 50% pays the processing node (TOKENOMICS §2). A mutable dial.
+    type FeeBurnBps = ConstU16<5000>;
+    /// FEELESS lane (SPEC-RELAUNCH §2): ≤15% of a block's weight may go to feeless extrinsics.
+    type FeelessBlockBps = ConstU16<1500>;
+    /// FEELESS budget epoch ≈ 1 day of blocks (MAINNET; matches the reputation epoch). TESTNET = 10.
+    #[cfg(feature = "mainnet")]
+    type FeelessEpochBlocks = ConstU32<7200>;
+    #[cfg(not(feature = "mainnet"))]
+    type FeelessEpochBlocks = ConstU32<10>;
+    /// Anti-Sybil per-node reward cap `min(weight, ceil(median·k))`, k=2 (§3.1). Flattens the tail.
+    type ServiceCapK = ConstU32<2>;
+    /// Verified per-era service source (P-2/#838): the non-forgeable participation feed, read at the era
+    /// boundary to build the reward split. NOT a Root-gated call (Root is compiled out on mainnet), so
+    /// emission mints without a king. Confers NO power, only a claim on the reward pool.
+    type ServiceSource = ParticipationEraServiceFeed;
+}
+
+/// Adapter: the participation feed reads the conservative on-chain reputation (min of the four suits) from
+/// pallet-reputation — the SAME source the committee sortition uses, so the on-chain committee re-derivation
+/// has zero drift with the node.
+pub struct ReputationAdapter;
+impl pallet_participation::ConsensusReputation<<Runtime as frame_system::Config>::AccountId>
+    for ReputationAdapter
+{
+    fn consensus_reputation() -> Vec<(<Runtime as frame_system::Config>::AccountId, i128)> {
+        pallet_reputation::Pallet::<Runtime>::consensus_reputation()
+    }
+}
+
+/// Adapter: the REST of the committee-election inputs (F2 piece 6) — beacon state and halt flag from
+/// their pallets, hot→cold from the reputation pallet's `VoteKeys` delegation map. Same state the node
+/// reads through the runtime API; the pallet reads it directly from storage.
+pub struct CommitteeInputsAdapter;
+impl pallet_participation::CommitteeInputs for CommitteeInputsAdapter {
+    fn beacon_seed() -> [u8; 32] {
+        pallet_beacon::Pallet::<Runtime>::beacon_raw()
+    }
+    fn beacon_committed_keys() -> Vec<([u8; 32], alloc::string::String)> {
+        pallet_beacon::Pallet::<Runtime>::active_committed_keys()
+            .into_iter()
+            .map(|(acc, key)| (acc.into(), key))
+            .collect()
+    }
+    fn entrenchment_halted() -> bool {
+        pallet_reputation::Pallet::<Runtime>::entrenchment_halted()
+    }
+    fn vote_key_owner(hot: &[u8; 32]) -> Option<[u8; 32]> {
+        // Reverse lookup over the (small: delegating members only) VoteKeys map: account → hot key.
+        pallet_reputation::Pallet::<Runtime>::vote_keys()
+            .into_iter()
+            .find(|(_, session)| session == hot)
+            .map(|(account, _)| account.into())
+    }
+}
+
+impl pallet_participation::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    /// SERVICE epoch (fold cadence) — MUST equal pallet-reputation `EpochLength` (the reviewer's spec
+    ///: reputation consumes the ended epoch's service at ITS boundary, same block, before
+    /// this pallet's fold). Reputation measures conduct fast; rewards pay the era slow.
+    #[cfg(feature = "mainnet")]
+    type EpochLength = ConstU32<7200>;
+    #[cfg(not(feature = "mainnet"))]
+    type EpochLength = ConstU32<10>;
+    /// Rewards ERA — MUST equal pallet-tokens `EraLength`: the fold rolls each ended epoch up into
+    /// the era accumulator the reward split reads.
+    #[cfg(feature = "mainnet")]
+    type EraLength = ConstU32<1_317_600>;
+    #[cfg(not(feature = "mainnet"))]
+    type EraLength = ConstU32<10>;
+    /// Max committee cached per epoch (bound); safe headroom over `COMMITTEE_TAU`-scale committees.
+    type MaxCommittee = ConstU32<64>;
+    type Reputation = ReputationAdapter;
+    type Committee = CommitteeInputsAdapter;
+}
+
+/// Adapter (F2 piece 6): reputation consumes the ended service epoch straight from participation's
+/// per-epoch counters — read at reputation's `on_initialize`, which runs BEFORE participation's fold
+/// clears them (pallet index 1 < 12; one block, one truth).
+pub struct ParticipationServiceFeed;
+impl pallet_reputation::ServiceFeed<<Runtime as frame_system::Config>::AccountId>
+    for ParticipationServiceFeed
+{
+    fn epoch_service(
+        epoch: u64,
+    ) -> Vec<(<Runtime as frame_system::Config>::AccountId, u64)> {
+        pallet_participation::Pallet::<Runtime>::service_weights(epoch)
+    }
+}
+
+/// Adapter (P-2/#838): the token emission reward split reads the accumulated per-ERA service straight from
+/// participation's `EraServiceAccumulator` at the era boundary, then clears it. This is the intended
+/// consumer path (participation's doc: "pallet-tokens reads this at ITS era boundary and then calls
+/// clear_era") — the emission source is the non-forgeable author/finality inherent feed, NOT a Root call,
+/// so it mints on a king-less mainnet. tokens runs this in `on_finalize`, AFTER participation's fold in
+/// `on_initialize`, so the era is complete (see pallet-tokens `on_finalize`).
+pub struct ParticipationEraServiceFeed;
+impl pallet_tokens::EraServiceSource<<Runtime as frame_system::Config>::AccountId>
+    for ParticipationEraServiceFeed
+{
+    fn era_service(era: u64) -> Vec<(<Runtime as frame_system::Config>::AccountId, u64)> {
+        pallet_participation::Pallet::<Runtime>::era_service(era)
+    }
+    fn clear_era(era: u64) {
+        pallet_participation::Pallet::<Runtime>::clear_era(era)
+    }
 }
 
 parameter_types! {
@@ -179,6 +617,8 @@ parameter_types! {
     pub const MaxInterested: u32 = 16;
     /// 2/3 supermajority of the DRAWN jury to find guilt (SPEC §4 "supermayoría honesta").
     pub const GuiltThreshold: Permill = Permill::from_percent(67);
+    /// §7-🔴#4: 2/3 of the drawn jury must have VOTED for a close to produce a verdict.
+    pub const VoteQuorum: Permill = Permill::from_percent(67);
     /// Sortition-weight multiplier for a depth-2-related candidate (SPEC §4i-(8); ≈10% per the
     /// Monte-Carlo: holds P(2-hop ring blocks a verdict) under ~1.5% up to an 80-strong loyal ring,
     /// without a hard cut that would shrink the pool / enable pool-poisoning). Tuned pre-mainnet.
@@ -219,18 +659,44 @@ impl pallet_justice::InterestInspect<<Runtime as frame_system::Config>::AccountI
     }
 }
 
-/// Adapter: a guilty verdict's only automated consequence — slash the culprit's standing in the case's
-/// suit (§1.7). Cascade depth 3 (§1.5c). No force beyond this (Art. I).
-pub struct JusticeSlasher;
-impl pallet_justice::SlashOnVerdict<<Runtime as frame_system::Config>::AccountId> for JusticeSlasher {
-    fn on_guilty(culprit: &<Runtime as frame_system::Config>::AccountId, dimension: u8, loss: u128) {
-        let suit = match dimension {
-            0 => pallet_reputation::Suit::Commerce,
-            1 => pallet_reputation::Suit::Technical,
-            2 => pallet_reputation::Suit::Judicial,
-            _ => pallet_reputation::Suit::Governance,
-        };
-        pallet_reputation::Pallet::<Runtime>::slash_for_verdict(culprit, suit, loss, 3);
+/// Adapter: a guilty verdict's only automated consequence — RECTIFY the culprit's record in the case's
+/// suit (Acta J2, Art. IX: strike the proven falsehood, mechanically capped by what the named evidence
+/// is worth; never a discretionary fine). Cascade depth 3 (§1.5c). No force beyond this (Art. I).
+pub struct JusticeRectifier;
+impl pallet_justice::RectifyOnVerdict<<Runtime as frame_system::Config>::AccountId>
+    for JusticeRectifier
+{
+    fn on_guilty(
+        culprit: &<Runtime as frame_system::Config>::AccountId,
+        dimension: u8,
+        loss: u128,
+        evidence_ids: &[u64],
+    ) -> u128 {
+        pallet_reputation::Pallet::<Runtime>::rectify_for_verdict(
+            culprit,
+            suit_of(dimension),
+            evidence_ids,
+            loss,
+            3,
+        )
+    }
+
+    fn owns_evidence(
+        id: u64,
+        who: &<Runtime as frame_system::Config>::AccountId,
+        dimension: u8,
+    ) -> bool {
+        pallet_reputation::Pallet::<Runtime>::owns_evidence(id, who, suit_of(dimension))
+    }
+}
+
+/// Suit index (0..3) → the reputation pallet's `Suit` (out-of-range collapses to Governance).
+fn suit_of(dimension: u8) -> pallet_reputation::Suit {
+    match dimension {
+        0 => pallet_reputation::Suit::Commerce,
+        1 => pallet_reputation::Suit::Technical,
+        2 => pallet_reputation::Suit::Judicial,
+        _ => pallet_reputation::Suit::Governance,
     }
 }
 
@@ -253,13 +719,135 @@ impl pallet_justice::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type Reputation = JusticeReputation;
     type Interest = JusticeInterest;
-    type Slasher = JusticeSlasher;
+    type Rectifier = JusticeRectifier;
+    /// A case may dispute up to 16 evidence records — ample for one proven falsehood, bounded state.
+    type MaxCaseEvidence = ConstU32<16>;
     type Beacon = JusticeBeacon;
     type JurySize = JurySize;
     type MaxJury = MaxJury;
     type MaxInterested = MaxInterested;
     type Depth2WeightPermille = Depth2WeightPermille;
     type GuiltThreshold = GuiltThreshold;
+    /// §7-🔴#4: a case stays open ≥ ~1 day wall-clock (MAINNET 7200 blocks @12s — D1 12s
+    /// re-derivation). TESTNET = 5 so a devnet exercises the window fast. Extended window (lapse) = 2×.
+    #[cfg(feature = "mainnet")]
+    type VotingWindow = ConstU32<7200>;
+    #[cfg(not(feature = "mainnet"))]
+    type VotingWindow = ConstU32<5>;
+    /// 2/3 of the drawn jury must have voted for a close to carry a verdict.
+    type VoteQuorum = VoteQuorum;
+}
+
+// ═══ Multisig-upgrade (SPEC-RELAUNCH §3, 🔴#3): the bridge governance the v1 lacked ═══
+
+/// FLAG-1: composes the SEALED invariant values from their real sources — manifesto pallet storage,
+/// the token curves' cap constants, the reputation guard's hard constants — so a candidate upgrade's
+/// declaration is checked against the chain's actual truth, not against a copy that could drift.
+pub struct SealedInvariantsSource;
+impl pallet_multisig_upgrade::SealedInvariants for SealedInvariantsSource {
+    fn current() -> Option<pallet_multisig_upgrade::InvariantDeclaration> {
+        // FAIL CLOSED: no sealed manifesto → no sealed truth → no upgrades. Never a zero placeholder
+        // an attacker could simply declare (review).
+        let manifesto_hash = pallet_manifesto::Pallet::<Runtime>::manifesto_hash()?;
+        Some(pallet_multisig_upgrade::InvariantDeclaration {
+            manifesto_hash,
+            cap_hlq: HlqCurve::get().cap,
+            cap_sov: SovCurve::get().cap,
+            entrenchment_threshold_fp: pallet_reputation::pallet::ENTRENCHMENT_THRESHOLD_FP,
+            entrenchment_required_epochs: pallet_reputation::pallet::ENTRENCHMENT_REQUIRED_EPOCHS,
+            preserves_validator: true,
+        })
+    }
+}
+
+/// Committee-grade electorate size for renewals: matches the node's finality committee τ
+/// (finality.rs COMMITTEE_TAU) under the same feature flag — the ratifying set is committee-SIZED.
+#[cfg(feature = "mainnet")]
+const RENEWAL_ELECTORATE_TAU: usize = 60;
+#[cfg(not(feature = "mainnet"))]
+const RENEWAL_ELECTORATE_TAU: usize = 4;
+
+/// The finality-grade co-signing set for key renewals (SPEC §3 "co-firma del comité vigente").
+/// v1 = the TOP-τ reputable accounts holding a committed beacon key this epoch: committee-grade
+/// standing, committee-sized (bounded denominator — a mask farm cannot inflate the electorate to
+/// make the majority unreachable and grief renewals: review; displacing a member of this
+/// set costs REAL reputation above theirs). When F2 piece (6) extracts the node's
+/// `elect_finality_committee` into a pure on-chain function, this adapter swaps to the exact drawn
+/// committee — single-source. Empty (halt / nobody committed) feeds the disaster metric.
+pub struct RenewalCommittee;
+impl pallet_multisig_upgrade::CommitteeInspect<<Runtime as frame_system::Config>::AccountId>
+    for RenewalCommittee
+{
+    fn committee() -> alloc::vec::Vec<<Runtime as frame_system::Config>::AccountId> {
+        if pallet_reputation::Pallet::<Runtime>::entrenchment_halted() {
+            // Under an entrenchment halt the chain seats no committee — renewals cannot be ratified
+            // (and the committee-less epochs count toward the disaster path, which needs no committee).
+            return alloc::vec::Vec::new();
+        }
+        let mut eligible: alloc::vec::Vec<_> =
+            pallet_reputation::Pallet::<Runtime>::consensus_reputation()
+                .into_iter()
+                .filter(|(acc, rep)| {
+                    *rep > 0 && pallet_beacon::Pallet::<Runtime>::committed_key(acc).is_some()
+                })
+                .collect();
+        // Highest standing first; ties broken by account id (deterministic across nodes).
+        eligible.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+        eligible.truncate(RENEWAL_ELECTORATE_TAU);
+        eligible.into_iter().map(|(acc, _)| acc).collect()
+    }
+}
+
+/// Standing source for seat cession: the same consensus reputation the committee weighs, against the
+/// network's own p25 bar (the attest floor) — one bar for "high standing", no new discretion.
+pub struct CessionStanding;
+impl pallet_multisig_upgrade::StandingInspect<<Runtime as frame_system::Config>::AccountId>
+    for CessionStanding
+{
+    fn standing_of(who: &<Runtime as frame_system::Config>::AccountId) -> i128 {
+        pallet_reputation::Pallet::<Runtime>::consensus_reputation_of(who)
+    }
+    fn high_floor() -> i128 {
+        pallet_reputation::Pallet::<Runtime>::attest_floor()
+    }
+}
+
+/// The one verb: `frame_system::set_code` as Root — which itself re-checks spec_name and the version
+/// bump on the candidate blob before scheduling the swap.
+pub struct RootSetCode;
+impl pallet_multisig_upgrade::SetCode for RootSetCode {
+    fn set_code(code: alloc::vec::Vec<u8>) -> frame::prelude::DispatchResult {
+        frame_system::Pallet::<Runtime>::set_code(frame_system::RawOrigin::Root.into(), code)
+            .map(|_| ())
+            .map_err(|e| e.error)
+    }
+}
+
+impl pallet_multisig_upgrade::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type Sealed = SealedInvariantsSource;
+    type Committee = RenewalCommittee;
+    type Standing = CessionStanding;
+    type CodeSetter = RootSetCode;
+    /// DECIDED (the maintainer): initial life 12 MONTHS. MAINNET: 365.25 days × 7200
+    /// blocks/day @12s = 2_629_800 blocks (D1 12s re-derivation applied). TESTNET: 200 so a devnet
+    /// exercises expiry+renewal fast.
+    #[cfg(feature = "mainnet")]
+    type InitialLife = ConstU32<2_629_800>;
+    #[cfg(not(feature = "mainnet"))]
+    type InitialLife = ConstU32<200>;
+    /// Objection window: 7 days @12s = 50_400 blocks (D1 12s re-derivation). TESTNET: 5.
+    #[cfg(feature = "mainnet")]
+    type ObjectionWindow = ConstU32<50_400>;
+    #[cfg(not(feature = "mainnet"))]
+    type ObjectionWindow = ConstU32<5>;
+    /// Same epoch clock as the reputation pallet — one cadence, no drift.
+    #[cfg(feature = "mainnet")]
+    type EpochLength = ConstU32<7200>;
+    #[cfg(not(feature = "mainnet"))]
+    type EpochLength = ConstU32<10>;
+    /// R2 (PARÁMETRO): 14 committee-less epochs ≈ two weeks at a daily epoch enable disaster renewal.
+    type DisasterEpochs = ConstU32<14>;
 }
 
 parameter_types! {
@@ -273,7 +861,7 @@ impl pallet_beacon::Config for Runtime {
     /// MUST match the reputation epoch so the beacon roll aligns with the recompute (active committed
     /// keys and the reputation snapshot belong to the same epoch). Selected by the `mainnet` feature.
     #[cfg(feature = "mainnet")]
-    type EpochLength = ConstU32<14400>;
+    type EpochLength = ConstU32<7200>;
     #[cfg(not(feature = "mainnet"))]
     type EpochLength = ConstU32<10>;
 }
@@ -316,20 +904,44 @@ mod genesis_config_presets {
                 .map(|f| alloc::format!("[\"{f}\",1000000000000000000]"))
                 .collect::<Vec<_>>()
                 .join(",");
-            let sudo_key = founders[0]; // Alice
+            // Sudo exists only in dev/testnet builds — the mainnet runtime has no such pallet, so
+            // its genesis JSON must not (and cannot) carry a "sudo" section.
+            #[cfg(not(feature = "mainnet"))]
+            let sudo_part = {
+                let sudo_key = founders[0]; // Alice
+                alloc::format!("\"sudo\":{{\"key\":\"{sudo_key}\"}},")
+            };
+            #[cfg(feature = "mainnet")]
+            let sudo_part = alloc::string::String::new();
 
             // --- Manifesto sealed into block 0 (Art. XII). Placeholder until the freeze. ---
             let text: &[u8] = b"HARLEQUIN -- founding manifesto placeholder. The final constitution is \
 sealed into genesis at the freeze, after the adversarial audit (Art. XII, Permanence).";
             let bytes = text.iter().map(|b| alloc::format!("{b}")).collect::<Vec<_>>().join(",");
 
+            // Dev-only HLQ float so fee-paying extrinsics are exercisable (fees are charged in HLQ via
+            // HlqTxPayment — SPEC-RELAUNCH §2). The real genesis has NO such float: citizens bootstrap
+            // through the feeless lane and earn HLQ by service.
+            let hlq = founders
+                .iter()
+                .map(|f| alloc::format!("[\"{f}\",1000000000000,0]"))
+                .collect::<Vec<_>>()
+                .join(",");
+            // Multisig-upgrade bridge (§3): the first FIVE dev accounts hold the seats (the pallet's
+            // genesis asserts exactly 5 — the thresholds' arithmetic is sealed to 5).
+            let seats = founders[..5]
+                .iter()
+                .map(|f| alloc::format!("\"{f}\""))
+                .collect::<Vec<_>>()
+                .join(",");
             let json = alloc::format!(
-                "{{\"balances\":{{\"balances\":[{bal}]}},\"sudo\":{{\"key\":\"{sudo_key}\"}},\
-\"reputation\":{{\"evidence\":[{evidence}]}},\"manifesto\":{{\"text\":[{bytes}]}}}}"
+                "{{\"balances\":{{\"balances\":[{bal}]}},{sudo_part}\
+\"reputation\":{{\"evidence\":[{evidence}]}},\"manifesto\":{{\"text\":[{bytes}]}},\
+\"tokens\":{{\"balances\":[{hlq}]}},\"multisigUpgrade\":{{\"signers\":[{seats}]}}}}"
             );
             Some(json.into_bytes())
         } else if id == "launch" {
-            // --- LAUNCH cold-start shape (§1.4b): the 5 founders, NO sudo, NO pre-funded
+            // --- LAUNCH cold-start shape (§1.4b "5 y punto"): the 5 founders, NO sudo, NO pre-funded
             // balances, and only a SMALL declared evidence seed (10, vs the dev preset's 1000) in each
             // suit — just enough that reputation is non-zero at block 0 so a committee can form (no
             // genesis halt), while staying the validated 5×~0.20 share the entrenchment guard was checked
@@ -361,8 +973,16 @@ sealed into genesis at the freeze, after the adversarial audit (Art. XII, Perman
 sealed into genesis at the freeze, after the adversarial audit (Art. XII, Permanence).";
             let bytes = text.iter().map(|b| alloc::format!("{b}")).collect::<Vec<_>>().join(",");
 
+            // Multisig-upgrade bridge (§3): the 5 founders hold the seats — 3-of-5 for set_code only,
+            // hard 12-month expiry, renewal by halving + committee ratification. No other power.
+            let seats = founders
+                .iter()
+                .map(|f| alloc::format!("\"{f}\""))
+                .collect::<Vec<_>>()
+                .join(",");
             let json = alloc::format!(
-                "{{\"reputation\":{{\"evidence\":[{evidence}]}},\"manifesto\":{{\"text\":[{bytes}]}}}}"
+                "{{\"reputation\":{{\"evidence\":[{evidence}]}},\"manifesto\":{{\"text\":[{bytes}]}},\
+\"multisigUpgrade\":{{\"signers\":[{seats}]}}}}"
             );
             Some(json.into_bytes())
         } else {
@@ -488,6 +1108,37 @@ impl_runtime_apis! {
                 .into_iter()
                 .map(|(acc, key)| (acc.into(), key))
                 .collect()
+        }
+
+        fn vote_keys() -> Vec<([u8; 32], [u8; 32])> {
+            pallet_reputation::Pallet::<Runtime>::vote_keys()
+                .into_iter()
+                .map(|(acc, session)| (acc.into(), session))
+                .collect()
+        }
+
+        fn entrenchment_halted() -> bool {
+            pallet_reputation::Pallet::<Runtime>::entrenchment_halted()
+        }
+
+        fn entrenchment_recovery_for(height: u32) -> Option<u32> {
+            pallet_reputation::Pallet::<Runtime>::entrenchment_recovery_for(height.into())
+                .map(|h| h.saturated_into::<u32>())
+        }
+
+        fn participation_cursor() -> u64 {
+            pallet_participation::LastCreditedHeight::<Runtime>::get()
+        }
+    }
+
+    impl harlequin_tokens_api::TokensApi<Block> for Runtime {
+        fn balance_of(account: [u8; 32], coin: u8) -> u128 {
+            let coin = match coin {
+                harlequin_tokens_api::COIN_HLQ => pallet_tokens::Coin::Hlq,
+                harlequin_tokens_api::COIN_SOV => pallet_tokens::Coin::Sov,
+                _ => return 0,
+            };
+            pallet_tokens::Pallet::<Runtime>::balance(&account.into(), coin)
         }
     }
 

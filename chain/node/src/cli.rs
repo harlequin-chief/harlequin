@@ -55,8 +55,15 @@ pub struct Cli {
 
     /// Sign Woven-Trust finality votes as this account (sr25519 secret URI, e.g. `//Alice`). The signer
     /// must be a member of the elected committee for its vote to count. Omit on observer/non-voting nodes.
-    #[clap(long)]
+    /// On real nodes prefer `--vote-as-file` so the secret never lands in argv (`ps` / `/proc/cmdline`).
+    #[clap(long, conflicts_with = "vote_as_file")]
     pub vote_as: Option<String>,
+
+    /// Like `--vote-as`, but reads the sr25519 secret URI from a file (keep it `0600`) instead of the
+    /// command line, so the hot session secret never appears in the process arguments. The file's whole
+    /// contents are trimmed and used as the secret URI.
+    #[clap(long)]
+    pub vote_as_file: Option<String>,
 
     #[clap(flatten)]
     pub run: RunCmd,
