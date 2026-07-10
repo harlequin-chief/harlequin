@@ -338,6 +338,9 @@ pub mod pallet {
         ForeignEvidence,
         /// Too many evidence records named in one case.
         TooManyEvidenceRefs,
+        /// The suit index is out of range (must be 0..=3 — the four suits). #853 (audit):
+        /// an unchecked `dimension` used to silently collapse to Governance in `suit_of`.
+        BadDimension,
     }
 
     #[pallet::call]
@@ -541,6 +544,9 @@ pub mod pallet {
             extra_interested: Vec<T::AccountId>,
             incapacity: bool,
         ) -> DispatchResult {
+            // #853 (audit): reject an out-of-range suit index at the door instead of letting
+            // `suit_of` silently fold it into Governance. The four suits are 0..=3 (♦♣♠♥).
+            ensure!(dimension < 4, Error::<T>::BadDimension);
             ensure!(plaintiff != defendant, Error::<T>::SelfCase);
 
             // (Acta J2, the reviewer's review pt. 2) Validate the disputed evidence AT THE DOOR: every named

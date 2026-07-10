@@ -38,7 +38,7 @@ pub use reputation_core::FP_SCALE;
 /// verified inherents). Consumed by `run_epoch` at the SAME cadence as everything else reputation does —
 /// service becomes objective EVIDENCE (suit Technical) epoch by epoch, so a new node earns standing in
 /// DAYS. This is the cold-start pump: the first evidence in a rep-zero genesis comes from running nodes,
-/// not from anyone's attestation. The runtime wires it to pallet-participation; `` = no feed (tests).
+/// not from anyone's attestation. The runtime wires it to pallet-participation; `()` = no feed (tests).
 pub trait ServiceFeed<AccountId> {
     fn epoch_service(epoch: u64) -> alloc::vec::Vec<(AccountId, u64)>;
 }
@@ -195,7 +195,7 @@ pub mod pallet {
         type AttestStakeMultiplier: Get<u32>;
 
         /// (F2 piece 6) The measured-service feed — the runtime wires it to pallet-participation's
-        /// per-epoch counters; `` disables it (unit tests).
+        /// per-epoch counters; `()` disables it (unit tests).
         type ServiceFeed: super::ServiceFeed<Self::AccountId>;
 
         /// (F2 piece 6) Evidence units credited per unit of measured service (PARÁMETRO — reviewed
@@ -807,11 +807,20 @@ pub mod pallet {
         /// [`consensus_reputation`](Self::consensus_reputation) computes for the full set (single
         /// definition via [`CONSENSUS_LAMBDA_FP`]), at 4 storage reads. Used by the 🔴#5 attester floor.
         pub fn consensus_reputation_of(who: &T::AccountId) -> i128 {
+            reputation_core::concave_aggregate_fp(&Self::suits_snapshot_of(who), CONSENSUS_LAMBDA_FP)
+        }
+
+        /// One account's four-suit snapshot vector, raw fixed-point, canonical `Suit::ALL` order
+        /// [♦ commerce, ♣ technical, ♠ judicial, ♥ governance]. The single definition every reader
+        /// shares: [`consensus_reputation_of`](Self::consensus_reputation_of) aggregates over it and
+        /// the `ReputationApi` runtime API exposes it to the panel backend (the mediated read contract).
+        /// An account never seen reads as `[0; 4]` (the snapshot is `ValueQuery`).
+        pub fn suits_snapshot_of(who: &T::AccountId) -> [i128; 4] {
             let mut suits = [0i128; 4];
             for (i, suit) in Suit::ALL.iter().enumerate() {
                 suits[i] = ReputationSnapshot::<T>::get(who, *suit);
             }
-            reputation_core::concave_aggregate_fp(&suits, CONSENSUS_LAMBDA_FP)
+            suits
         }
 
         /// Live-vouch quota of `who` (§1.5c): `floor(k · log2(1 + reputation))`, where reputation is the
@@ -946,7 +955,7 @@ pub mod pallet {
             use alloc::string::ToString;
             // v1 keys reps by positional index — fine because labels are empty, so the share is key-agnostic
             // (`max_i r_i / Σ r_j` doesn't depend on the ids). #754 (cluster anti-split) MUST re-key BOTH this
-            // map AND the labels map by the REAL account (SCALE-hex of `_acc`) so `communities` can join
+            // map AND the labels map by the REAL account (SCALE-hex of `_acc`) so `communities()` can join
             // account → cluster; that rewrite lives with #754, not here. Negatives are safe: the share fns
             // filter `r > 0` on numerator AND denominator, so slashed/decayed reps can't shrink Σ or inflate.
             let reps: alloc::collections::BTreeMap<alloc::string::String, i128> = consensus_reps
@@ -1373,7 +1382,7 @@ mod tests {
     use crate as pallet_reputation;
     use crate::{
         Epoch, EntrenchmentBands, EntrenchmentCounter, EntrenchmentHalted, Error, Evidence, LastReport,
-        ReputationSnapshot, Suit, VoteKeys, ENTRENCHMENT_REQUIRED_EPOCHS,
+        ReputationSnapshot, Suit, VoteKeys, CONSENSUS_LAMBDA_FP, ENTRENCHMENT_REQUIRED_EPOCHS,
     };
     use frame::testing_prelude::*;
 
@@ -1446,6 +1455,28 @@ mod tests {
             assert!(ReputationSnapshot::<Test>::get(2u64, Suit::Commerce) > 0);
             // an account that contributed nothing has zero standing (reputation is EARNED)
             assert_eq!(ReputationSnapshot::<Test>::get(99u64, Suit::Commerce), 0);
+        });
+    }
+
+    #[test]
+    fn suits_snapshot_vector_matches_storage_and_aggregate() {
+        new_test_ext().execute_with(|| {
+            // evidence in two suits only — the vector must mirror storage suit-by-suit, in ALL order
+            assert_ok!(Reputation::submit_evidence(RuntimeOrigin::root(), 1u64, Suit::Commerce, 5));
+            assert_ok!(Reputation::submit_evidence(RuntimeOrigin::root(), 1u64, Suit::Judicial, 5));
+            Reputation::run_epoch();
+            let v = Reputation::suits_snapshot_of(&1u64);
+            for (i, suit) in Suit::ALL.iter().enumerate() {
+                assert_eq!(v[i], ReputationSnapshot::<Test>::get(1u64, *suit));
+            }
+            assert!(v[0] > 0 && v[2] > 0, "earned suits positive: {v:?}");
+            // the aggregate reads THE SAME vector (single definition, §1.2c)
+            assert_eq!(
+                Reputation::consensus_reputation_of(&1u64),
+                reputation_core::concave_aggregate_fp(&v, CONSENSUS_LAMBDA_FP)
+            );
+            // an account never seen reads as all-zeros, not an error
+            assert_eq!(Reputation::suits_snapshot_of(&99u64), [0i128; 4]);
         });
     }
 
@@ -2109,7 +2140,7 @@ mod tests {
 
     // ───────────────────────── §1.4b entrenchment-guard WIRING ─────────────────────────
     // reputation-core already unit-tests the guard MATH; these prove the guard is actually CONNECTED to the
-    // live epoch pipeline: fed by consensus_reputation (the same values the committee is weighted on),
+    // live epoch pipeline: fed by consensus_reputation() (the same values the committee is weighted on),
     // stepping the on-chain counter, and flipping the halt flag node/finality.rs reads.
 
     #[test]

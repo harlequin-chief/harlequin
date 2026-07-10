@@ -239,7 +239,28 @@ pub fn elect_finality_committee(
     let mut rep_by_id: BTreeMap<String, i128> = BTreeMap::new();
     let mut keys: BTreeMap<String, String> = BTreeMap::new();
     let seed;
-    if committed_keys.is_empty() {
+    // BEACON-EMPTY-COMMITTEE GUARD (audit C2). The beacon path seats ONLY accounts that
+    // committed a key this epoch. Since `commit`/`reveal` are feeless and need no reputation, a single
+    // account (even reputation 0) flipping the GLOBAL mode to beacon could shrink the eligible set to
+    // nothing → empty committee → finality frozen network-wide, for free, indefinitely. So beacon mode
+    // engages ONLY once enough *reputable* accounts have committed keys to seat a viable committee
+    // (>= min(4, total reputable)); below that the network stays on the fallback (full reputable set),
+    // exactly as it did before any commit. Anti-grinding is preserved once genuine members opt in; a
+    // lone committer can no longer halt the chain.
+    let total_reputable = reputation.iter().filter(|(_, r)| *r > 0).count() as u32;
+    let want = core::cmp::min(4, total_reputable);
+    let use_beacon = if committed_keys.is_empty() || want == 0 {
+        false
+    } else {
+        let kmap: BTreeMap<[u8; 32], &String> =
+            committed_keys.iter().map(|(a, k)| (*a, k)).collect();
+        let committed_reputable = reputation
+            .iter()
+            .filter(|(acc, r)| *r > 0 && kmap.contains_key(acc))
+            .count() as u32;
+        committed_reputable >= want
+    };
+    if !use_beacon {
         for (acc, rep) in reputation {
             let id = hex(acc);
             keys.insert(id.clone(), format!("sk-{id}"));
@@ -343,13 +364,65 @@ mod finality_committee_tests {
     }
 
     #[test]
-    fn beacon_path_only_committed_accounts_are_eligible() {
-        // §2.1: with the beacon populated, an account WITHOUT a committed key is simply not drawn.
+    fn too_few_committers_fall_back_instead_of_starving() {
+        // §2.1 + AUDIT C2 (): the naive beacon rule seated ONLY committers, so 1 committer of
+        // 2 reputable accounts formed a lone committee of {acc1} — a single account controlling finality
+        // (and a zero-rep committer could empty it entirely). The guard now defers the beacon until at
+        // least min(4, reputable) reputable accounts commit; below that it stays on the fallback (full
+        // reputable set), so acc2 is still eligible and no lone committer captures finality.
         let reputation = alloc::vec![(acc(1), 100i128), (acc(2), 100)];
         let committed = alloc::vec![(acc(1), "committed-secret-1".to_string())];
         let got = elect_finality_committee(&reputation, &committed, &[9u8; 32], 3, 8, "hlq-finality-committee", false);
-        assert!(!got.contains(&acc(2)), "no committed key → not eligible");
-        assert!(got.contains(&acc(1)), "the only committed reputable account takes the seats");
+        assert!(!got.is_empty(), "fallback seats the reputable set rather than starving");
+        // 1 committer < floor of 2 → beacon deferred → both reputable accounts remain eligible.
+    }
+
+    #[test]
+    fn lone_zero_rep_committer_cannot_empty_the_committee() {
+        // AUDIT C2 (): a single account with reputation 0 (commit/reveal are feeless) must
+        // NOT be able to flip the global mode to beacon and starve the committee to empty — that would
+        // freeze finality network-wide for free. With reputable founders present but not yet committed,
+        // the network stays on the fallback path and seats them.
+        let reputation = alloc::vec![
+            (acc(1), 100i128),
+            (acc(2), 100),
+            (acc(3), 100),
+            (acc(4), 100),
+            (acc(5), 100),
+        ];
+        let attacker = alloc::vec![(acc(9), "evil-committed-key".to_string())];
+        let got =
+            elect_finality_committee(&reputation, &attacker, &[7u8; 32], 4, 4, "hlq-finality-committee", false);
+        assert!(!got.is_empty(), "a lone zero-rep committer must not empty the committee");
+        assert!(!got.contains(&acc(9)), "the zero-rep attacker is never seated");
+        assert!(
+            got.iter().all(|a| reputation.iter().any(|(r, _)| r == a)),
+            "committee is drawn from the reputable founders (fallback), not the attacker's key"
+        );
+    }
+
+    #[test]
+    fn beacon_engages_once_enough_reputable_accounts_commit() {
+        // The guard only defers the beacon while too few reputable accounts have committed. Once >= the
+        // floor (min(4, reputable)) commit, beacon mode engages and non-committers drop out — anti-grinding
+        // is preserved, only the zero-cost-halt is closed.
+        let reputation = alloc::vec![
+            (acc(1), 100i128),
+            (acc(2), 100),
+            (acc(3), 100),
+            (acc(4), 100),
+            (acc(5), 100),
+        ];
+        let committed = alloc::vec![
+            (acc(1), "k1".to_string()),
+            (acc(2), "k2".to_string()),
+            (acc(3), "k3".to_string()),
+            (acc(4), "k4".to_string()),
+        ];
+        let got =
+            elect_finality_committee(&reputation, &committed, &[7u8; 32], 4, 8, "hlq-finality-committee", false);
+        assert!(!got.contains(&acc(5)), "acc(5) did not commit → not eligible in beacon mode");
+        assert!(!got.is_empty(), "beacon mode still seats the committed reputable accounts");
     }
 
     #[test]

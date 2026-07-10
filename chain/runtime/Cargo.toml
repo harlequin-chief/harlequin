@@ -21,6 +21,7 @@ pallet-market = { path = "../pallet-market", default-features = false }
 pallet-manifesto = { path = "../pallet-manifesto", default-features = false }
 harlequin-consensus-api = { path = "../consensus-api", default-features = false }
 harlequin-tokens-api = { path = "../tokens-api", default-features = false }
+harlequin-reputation-api = { path = "../reputation-api", default-features = false }
 pallet-timestamp = { version = "47.0.0", default-features = false }
 pallet-balances = { version = "49.0.0", default-features = false }
 pallet-sudo = { version = "48.0.0", default-features = false }
@@ -37,7 +38,7 @@ default = ["std"]
 mainnet = ["pallet-participation/mainnet"]
 std = [
 	"codec/std", "scale-info/std", "frame/std", "frame-system/std", "pallet-reputation/std",
-	"pallet-justice/std", "pallet-beacon/std", "pallet-multisig-upgrade/std", "pallet-tokens/std", "pallet-participation/std", "pallet-directory/std", "pallet-forum/std", "pallet-market/std", "pallet-manifesto/std", "harlequin-consensus-api/std", "harlequin-tokens-api/std",
+	"pallet-justice/std", "pallet-beacon/std", "pallet-multisig-upgrade/std", "pallet-tokens/std", "pallet-participation/std", "pallet-directory/std", "pallet-forum/std", "pallet-market/std", "pallet-manifesto/std", "harlequin-consensus-api/std", "harlequin-tokens-api/std", "harlequin-reputation-api/std",
 	"pallet-timestamp/std", "pallet-balances/std", "pallet-sudo/std",
 	"pallet-transaction-payment/std", "pallet-transaction-payment-rpc-runtime-api/std",
 	"substrate-wasm-builder",

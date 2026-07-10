@@ -1,0 +1,20 @@
+[package]
+name = "harlequin-reputation-api"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+description = "Runtime API that exposes per-account reputation (the four-suit vector and the consensus aggregate) to the node, so the panel and operator console read standing off real chain state instead of guessing."
+
+[dependencies]
+# Unversioned → cargo unifies to the polkadot-sdk umbrella version already locked by the runtime/node.
+sp-api = { version = "*", default-features = false }
+codec = { version = "3.7.5", package = "parity-scale-codec", default-features = false, features = ["derive"] }
+scale-info = { version = "2.11.6", default-features = false, features = ["derive"] }
+
+[features]
+default = ["std"]
+std = ["sp-api/std", "codec/std", "scale-info/std"]
+
+[lib]
+name = "harlequin_reputation_api"
+path = "src/lib.rs"

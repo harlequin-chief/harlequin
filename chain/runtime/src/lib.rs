@@ -143,7 +143,7 @@ impl frame_system::Config for Runtime {
     /// signing. 2400 blocks = 8 h.
     type BlockHashCount = ConstU32<2400>;
     /// B1 (v3.1 — the one line the v3 build missed, caught by the reviewer's const-dump): the prelude's
-    /// `` made every storage read/write weigh ZERO, so `CheckWeight` under-counted DB-heavy calls
+    /// `()` made every storage read/write weigh ZERO, so `CheckWeight` under-counted DB-heavy calls
     /// (a "many cheap storage ops" DoS lane inside the 5 MB length cap). Real RocksDB constants.
     type DbWeight = frame::deps::frame_support::weights::constants::RocksDbWeight;
     /// Harlequin's own SS58 address prefix (the maintainer): **1728 = 12³** — the "great gross", the
@@ -350,7 +350,7 @@ impl pallet_transaction_payment::Config for Runtime {
         frame::deps::frame_support::weights::ConstantMultiplier<u64, WeightFeePlanctonPerRefTime>;
     type LengthToFee =
         frame::deps::frame_support::weights::ConstantMultiplier<u64, LengthFeePlanctonPerByte>;
-    /// Substrate convention (H2 audit): operational-class extrinsics pay 5× — the prelude's ``
+    /// Substrate convention (H2 audit): operational-class extrinsics pay 5× — the prelude's `()`
     /// meant 0×. No operational calls exist today; pinned for hygiene.
     type OperationalFeeMultiplier = ConstU8<5>;
 }
@@ -1139,6 +1139,16 @@ impl_runtime_apis! {
                 _ => return 0,
             };
             pallet_tokens::Pallet::<Runtime>::balance(&account.into(), coin)
+        }
+    }
+
+    impl harlequin_reputation_api::ReputationApi<Block> for Runtime {
+        fn suits_of(account: [u8; 32]) -> [i128; 4] {
+            pallet_reputation::Pallet::<Runtime>::suits_snapshot_of(&account.into())
+        }
+
+        fn standing_of(account: [u8; 32]) -> i128 {
+            pallet_reputation::Pallet::<Runtime>::consensus_reputation_of(&account.into())
         }
     }
 

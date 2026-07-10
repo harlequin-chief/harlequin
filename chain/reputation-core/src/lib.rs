@@ -1515,7 +1515,7 @@ mod tests {
             for s in suits { v.insert(s.to_string(), solo_per[s]["solo"]); }
             conservative_aggregate(&v, true)
         };
-        // Measured: solo=0.00, ring colluder≈6.92, balanced honest≈270.62.
+        // Measured (): solo=0.00, ring colluder≈6.92, balanced honest≈270.62.
         assert!(solo_min < 1.0, "a single-suit specialist with no ring must have min ~0, was {solo_min}");
         // The ring DOES leak a sliver of min into the covered suits (the coverage attack is not fully zeroed)
         // — documented residual. But the anti-collusion damping (community + independence) crushes it to
