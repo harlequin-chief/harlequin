@@ -1738,11 +1738,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "harlequin-reputation-api"
+version = "0.1.0"
+dependencies = [
+ "parity-scale-codec",
+ "scale-info",
+ "sp-api",
+]
+
+[[package]]
 name = "harlequin-runtime"
 version = "0.1.0"
 dependencies = [
  "frame-system",
  "harlequin-consensus-api",
+ "harlequin-reputation-api",
  "harlequin-tokens-api",
  "pallet-balances",
  "pallet-beacon",

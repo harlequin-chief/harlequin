@@ -57,7 +57,7 @@ pub const PROTOCOL_NAME: &str = "/harlequin/snowball-finality/1";
 pub const ENGINE_ID: sp_runtime::ConsensusEngineId = *b"WTC1";
 
 // --- Production cadence (#30, network-modelled) vs fast testnet values. Selected by the
-// --- `mainnet` cargo feature. Mainnet: β=12, STEP=10 (≈60s), τ=60, epoch=600 (≈1h committee rotation).
+// --- `mainnet` cargo feature. Mainnet: β=12, STEP=15 (≈180s at 12s/block), τ=60, epoch=300 (≈1h committee rotation at 12s). (audit #12: comment re-synced to code + D1 12s.)
 /// Confirmations before a height is irreversible. β=12 in production (`PARAMETERS.md` ♥ "the twelve":
 /// `Q1^12` is astronomically safe); a small fast value on testnet.
 #[cfg(feature = "mainnet")]
@@ -67,8 +67,8 @@ const FINALITY_BETA: u32 = 4;
 /// How far ahead of the last finalised block the worker aims each finalisation. Finalising a block
 /// finalises ALL its ancestors, so targeting `finalized + STEP` finalises a whole range at once — keeping
 /// finality from lagging block production unboundedly. Must be ≥ the blocks produced during one
-/// finalisation (~`beta`). Production = 10 blocks (≈60s at 6s/block, a clean 1-minute cadence; lag bounded
-/// to ~`STEP`+`beta`, time-to-finality ~1–2 min).
+/// finalisation (~`beta`). Production = 15 blocks (≈180s at 12s/block, D1 12s re-derivation; lag bounded
+/// to ~`STEP`+`beta`, time-to-finality a few minutes).
 // Production STEP=15: with single-leader authoring (1 block / 6s ≈ 10/min) a finalisation takes
 // ~beta·round ≈ 72s, during which ~12 blocks are produced — so STEP must exceed 12 to keep finality
 // AHEAD of production (15 → ~12.5/min finalised > ~10/min produced). The gap then stabilises ~STEP
@@ -435,7 +435,7 @@ async fn run_worker(
                             // Aim the next chunk: STEP past the new finalised tip (which is now `height`,
                             // since finalising it finalised every ancestor). Keeps finality near the head.
                             height = client.info().finalized_number + FINALITY_STEP;
-                            // I1 fix: refresh the committee/vote-key view for the NEW height
+                            // I1 fix (): refresh the committee/vote-key view for the NEW height
                             // IMMEDIATELY on advance, so the vote-receive branch below validates incoming
                             // votes against the correct committee even before the next timer tick. This
                             // closes the epoch-boundary window where the receive path would otherwise admit
@@ -461,7 +461,7 @@ async fn run_worker(
                 }
             }
 
-            // `.next` (not `select_next_some`): if the gossip receiver terminates (the engine's
+            // `.next()` (not `select_next_some()`): if the gossip receiver terminates (the engine's
             // notification stream closed — a startup race on constrained hardware), `select_next_some`
             // would panic the whole node ("SelectNextSome polled after terminated"). Handle `None`
             // gracefully by re-subscribing so the worker survives instead of crashing.
@@ -557,7 +557,7 @@ fn committee_for_height(client: &Arc<FullClient>, height: u32, at: Hash) -> BTre
     // extraction of the draw that used to be inline here): entrenchment halt → empty committee
     // (finality freezes, self-heals via `epoch_pinned_at`); beacon populated → §2.1 anti-grinding
     // draw off committed keys; else the genesis/bootstrap fallback draw.
-    // I1 hygiene: a runtime-API error here used to default SILENTLY. A silent empty
+    // I1 hygiene (): a runtime-API error here used to default SILENTLY. A silent empty
     // `consensus_reputation` collapses the draw to an EMPTY committee (finality stalls with no trace); a
     // silent default on the others skews the draw. None should ever be invisible — log and let the caller
     // see the degraded input (empty committee ⇒ the tick simply waits, never finalises on a guess).
@@ -647,7 +647,7 @@ fn encode_proof(height: u64, hash: &[u8; 32], votes: &BTreeMap<[u8; 32], Vote>) 
 
 /// Verify a finality proof: the block at `(number, hash)` was finalised by **≥alpha distinct elected
 /// committee members**, each signing `height||hash` with their sr25519 account key. `committee` is the
-/// elected finality committee at that height. `Ok` iff the proof is sound — the SAME `k/alpha` wall
+/// elected finality committee at that height. `Ok(())` iff the proof is sound — the SAME `k/alpha` wall
 /// (0.70 quorum) the worker uses, so a proof that passes here is exactly one the committee could produce.
 fn verify_proof(
     hash: &[u8; 32],
@@ -1029,7 +1029,7 @@ async fn run_proof_worker(
                 }
             }
 
-            // `.next` (not `select_next_some`): survive gossip-receiver termination instead of
+            // `.next()` (not `select_next_some()`): survive gossip-receiver termination instead of
             // panicking the node (see the vote worker for the full rationale).
             maybe_notification = proofs_rx.next() => {
                 let notification = match maybe_notification {
@@ -1075,7 +1075,7 @@ fn try_apply_proof(
     match client.hash(height as u32) {
         Ok(Some(local)) if local.0 == *hash => {}
         Ok(Some(local)) => {
-            // I1: a silent early-return here wedged n2 invisibly. A hash divergence at a
+            // I1 (): a silent early-return here wedged n2 invisibly. A hash divergence at a
             // finalised height is a real fork signal — never swallow it.
             log::warn!(
                 target: "woven-trust",
@@ -1098,7 +1098,7 @@ fn try_apply_proof(
     let committee = committee_for_height(client, height as u32, at);
     let vote_keys_rev = vote_keys_rev_for_height(client, at);
     if let Err(e) = verify_proof(hash, height, proof, &committee, &vote_keys_rev) {
-        // I1 root-cause probe: this early-return was SILENT and is where n2's wedge lived —
+        // I1 root-cause probe (): this early-return was SILENT and is where n2's wedge lived —
         // it received a valid proof(#40) but never finalised, with no trace. Dump the EXACT committee this
         // node computed AND the proof's signers (resolved to accounts, marked in/OUT of that committee),
         // so the divergent member is visible on sight — settles whether the input (consensus_reputation

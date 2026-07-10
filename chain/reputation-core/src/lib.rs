@@ -262,15 +262,19 @@ impl TrustGraph {
         }
         let mut ev: BTreeMap<String, i128> = BTreeMap::new();
         for n in nodes {
-            *ev.entry(label[n].clone()).or_insert(0) += *evidence_fp.get(n).unwrap_or(&0);
+            // audit #7: saturating add — evidence_fp can reach i128::MAX (to_fp saturates on huge
+            // amounts, Evidence itself grows by saturating_add), so a bare += could overflow-panic
+            // the whole consensus recompute (community damping runs every epoch). Cap, never wrap.
+            let slot = ev.entry(label[n].clone()).or_insert(0);
+            *slot = slot.saturating_add(*evidence_fp.get(n).unwrap_or(&0));
         }
         let comms: BTreeSet<&String> = label.values().collect();
         comms
             .into_iter()
             .map(|c| {
                 let internal_c = *internal.get(c).unwrap_or(&0);
-                let denom = FP_SCALE + *ev.get(c).unwrap_or(&0);
-                (c.clone(), fp_div(internal_c * FP_SCALE, denom))
+                let denom = FP_SCALE.saturating_add(*ev.get(c).unwrap_or(&0));
+                (c.clone(), fp_div(internal_c.saturating_mul(FP_SCALE), denom))
             })
             .collect()
     }

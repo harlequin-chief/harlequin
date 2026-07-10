@@ -276,7 +276,7 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
     // so they re-broadcast/poll on a default cadence.
     let proof_round_ms = match &consensus {
         Consensus::WovenTrust(t) | Consensus::WovenTrustVoteOnly(t) => Some(*t),
-        Consensus::Follower => Some(6000),
+        Consensus::Follower => Some(12000),
         _ => None,
     };
     if let (Some(notification_service), Some(round_ms)) = (proof_notif, proof_round_ms) {
