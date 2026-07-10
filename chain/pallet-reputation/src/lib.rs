@@ -1350,6 +1350,22 @@ pub mod pallet {
                 }
             }
 
+            // 3b. audit #3: prune snapshot rows for accounts that dropped OUT of the participant set
+            //     (evidence fully decayed or slashed to 0, and no vouch edges left). Without this, an
+            //     exited mask keeps stale reputation on-chain forever — storage bloat, and the read API
+            //     would report a non-zero standing for someone who has actually left. Deterministic: every
+            //     node prunes exactly the same accounts each epoch.
+            {
+                let live: BTreeSet<&T::AccountId> = accounts.iter().collect();
+                let stale: BTreeSet<T::AccountId> = ReputationSnapshot::<T>::iter()
+                    .map(|(acc, _suit, _v)| acc)
+                    .filter(|acc| !live.contains(acc))
+                    .collect();
+                for acc in stale {
+                    let _ = ReputationSnapshot::<T>::clear_prefix(&acc, Suit::ALL.len() as u32, None);
+                }
+            }
+
             // 4. compute per suit (deterministic fixed-point), overwrite the snapshot, and track each
             //    member's CONSERVATIVE MINIMUM across suits (§1.2b) for the telemetry.
             let params = Params { community: true, in_concentration: true, ..Default::default() };
@@ -1455,6 +1471,22 @@ mod tests {
             assert!(ReputationSnapshot::<Test>::get(2u64, Suit::Commerce) > 0);
             // an account that contributed nothing has zero standing (reputation is EARNED)
             assert_eq!(ReputationSnapshot::<Test>::get(99u64, Suit::Commerce), 0);
+        });
+    }
+
+    #[test]
+    fn stale_snapshot_is_pruned_when_account_leaves_participant_set() {
+        new_test_ext().execute_with(|| {
+            // a participant earns reputation this epoch
+            assert_ok!(Reputation::submit_evidence(RuntimeOrigin::root(), 1u64, Suit::Commerce, 5));
+            // an account with NO evidence and NO vouch edges holds a stale snapshot row (as if it had
+            // earned reputation in a past epoch and then fully decayed out of the participant set)
+            ReputationSnapshot::<Test>::insert(77u64, Suit::Commerce, 42i128);
+            assert_eq!(ReputationSnapshot::<Test>::get(77u64, Suit::Commerce), 42);
+            Reputation::run_epoch();
+            // the live participant keeps a snapshot; the exited account is pruned to zero
+            assert!(ReputationSnapshot::<Test>::get(1u64, Suit::Commerce) > 0);
+            assert_eq!(ReputationSnapshot::<Test>::get(77u64, Suit::Commerce), 0);
         });
     }
 

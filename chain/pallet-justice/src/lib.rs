@@ -687,8 +687,14 @@ pub mod pallet {
                 return Vec::new();
             }
             // 3. seed = the un-grindable commit–reveal beacon, bound to the case id (per-case draw,
-            //    deterministic to verify). Unpredictable until after keys were committed → no grinding.
-            let seed = alloc::format!("hlq-jury-{}-{}", case_id, T::Beacon::seed());
+            //    deterministic to verify) AND to the open block's parent hash (audit #5): case_id alone is
+            //    opener-controlled (NextCaseId increments per open), so an attacker could open throwaway
+            //    cases to land their real case on a case_id whose jury — recomputable from public committed
+            //    keys + public beacon — favours them. Folding in parent_hash, which the opener cannot
+            //    predict or steer when submitting, kills that selection while staying deterministic to
+            //    verify (every node importing this block sees the same parent hash; the jury is stored once).
+            let parent = frame_system::Pallet::<T>::parent_hash();
+            let seed = alloc::format!("hlq-jury-{}-{}-{:?}", case_id, T::Beacon::seed(), parent);
 
             // 4. run the sortition; jurors = candidates that won at least one seat.
             // LIVENESS/SAFETY FLOOR (J-HIGH2, audit): mirror the finality committee's size floor
