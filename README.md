@@ -35,7 +35,8 @@ it **Woven Trust Consensus**, and the unit of attack cost **reputation-time**.
 |---|---|
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | **Start here** — how the pieces fit: manifesto → reputation → consensus → chain → layers. |
 | [`paper/harlequin-v1.1.pdf`](paper/harlequin-v1.1.pdf) | **The whitepaper (v1.1)** — the full design: society, reputation, Woven Trust Consensus, and the chain. |
-| [`paper/harlequin-v2-en.pdf`](paper/harlequin-v2-en.pdf) · [`es`](paper/harlequin-v2-es.pdf) | **Technical whitepaper v2** — threat model, mechanisms, adversarial evaluation, declared limitations. English & Spanish (identical content). DRAFT pending final review. |
+| [`paper/harlequin-v2-en.pdf`](paper/harlequin-v2-en.pdf) · [`es`](paper/harlequin-v2-es.pdf) | **Technical whitepaper v2.1** — threat model, mechanisms, adversarial evaluation, declared limitations, and an evidence appendix tracing every claim to a reproducible run. English & Spanish (identical content). |
+| [`VALIDATION-LEDGER.md`](VALIDATION-LEDGER.md) | **The validation ledger** — every tested claim: what was claimed, how it was tested, the result, and how to reproduce it (commands + artifact hashes). |
 | [`paper/tesis/harlequin-tesis-en.pdf`](paper/tesis/harlequin-tesis-en.pdf) · [`es`](paper/tesis/harlequin-tesis-es.pdf) | **The thesis (Woven Trust)** — a plain-language read on why and how the society works, no jargon. English & Spanish. |
 | [`docs/woven-trust-consensus.md`](docs/woven-trust-consensus.md) | The consensus paper (English). |
 | [`docs/consenso-confianza-tejida.md`](docs/consenso-confianza-tejida.md) | The consensus paper (Spanish). |
@@ -94,6 +95,7 @@ tiempo** — un bien que *no se compra, no se computa y no se atesora*. Al conse
 | Ruta | Qué es |
 |---|---|
 | [`docs/consenso-confianza-tejida.md`](docs/consenso-confianza-tejida.md) | El paper del consenso (español). |
+| [`VALIDATION-LEDGER.md`](VALIDATION-LEDGER.md) | **El libro de validación** — cada afirmación probada: qué se afirma, cómo se probó, el resultado y cómo reproducirlo (comandos + hashes). En inglés. |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | **Empieza aquí** — cómo encaja todo: manifiesto → reputación → consenso → cadena → capas. |
 | [`docs/woven-trust-consensus.md`](docs/woven-trust-consensus.md) | El paper del consenso (inglés). |
 | [`reputation-engine/`](reputation-engine/) | Prototipo ejecutable del núcleo de reputación + simulaciones de ataque. |
