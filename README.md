@@ -35,7 +35,7 @@ it **Woven Trust Consensus**, and the unit of attack cost **reputation-time**.
 |---|---|
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | **Start here** — how the pieces fit: manifesto → reputation → consensus → chain → layers. |
 | [`paper/harlequin-v1.1.pdf`](paper/harlequin-v1.1.pdf) | **The whitepaper (v1.1)** — the full design: society, reputation, Woven Trust Consensus, and the chain. |
-| [`paper/harlequin-v2-es.pdf`](paper/harlequin-v2-es.pdf) | **Technical whitepaper v2 (Spanish edition)** — threat model, mechanisms, adversarial evaluation, open limitations. English edition in preparation. |
+| [`paper/harlequin-v2-en.pdf`](paper/harlequin-v2-en.pdf) · [`es`](paper/harlequin-v2-es.pdf) | **Technical whitepaper v2** — threat model, mechanisms, adversarial evaluation, declared limitations. English & Spanish (identical content). DRAFT pending final review. |
 | [`paper/tesis/harlequin-tesis-en.pdf`](paper/tesis/harlequin-tesis-en.pdf) · [`es`](paper/tesis/harlequin-tesis-es.pdf) | **The thesis (Woven Trust)** — a plain-language read on why and how the society works, no jargon. English & Spanish. |
 | [`docs/woven-trust-consensus.md`](docs/woven-trust-consensus.md) | The consensus paper (English). |
 | [`docs/consenso-confianza-tejida.md`](docs/consenso-confianza-tejida.md) | The consensus paper (Spanish). |
