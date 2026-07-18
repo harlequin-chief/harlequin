@@ -22,7 +22,12 @@ secrets*
 
 # Admin working dirs / raw evidence (never public)
 bitacoras/
-validation-evidence/
+# validation-evidence stays blocked wholesale; only the curated, reviewed scripts below may enter.
+**/validation-evidence/*
+!/chain/validation-evidence/README.md
+!/chain/validation-evidence/validate_decay.py
+!/chain/validation-evidence/validate_epoch19.py
+!/chain/validation-evidence/validate_justice.py
 sim/
 testnet/
 definitive/
