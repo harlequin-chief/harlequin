@@ -264,12 +264,14 @@
 | 32 | Dual-ledger fee fix: a token-funded fresh account can pay fees (sufficients materialized) | pallet-tokens 21/21 | ✅ | ✅ fresh account spends for real |
 | 33 | Finality epoch-boundary race closed (stale committee pruned + refreshed) | node-side | ✅ | ✅ root cause captured under trace; KILL-1-of-6 PASS + REJOIN PASS |
 
+| 34 | Launch candidate closed on all three bands: unit suites green across every workspace; independent hardware re-validation (4 layers: unit, byte-exact surface, live multi-node devnet finality with committee-6/α-5 mesh and safety-over-liveness, justice-cannot-touch-balances invariant proved 3 ways); reproducible rebuild — full purge of all local crates and final binary, relink from lockfile-pinned dependencies | 2 independent builds | ✅ | ✅ **byte-identical sha256** `fa79dda97e0f335eed274ec89c7a80c51ef7ff60eb979f11a76df7336e6666a6` |
+
 **Current relaunch note (honest).** An internal audit found the finality-vote **gossip layer relayed
 votes without verifying their sr25519 signature** before propagation (tallying still verified, so
 finality safety was unaffected; the vector was amplification). The fix — verify before relay — is in the
-source and in the current mainnet candidate binary, whose independent hardware validation (2-band iron)
-is in progress; the candidate supersedes every earlier one. This ledger gains a row when that iron run
-lands.
+source and in the launch candidate binary of row 34, which supersedes every earlier candidate and has
+now closed its independent hardware validation and reproducible-rebuild bands. What remains before
+genesis is ceremony-only (real keys replace placeholders; a dev-key scanner gates the seal).
 
 ---
 
