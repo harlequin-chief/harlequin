@@ -1,0 +1,41 @@
+# Harlequin node — Docker Compose.
+#   cd harlequin/node-dist && docker compose up -d
+#
+# Brings up one node that syncs the launch chain and serves p2p on 30333. No secrets here; the network
+# node-key is generated on first run into the persistent data volume (0600), not an account key.
+# Your ACCOUNT (your name in the society) is created separately with `harlequin-node key generate` and
+# kept in YOUR password manager — a node needs no account to sync and serve.
+services:
+  harlequin-node:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: harlequin-node
+    restart: unless-stopped
+    # First run generates the node-key into the volume, then starts the node.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        test -f /data/node-key || harlequin-node key generate-node-key --file /data/node-key;
+        chmod 600 /data/node-key;
+        exec harlequin-node
+        --base-path /data
+        --chain /etc/harlequin/mainnet-raw.json
+        --node-key-file /data/node-key
+        --name "${HLQ_NODE_NAME:-hlq-docker-node}"
+        --port 30333
+        --state-pruning archive
+    ports:
+      - "30333:30333"          # p2p — open this in your firewall to accept peers
+    volumes:
+      - hlq-data:/data
+      # The launch chain spec (carries the real bootnode multiaddr) mounted read-only:
+      - ./mainnet-raw.json:/etc/harlequin/mainnet-raw.json:ro
+    # Hardening: no new privileges, drop all caps (a sync node needs none).
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  hlq-data:
