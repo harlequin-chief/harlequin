@@ -1,0 +1,11 @@
+[package]
+name = "hlq-sigverify"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+sp-core = { version = "*", features = ["full_crypto"] }
+
+[[bin]]
+name = "hlq-sigverify"
+path = "src/main.rs"
