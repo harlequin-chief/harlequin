@@ -1,0 +1,7 @@
+[package]
+name = "sim-cluster-599"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+reputation-core = { path = "../reputation-core" }

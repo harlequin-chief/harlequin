@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["reputation-core", "consensus-core", "manifesto-core", "protocol-core", "tokens-core", "composition", "sphinx-core", "content-id", "forum-core"]
+members = ["reputation-core", "consensus-core", "manifesto-core", "protocol-core", "tokens-core", "composition", "sphinx-core", "content-id", "forum-core", "sim-cluster-599"]
 # pallet-reputation is its OWN workspace: the FRAME dependency tree (hundreds of crates) stays out of
 # these lean, dependency-free cores. Build it from its own directory.
 exclude = ["pallet-reputation", "runtime", "consensus-api", "tokens-api", "reputation-api"]
