@@ -49,7 +49,7 @@ std = ["harlequin-runtime/std", "polkadot-sdk/std"]
 mainnet = ["harlequin-runtime/mainnet"]
 
 [workspace]
-members = [".", "tools/devnet-driver"]
+members = [".", "tools/devnet-driver", "tools/hlq-sigverify"]
 
 # core2 0.4.0 (needed transitively by multihash 0.17 → litep2p → sc-network) was YANKED from crates.io
 # (the author yanked the whole crate), so a fresh resolve fails. The source still exists on git; patch to it.
