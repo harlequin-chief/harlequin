@@ -18,7 +18,7 @@
 #   Force portable mode on a systemd host with:  HLQ_PORTABLE=1
 #
 # OPSEC / sovereignty: this script NEVER asks for, captures, or generates your ACCOUNT secret. Your
-# account (your mask in the society) is created by YOU in the browser (/rito.html) or with
+# account (your mask in the society) is created by YOU in the browser (/rito) or with
 # `harlequin-node key generate`, and stored in YOUR password manager. A node needs no account to sync
 # and serve. Run it behind your VPN: a node announces its IP to peers.
 #
@@ -29,7 +29,7 @@ set -euo pipefail
 # Pinned distribution (re-pinned on every release; sha256 is the security boundary of this script).
 DIST_BASE="https://harlequinproject.org"
 SPEC_URL="$DIST_BASE/dist/mainnet-raw.json"
-SPEC_SHA256="ba1b25f7179d24c89aabd0a5f924d06f15365e1040cff3be2811a771e42086a6"  # SEALED launch chainspec (genesis 2026-07-18)
+SPEC_SHA256="ba1b25f7179d24c89aabd0a5f924d06f15365e1040cff3be2811a771e42086a6"  # SEALED launch chainspec (genesis)
 
 BIN_URL_x86_64="$DIST_BASE/dist/harlequin-node"
 BIN_SHA_x86_64="fa79dda97e0f335eed274ec89c7a80c51ef7ff60eb979f11a76df7336e6666a6" # FINAL launch mainnet binary (3-band closed)
@@ -43,7 +43,7 @@ SVC="harlequin-node"
 # Weak-subjectivity checkpoint (M1) — re-pinned on EVERY release, next to the sha256 pins above.
 # The pinned block must be FINALIZED. After install the running node is checked against it: if the
 # chain your peers serve does not contain exactly this block hash at this height, the node is STOPPED
-# (fail-closed). A long-range attacker can grow a longer fork from old keys; they cannot forge this pin.
+# (fail-closed). A long-range attacker can grow a longer fork from old keys; they cannot the author this pin.
 # Before trusting a fresh copy of this script, verify these values against AT LEAST TWO independent
 # sources: (1) this script over HTTPS, (2) https://harlequinproject.org/network.html, (3) a node
 # operator you already trust. If the sources disagree — STOP, do not join.
@@ -52,7 +52,7 @@ SVC="harlequin-node"
 CHECKPOINT_HEIGHT="235"
 CHECKPOINT_HASH="0x5551222d8fda1625486444f5392b9055b7ffc2a1033eb947bae25694d486d9e8"
 CHECKPOINT_CHAIN="Harlequin Launch (cold-start)"  # system_chain name (spec id: hlq_launch)
-CHECKPOINT_PINNED_AT="2026-07-18"  # re-pin to a fresher finalized block before each public release
+CHECKPOINT_PINNED_AT=""  # re-pin to a fresher finalized block before each public release
 RPC_URL="http://127.0.0.1:9944"   # node RPC is local-only by default; the check runs on YOUR box
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -61,8 +61,20 @@ ok()  { echo "  ✓ $*"; }
 info(){ echo "    $*"; }
 
 echo
-echo "  HARLEQUIN — node installer"
-echo "  ────────────────────────────────────────────"
+echo "  ──────────────── ♦ ♥ ♠ ♣ ────────────────"
+echo
+echo "         H  A  R  L  E  Q  U  I  N"
+echo "            node installer · mainnet"
+echo
+echo "  ─────────────────────────────────────────"
+echo
+echo "  A node is NOT your mask. Running a node sustains the network;"
+echo "  it does not create your identity in the society. Your mask is"
+echo "  made by you alone, in your browser, at:"
+echo "      https://harlequinproject.org/rito   (EN)"
+echo "      https://proyectoharlequin.org/rito  (ES)"
+echo "  This script never asks for it and never touches it."
+echo
 
 # 1. CPU architecture → binary + sha
 ARCH="$(uname -m)"
@@ -95,12 +107,19 @@ if [ "$MODE" = "service" ]; then
   PREFIX="/opt/harlequin"
 else
   PREFIX="${HOME:-/root}/harlequin"
-  # runtime libs the binary links against (readelf: libstdc++6 + libgcc-s1); root+apt only, else assume present
+  # Runtime libs the binary links against (readelf NEEDED: libstdc++.so.6, libgcc_s.so.1, libm/libc)
+  # PLUS the dynamic loader (ld-linux-aarch64) and zlib. A fresh Termux `proot-distro install debian`
+  # ships pared to the bone — without these the binary fails to exec with "required file not found"
+  # (missing loader) or "error while loading shared libraries". Install them BEFORE running the binary.
+  # `apt-get update` MUST succeed first (a bare rootfs has empty package lists); if it can't, say so
+  # instead of silently proceeding to a binary that then won't start.
   if command -v apt-get >/dev/null 2>&1 && [ "$(id -u)" -eq 0 ]; then
-    ok "installing runtime libs…"
-    apt-get update -y >/dev/null 2>&1 || true
-    DEBIAN_FRONTEND=noninteractive apt-get install -y libstdc++6 libgcc-s1 ca-certificates >/dev/null 2>&1 \
-      || die "could not install libstdc++6/libgcc-s1 (apt)."
+    ok "installing runtime libraries (a fresh proot Debian ships without them)…"
+    apt-get update -y >/dev/null 2>&1 || apt-get update -y >/dev/null 2>&1 \
+      || die "apt-get update failed — the node's libraries can't be installed. Check the network/VPN inside the proot and re-run."
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        libc6 libstdc++6 libgcc-s1 zlib1g ca-certificates >/dev/null 2>&1 \
+      || die "could not install runtime libraries (apt). Try: apt-get install -y libc6 libstdc++6 libgcc-s1 zlib1g"
   fi
 fi
 
@@ -173,7 +192,7 @@ while :; do
   GOT="$(res "$(rpc "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"chain_getBlockHash\",\"params\":[$CHECKPOINT_HEIGHT]}")")"
   [ -n "$GOT" ] && break
   BESTHEX="$(printf '%s' "$(rpc '{"id":1,"jsonrpc":"2.0","method":"chain_getHeader","params":[]}')" | grep -o '"number":"0x[0-9a-fA-F]*"' | head -1 | cut -d'"' -f4 || true)"
-  echo "    syncing… best block $(( ${BESTHEX:-0} )) / checkpoint $CHECKPOINT_HEIGHT — waiting."
+  echo "    syncing… best block $((${BESTHEX:-0})) / checkpoint $CHECKPOINT_HEIGHT — waiting."
   sleep 15
 done
 
@@ -256,7 +275,7 @@ UNIT
   systemctl restart "$SVC"
   ok "service '${SVC}' enabled and started."
 
-  # weak-subjectivity check (M1). Two distinct failures (review 2026-07-04, H3):
+  # weak-subjectivity check (M1). Two distinct failures (review, H3):
   #   exit 1 = checkpoint MISMATCH → hostile/wrong chain → stop AND disable (fail-closed).
   #   exit 2 = local RPC unreachable (transient/slow hardware) → NOT an attack signal: leave the
   #            node running UNVERIFIED and demand a manual re-run — disabling here would be a
@@ -332,7 +351,7 @@ RUN
   ok "All set. Starting your follower node '$NODE_NAME'."
   info "· First start runs the weak-subjectivity check: your node must contain the pinned block or it stops."
   info "· You'll see technical lines (Imported #… / Idle). That IS the live node — the engine, not your mask."
-  info "· Your MASK (seed phrase) is created in the BROWSER: $DIST_BASE/rito.html"
+  info "· Your MASK (seed phrase) is created in the BROWSER: $DIST_BASE/rito"
   info "· Stop any time: Ctrl+C. Start again: $PREFIX/run-node.sh"
   info "· Keep your VPN on — a node announces its IP to peers."
   echo "  Your node, your keys, no master."

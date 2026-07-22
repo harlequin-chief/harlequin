@@ -3,11 +3,14 @@
 # a tampered binary fails the check and the build aborts. No secrets are baked in; the node runs unprivileged.
 #
 # Base pinned by DIGEST (not just a tag) so the image is reproducible and can't be swapped under us.
-# PIN-BEFORE-PUBLISH: replace the digest below with the current debian:trixie-slim digest at release time.
-FROM debian:trixie-slim@sha256:PIN-BEFORE-PUBLISH
+# Pinned (post-launch) to the current debian:trixie-slim manifest-list digest; re-pin on
+# each release with:  curl the registry manifest and read docker-content-digest for trixie-slim.
+FROM debian:trixie-slim@sha256:020c0d20b9880058cbe785a9db107156c3c75c2ac944a6aa7ab59f2add76a7bd
 
 ARG BIN_URL=https://harlequinproject.org/dist/harlequin-node
-ARG BIN_SHA256=231bc5ca86e618d19b6e744d6b1b24ce7f37272d25ad0dd55b3d88ee537673fc
+# Matches the LAUNCH binary served at /dist/harlequin-node (fa79dda9, verified against the VPS
+#). Re-pin together with the installer's BIN_SHA_x86_64 on every release — they must agree.
+ARG BIN_SHA256=fa79dda97e0f335eed274ec89c7a80c51ef7ff60eb979f11a76df7336e6666a6
 
 RUN set -eux; \
     apt-get update; \

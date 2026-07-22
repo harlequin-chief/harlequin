@@ -56,7 +56,7 @@ def collect(rpc_url):
     # never authors, peers, IPs or identities.
     recent = []
     if best is not None:
-        nums = set(range(max(0, best - 9), best + 1))                 # 10 newest (the live tip)
+        nums = set(range(max(0, best - 23), best + 1))                # 24 newest (the live tip)
         if finalized is not None:
             nums |= set(range(max(0, finalized - 5), finalized + 1))  # 6 at the finalised frontier (the ✓)
         for num in sorted(nums, reverse=True):
@@ -66,16 +66,21 @@ def collect(rpc_url):
                 bh = None
             # Extrinsic COUNT only — an aggregate. Never the extrinsic bodies, senders, or args, so no
             # address or transaction pattern is ever exposed (ANONYMOUS invariant above).
+            # Parent hash ("p") is the block-explorer chain link — public header data, same anonymity class
+            # as the block hash itself.
             xcount = None
+            parent = None
             if bh is not None:
                 try:
                     blk = rpc(rpc_url, "chain_getBlock", [bh]) or {}
                     xcount = len(blk.get("block", {}).get("extrinsics", []))
+                    parent = blk.get("block", {}).get("header", {}).get("parentHash")
                 except Exception:
                     xcount = None
             recent.append({
                 "n": num,
                 "hash": bh,
+                "p": parent,
                 "fin": finalized is not None and num <= finalized,
                 "x": xcount,
             })
