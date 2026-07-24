@@ -48,6 +48,13 @@ name = "reputation-core"
 version = "0.1.0"
 
 [[package]]
+name = "sim-cluster-599"
+version = "0.1.0"
+dependencies = [
+ "reputation-core",
+]
+
+[[package]]
 name = "sphinx-core"
 version = "0.1.0"
 dependencies = [
