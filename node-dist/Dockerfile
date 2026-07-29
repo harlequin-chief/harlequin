@@ -8,9 +8,11 @@
 FROM debian:trixie-slim@sha256:020c0d20b9880058cbe785a9db107156c3c75c2ac944a6aa7ab59f2add76a7bd
 
 ARG BIN_URL=https://harlequinproject.org/dist/harlequin-node
-# Matches the LAUNCH binary served at /dist/harlequin-node (fa79dda9, verified against the VPS
-#). Re-pin together with the installer's BIN_SHA_x86_64 on every release — they must agree.
-ARG BIN_SHA256=fa79dda97e0f335eed274ec89c7a80c51ef7ff60eb979f11a76df7336e6666a6
+# Matches the binary served at /dist/harlequin-node: fb50ba6a, the spec-3 node published on
+# 2026-07-29 after the first runtime upgrade went live at block 79501. An older node binary can no
+# longer join — it refuses to start against the new runtime — so this pin is not cosmetic.
+# Re-pin together with the installer's BIN_SHA_x86_64 on every release — they must agree.
+ARG BIN_SHA256=fb50ba6a3b48c45e9d38f70c440ea3362eb724af308882da4c6479a8e5111ad3
 
 RUN set -eux; \
     apt-get update; \
