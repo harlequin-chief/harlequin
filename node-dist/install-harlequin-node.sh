@@ -29,30 +29,45 @@ set -euo pipefail
 # Pinned distribution (re-pinned on every release; sha256 is the security boundary of this script).
 DIST_BASE="https://harlequinproject.org"
 SPEC_URL="$DIST_BASE/dist/mainnet-raw.json"
-SPEC_SHA256="ba1b25f7179d24c89aabd0a5f924d06f15365e1040cff3be2811a771e42086a6"  # SEALED launch chainspec (genesis)
+SPEC_SHA256="ba1b25f7179d24c89aabd0a5f924d06f15365e1040cff3be2811a771e42086a6"  # SEALED launch chainspec (genesis 2026-07-18)
 
 BIN_URL_x86_64="$DIST_BASE/dist/harlequin-node"
-BIN_SHA_x86_64="fa79dda97e0f335eed274ec89c7a80c51ef7ff60eb979f11a76df7336e6666a6" # FINAL launch mainnet binary (3-band closed)
+BIN_SHA_x86_64="fb50ba6a3b48c45e9d38f70c440ea3362eb724af308882da4c6479a8e5111ad3" # spec-3 rollout node (door upgrade; gate v2 SYNC-vs-TIP; marca puerta-spec3-2026-07-26)
 BIN_URL_aarch64="$DIST_BASE/dist/harlequin-node-arm64"
-BIN_SHA_aarch64="91205a74e8379051e0da9769506c859f290555a96b269334c149399774802f4b" # launch aarch64 (cross-built; wasm runtime byte-identical to x86_64 fa79dda9)
+BIN_SHA_aarch64="1b65c660043a9d9efded6314f77f46a3c4f6cec501cb6c2dd310058fe65fa54e" # spec-3 rollout aarch64 (cross-built from the same marca puerta-spec3-2026-07-26)
 
 # Baked into the spec too; passed explicitly in portable mode for first-dial robustness.
+# THREE DOORS, NOT ONE (2026-07-26). Until today the installer handed out a single address, so every
+# newcomer entered through the same machine — and when that machine choked (as it did today: 15-20 s to
+# serve 5 KB, one peer left, falling behind the chain) the door was the network. A newcomer whose first
+# contact times out does not try again. These are tried in order; any one of them is enough to join.
+#
+# THE HOME NODE IS DELIBERATELY ABSENT AND MUST STAY ABSENT. It reaches the network outbound-only over
+# WireGuard and its residential address is never published. Listing it here would print someone's home
+# IP in a script that anyone can download — the project's second golden rule. If you are tempted to
+# "complete the list" some day: that is the reason it is incomplete on purpose.
 BOOTNODE="/ip4/95.133.166.93/tcp/30333/p2p/12D3KooWBLjMD2oEZvNVZXFSHdRRS62gbZsgfYcR6rkkjygJ2emR"
+BOOTNODE2="/ip4/148.116.86.24/tcp/30333/p2p/12D3KooWBiZXWDXuXKzKw8f6Wpmo3Mx81oAgFu2VG1fsZihs3BHC"
+BOOTNODE3="/ip4/151.145.42.146/tcp/30333/p2p/12D3KooWLinJp4ZZnrcGsqXprk7snpdC64KnnTPenN2CP356z37X"
 SVC="harlequin-node"
 
 # Weak-subjectivity checkpoint (M1) — re-pinned on EVERY release, next to the sha256 pins above.
 # The pinned block must be FINALIZED. After install the running node is checked against it: if the
 # chain your peers serve does not contain exactly this block hash at this height, the node is STOPPED
-# (fail-closed). A long-range attacker can grow a longer fork from old keys; they cannot the author this pin.
+# (fail-closed). A long-range attacker can grow a longer fork from old keys; they cannot forge this pin.
 # Before trusting a fresh copy of this script, verify these values against AT LEAST TWO independent
 # sources: (1) this script over HTTPS, (2) https://harlequinproject.org/network.html, (3) a node
 # operator you already trust. If the sources disagree — STOP, do not join.
 # F4 NOTE: values below pin the LAUNCH chain at genesis. At the relaunch ceremony (F4) they are
 # re-pinned to a fresh finalized checkpoint, and on every release thereafter.
-CHECKPOINT_HEIGHT="235"
-CHECKPOINT_HASH="0x5551222d8fda1625486444f5392b9055b7ffc2a1033eb947bae25694d486d9e8"
+# Re-pinned 2026-07-29 to a POST-APPLY finalized block: #79830 is past the runtime upgrade at #79501,
+# so this pin alone proves the chain you joined is the one running spec 3. Cross-verified on three
+# independent nodes before pinning (bootnode RPC, oracle04 RPC, ct103 finality log: "finalised #79830
+# … committee 4, alpha 3/4").
+CHECKPOINT_HEIGHT="79830"
+CHECKPOINT_HASH="0xda9180c4276481a76c00125272029b715fe924c535a2aec4d6556100401deb44"
 CHECKPOINT_CHAIN="Harlequin Launch (cold-start)"  # system_chain name (spec id: hlq_launch)
-CHECKPOINT_PINNED_AT=""  # re-pin to a fresher finalized block before each public release
+CHECKPOINT_PINNED_AT="2026-07-29"  # re-pin to a fresher finalized block before each public release
 RPC_URL="http://127.0.0.1:9944"   # node RPC is local-only by default; the check runs on YOUR box
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -192,7 +207,7 @@ while :; do
   GOT="$(res "$(rpc "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"chain_getBlockHash\",\"params\":[$CHECKPOINT_HEIGHT]}")")"
   [ -n "$GOT" ] && break
   BESTHEX="$(printf '%s' "$(rpc '{"id":1,"jsonrpc":"2.0","method":"chain_getHeader","params":[]}')" | grep -o '"number":"0x[0-9a-fA-F]*"' | head -1 | cut -d'"' -f4 || true)"
-  echo "    syncing… best block $((${BESTHEX:-0})) / checkpoint $CHECKPOINT_HEIGHT — waiting."
+  echo "    syncing… best block $(( ${BESTHEX:-0} )) / checkpoint $CHECKPOINT_HEIGHT — waiting."
   sleep 15
 done
 
@@ -243,6 +258,10 @@ Wants=network-online.target
 [Service]
 User=harlequin
 Group=harlequin
+# --pool-type single-state: root fix for the intermittent `Essential task txpool-background failed`
+# crash of the fork-aware pool. It bit twice on 2026-07-25, BOTH times while a node was catching up at
+# ~1000 blocks/s — exactly what every newcomer does. A node that dies mid-sync is a person who does not
+# try again, so the flag ships with the installer rather than waiting for a deployment round.
 ExecStart=$PREFIX/harlequin-node \\
   --base-path $PREFIX/data \\
   --chain $PREFIX/mainnet-raw.json \\
@@ -251,8 +270,10 @@ ExecStart=$PREFIX/harlequin-node \\
   --port 30333 \\
   --consensus woven-trust-12000 \\
   --network-backend libp2p \\
+  --bootnodes "${BOOTNODE}" "${BOOTNODE2}" "${BOOTNODE3}" \\
   --state-pruning archive \\
-  --blocks-pruning archive
+  --blocks-pruning archive \\
+  --pool-type single-state
 Restart=on-failure
 RestartSec=5
 LimitNOFILE=65536
@@ -275,7 +296,7 @@ UNIT
   systemctl restart "$SVC"
   ok "service '${SVC}' enabled and started."
 
-  # weak-subjectivity check (M1). Two distinct failures (review, H3):
+  # weak-subjectivity check (M1). Two distinct failures (review 2026-07-04, H3):
   #   exit 1 = checkpoint MISMATCH → hostile/wrong chain → stop AND disable (fail-closed).
   #   exit 2 = local RPC unreachable (transient/slow hardware) → NOT an attack signal: leave the
   #            node running UNVERIFIED and demand a manual re-run — disabling here would be a
@@ -312,13 +333,19 @@ else
 
   # --wasmtime-instantiation-strategy recreate-instance-copy-on-write: avoids wasmtime's pooling
   # allocator (reserves a huge mmap that dies inside proot/Android).
-  # The node runs in the background of this script so the weak-subjectivity check (M1) can stop it
-  # FAIL-CLOSED on mismatch; on success the script stays attached to the node (Ctrl+C stops it).
+  # v4.1 UX: the node runs DETACHED from the terminal (nohup + logfile + pidfile). Closing the
+  # terminal or locking the screen no longer kills it. The weak-subjectivity check (M1) still stops
+  # it FAIL-CLOSED on mismatch before the script hands control back.
   cat > "$PREFIX/run-node.sh" <<RUN
 #!/usr/bin/env bash
 set -euo pipefail
 cd "\$(dirname "\$0")"
-./harlequin-node \\
+# singleton: refuse a second copy (stale pidfile is fine — we check the process)
+if [ -f node.pid ] && kill -0 "\$(cat node.pid)" 2>/dev/null; then
+  echo "  ✓ node already running (pid \$(cat node.pid)). Status: ./node-status.sh" >&2
+  exit 0
+fi
+nohup ./harlequin-node \\
   --base-path ./data \\
   --chain ./mainnet-raw.json \\
   --name "${NODE_NAME}" \\
@@ -326,16 +353,18 @@ cd "\$(dirname "\$0")"
   --consensus woven-trust-12000 \\
   --network-backend libp2p \\
   --wasmtime-instantiation-strategy recreate-instance-copy-on-write \\
-  --bootnodes "${BOOTNODE}" \\
+  --bootnodes "${BOOTNODE}" "${BOOTNODE2}" "${BOOTNODE3}" \\
   --state-pruning archive \\
-  --blocks-pruning archive &
+  --blocks-pruning archive \\
+  --pool-type single-state > node.log 2>&1 &
 NODE_PID=\$!
-trap 'kill "\$NODE_PID" 2>/dev/null || true' INT TERM
+echo "\$NODE_PID" > node.pid
 # exit 1 = checkpoint MISMATCH → kill the node (fail-closed). exit 2 = local RPC unreachable
 # (transient/slow hardware, e.g. a tablet) → keep the node running, demand a manual re-check.
 VC_RC=0; ./verify-checkpoint.sh || VC_RC=\$?
 if [ "\$VC_RC" -eq 1 ]; then
   kill "\$NODE_PID" 2>/dev/null || true
+  rm -f node.pid
   echo "  ✗ node stopped: checkpoint MISMATCH (fail-closed)." >&2
   echo "    Re-check the pinned values against >=2 independent sources, then run ./run-node.sh again." >&2
   exit 1
@@ -343,16 +372,67 @@ elif [ "\$VC_RC" -ne 0 ]; then
   echo "  ⚠ could not reach the node's local RPC — checkpoint NOT verified yet." >&2
   echo "    The node keeps running, but do NOT trust it until this passes:  ./verify-checkpoint.sh" >&2
 fi
-wait "\$NODE_PID"
+echo "  ✓ node running detached (pid \$NODE_PID). It survives closing this terminal."
+echo "    peek at it:   ./node-status.sh      follow live:  tail -f node.log      stop: ./stop-node.sh"
 RUN
   chmod +x "$PREFIX/run-node.sh"
 
+  # One-line health view: process state + the node's own last sync line.
+  cat > "$PREFIX/node-status.sh" <<'ST'
+#!/usr/bin/env bash
+cd "$(dirname "$0")"
+if [ -f node.pid ] && kill -0 "$(cat node.pid)" 2>/dev/null; then
+  echo "  ✓ node RUNNING (pid $(cat node.pid))"
+else
+  echo "  ✗ node NOT running. Start it: ./run-node.sh"
+fi
+grep -oE "(Syncing|Idle).*" node.log 2>/dev/null | tail -1
+grep -oE "finalized #[0-9]+" node.log 2>/dev/null | tail -1
+ST
+  chmod +x "$PREFIX/node-status.sh"
+
+  cat > "$PREFIX/stop-node.sh" <<'SP'
+#!/usr/bin/env bash
+cd "$(dirname "$0")"
+if [ -f node.pid ] && kill -0 "$(cat node.pid)" 2>/dev/null; then
+  kill "$(cat node.pid)" && rm -f node.pid && echo "  ✓ node stopped."
+else
+  rm -f node.pid; echo "  · node was not running."
+fi
+SP
+  chmod +x "$PREFIX/stop-node.sh"
+
+  # Foreground variant for OUTER supervisors. Android/proot gotcha (field-tested 2026-07-25):
+  # proot is ptrace-based, so a nohup INSIDE the proot login dies when the login exits — detaching
+  # must happen OUTSIDE. From Termux (not inside debian) run:
+  #   setsid nohup proot-distro login debian -- bash ~/harlequin/run-node-fg.sh > ~/node.log 2>&1 &
+  cat > "$PREFIX/run-node-fg.sh" <<RUNFG
+#!/usr/bin/env bash
+set -euo pipefail
+cd "\$(dirname "\$0")"
+exec ./harlequin-node \\
+  --base-path ./data \\
+  --chain ./mainnet-raw.json \\
+  --name "${NODE_NAME}" \\
+  --port 30333 \\
+  --consensus woven-trust-12000 \\
+  --network-backend libp2p \\
+  --wasmtime-instantiation-strategy recreate-instance-copy-on-write \\
+  --bootnodes "${BOOTNODE}" "${BOOTNODE2}" "${BOOTNODE3}" \\
+  --state-pruning archive \\
+  --blocks-pruning archive \\
+  --pool-type single-state
+RUNFG
+  chmod +x "$PREFIX/run-node-fg.sh"
+
   echo "  ────────────────────────────────────────────"
-  ok "All set. Starting your follower node '$NODE_NAME'."
+  ok "All set. Starting your follower node '$NODE_NAME' (detached — it survives closing the terminal)."
+  info "· Android/Termux (proot): to survive closing the APP, start it from Termux itself instead:"
+  info "    setsid nohup proot-distro login debian -- bash ~/harlequin/run-node-fg.sh > ~/node.log 2>&1 &"
   info "· First start runs the weak-subjectivity check: your node must contain the pinned block or it stops."
-  info "· You'll see technical lines (Imported #… / Idle). That IS the live node — the engine, not your mask."
+  info "· Peek any time: $PREFIX/node-status.sh · live view: tail -f $PREFIX/node.log"
   info "· Your MASK (seed phrase) is created in the BROWSER: $DIST_BASE/rito"
-  info "· Stop any time: Ctrl+C. Start again: $PREFIX/run-node.sh"
+  info "· Stop: $PREFIX/stop-node.sh · start again: $PREFIX/run-node.sh"
   info "· Keep your VPN on — a node announces its IP to peers."
   echo "  Your node, your keys, no master."
   echo "  ────────────────────────────────────────────"
