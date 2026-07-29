@@ -106,23 +106,36 @@ ok "cpu: $ARCH"
 # 1b. Memory and disk preflight. MEASURED on 2026-07-30, same box, same path, only the RAM changed:
 #     1 GB → 0.0 blocks/s, stuck at block 47,152, ~10 days to finish, and NO error: the node crawls in
 #     silence and the person concludes the project is broken. 2 GB → 840-1,066 blocks/s, whole chain in
-#     ~2 minutes. Peak usage measured: 1,580 MB. So 2 GB is the floor, not the comfortable figure.
-#     A warning that arrives before the wait costs nothing; one that never arrives costs a newcomer.
-MEM_MB=0
+#     ~2 minutes — BUT the first sync peaked at 2,031 MB and only survived because that box had swap;
+#     at rest it settles around 1,997 MB + 260 MB swap. A 2 GB VPS with no swap (most cheap ones) does
+#     not slow down: the kernel KILLS the node. Hence 4 GB recommended, 2 GB only with swap.
+MEM_MB=0; SWAP_MB=0
 if [ -r /proc/meminfo ]; then
   MEM_MB="$(awk '/^MemTotal:/{printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo 0)"
+  SWAP_MB="$(awk '/^SwapTotal:/{printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo 0)"
 fi
 if [ "${MEM_MB:-0}" -gt 0 ]; then
   if [ "$MEM_MB" -lt 1800 ]; then
     echo
-    echo "  ⚠ THIS MACHINE HAS ${MEM_MB} MB OF MEMORY — the node needs 2 GB (2048 MB) to sync."
-    echo "    With less it does not merely go slow: it stalls part-way and never finishes, without"
-    echo "    printing any error. Measured: 1 GB → stuck for over a week; 2 GB → whole chain in ~2 min."
-    echo "    Add memory (or swap) and run this again. Continuing anyway in 15s — Ctrl+C to stop."
+    echo "  ⚠ THIS MACHINE HAS ${MEM_MB} MB OF MEMORY. The node needs 4 GB (2 GB only with swap)."
+    echo "    With 1 GB it does not merely go slow: it stalls part-way and NEVER finishes, printing"
+    echo "    no error at all (measured: stuck at block 47,152, ~10 days remaining)."
+    echo "    Add memory or swap and run this again. Continuing anyway in 15s — Ctrl+C to stop."
     echo
     sleep 15
+  elif [ "$MEM_MB" -lt 3800 ] && [ "${SWAP_MB:-0}" -lt 512 ]; then
+    echo
+    echo "  ⚠ ${MEM_MB} MB of memory and NO swap configured. The first sync peaks above 2 GB, so on a"
+    echo "    box like this the kernel is likely to kill the node mid-sync (out of memory) rather than"
+    echo "    slow it down. Either give it 4 GB, or add swap first:"
+    echo "        fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile"
+    echo "    Continuing anyway in 15s — Ctrl+C to stop."
+    echo
+    sleep 15
+  elif [ "$MEM_MB" -lt 3800 ]; then
+    ok "memory: ${MEM_MB} MB + ${SWAP_MB} MB swap (tight but workable; 4 GB is the comfortable figure)"
   else
-    ok "memory: ${MEM_MB} MB (2048 MB is the floor; peak measured 1580 MB)"
+    ok "memory: ${MEM_MB} MB (peak measured during first sync: ~2,031 MB)"
   fi
 fi
 DISK_MB="$(df -Pm "${HOME:-/}" 2>/dev/null | awk 'NR==2{print $4}' || echo 0)"
