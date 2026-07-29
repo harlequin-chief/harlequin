@@ -3,7 +3,10 @@
 #
 # Served at https://harlequinproject.org/install-harlequin-node.sh and run as:
 #
-#   servers / PCs (systemd):   curl -fsSL https://harlequinproject.org/install-harlequin-node.sh | sudo bash
+#   servers / PCs, as root:    curl -fsSL https://harlequinproject.org/install-harlequin-node.sh | bash
+#   servers / PCs, with sudo:  curl -fsSL https://harlequinproject.org/install-harlequin-node.sh | sudo bash
+#   only wget on the box:      wget -qO- https://harlequinproject.org/install-harlequin-node.sh | bash
+#   (a bare Debian ships with NEITHER curl nor sudo: apt update && apt install -y curl, as root)
 #   Android tablet/phone:      (Termux)  pkg install -y proot-distro && proot-distro install debian \
 #                                        && proot-distro login debian
 #                              (inside Debian, with your VPN on)
@@ -100,6 +103,33 @@ case "$ARCH" in
 esac
 ok "cpu: $ARCH"
 
+# 1b. Memory and disk preflight. MEASURED on 2026-07-30, same box, same path, only the RAM changed:
+#     1 GB → 0.0 blocks/s, stuck at block 47,152, ~10 days to finish, and NO error: the node crawls in
+#     silence and the person concludes the project is broken. 2 GB → 840-1,066 blocks/s, whole chain in
+#     ~2 minutes. Peak usage measured: 1,580 MB. So 2 GB is the floor, not the comfortable figure.
+#     A warning that arrives before the wait costs nothing; one that never arrives costs a newcomer.
+MEM_MB=0
+if [ -r /proc/meminfo ]; then
+  MEM_MB="$(awk '/^MemTotal:/{printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo 0)"
+fi
+if [ "${MEM_MB:-0}" -gt 0 ]; then
+  if [ "$MEM_MB" -lt 1800 ]; then
+    echo
+    echo "  ⚠ THIS MACHINE HAS ${MEM_MB} MB OF MEMORY — the node needs 2 GB (2048 MB) to sync."
+    echo "    With less it does not merely go slow: it stalls part-way and never finishes, without"
+    echo "    printing any error. Measured: 1 GB → stuck for over a week; 2 GB → whole chain in ~2 min."
+    echo "    Add memory (or swap) and run this again. Continuing anyway in 15s — Ctrl+C to stop."
+    echo
+    sleep 15
+  else
+    ok "memory: ${MEM_MB} MB (2048 MB is the floor; peak measured 1580 MB)"
+  fi
+fi
+DISK_MB="$(df -Pm "${HOME:-/}" 2>/dev/null | awk 'NR==2{print $4}' || echo 0)"
+if [ "${DISK_MB:-0}" -gt 0 ] && [ "$DISK_MB" -lt 3000 ]; then
+  echo "  ⚠ only ${DISK_MB} MB free on this filesystem. The chain is ~600 MB today and grows every day."
+fi
+
 # 2. install mode: systemd service vs portable foreground
 MODE="portable"
 if [ -z "${HLQ_PORTABLE:-}" ] && [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
@@ -107,15 +137,33 @@ if [ -z "${HLQ_PORTABLE:-}" ] && [ -d /run/systemd/system ] && command -v system
 fi
 ok "mode: $MODE"
 
+# Downloader: curl if present, wget if not. A freshly installed Debian ships with NEITHER, and the
+# published one-liner starts with curl — measured on a bare container: the stranger's very first
+# command answers "curl: command not found" and explains nothing. Bootstrap what we can, and when we
+# cannot, say what is missing and the exact command that fixes it.
 command -v curl >/dev/null 2>&1 || {
-  # bootstrap curl where we can (fresh proot Debian has apt and we are root there)
-  if command -v apt-get >/dev/null 2>&1 && [ "$(id -u)" -eq 0 ]; then
+  # bootstrap curl where we can (fresh proot Debian has apt and we are root there). SAY IT OUT LOUD:
+  # installing packages in silence on the machine of someone who has just arrived and does not trust
+  # us yet is the wrong first impression. If wget is here, we do not touch their system at all.
+  if command -v wget >/dev/null 2>&1; then
+    info "no curl here — using wget instead (nothing will be installed on your system)."
+  elif command -v apt-get >/dev/null 2>&1 && [ "$(id -u)" -eq 0 ]; then
+    info "no curl and no wget here — installing 'curl' and 'ca-certificates' with apt (say no by pressing Ctrl+C now)."
+    sleep 3
     apt-get update -y >/dev/null 2>&1 || true
     DEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates >/dev/null 2>&1 || true
   fi
-  command -v curl >/dev/null 2>&1 || die "curl is required."
 }
-command -v sha256sum >/dev/null 2>&1 || die "sha256sum is required (coreutils)."
+if command -v curl >/dev/null 2>&1; then
+  HAVE_DL="curl"
+elif command -v wget >/dev/null 2>&1; then
+  HAVE_DL="wget"
+else
+  die "no downloader found: this needs curl (or wget). On Debian/Ubuntu as root:  apt update && apt install -y curl ca-certificates"
+fi
+ok "downloader: $HAVE_DL"
+command -v sha256sum >/dev/null 2>&1 || \
+  die "sha256sum is missing — it is what proves the binary is the right one, so we do not go on without it. On Debian/Ubuntu as root:  apt update && apt install -y coreutils"
 
 if [ "$MODE" = "service" ]; then
   [ "$(id -u)" -eq 0 ] || die "service install needs root (pipe to 'sudo bash'). Or force HLQ_PORTABLE=1."
@@ -145,11 +193,17 @@ NODE_NAME="$(printf '%s' "$NODE_NAME" | tr -cd 'A-Za-z0-9-' | cut -c1-32)"; [ -n
 #    HTTPS-only, TLS>=1.2, no redirects: the URLs are fixed and same-origin, so a redirect would mean
 #    someone is steering us elsewhere. (sha256 below is the real backstop.)
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-DL='curl -fsS --proto =https --tlsv1.2 --connect-timeout 15 --max-time 900'
+dl() { # <url> <dest> — same guarantees on either tool: HTTPS-only, TLS>=1.2, no redirect following.
+  if [ "$HAVE_DL" = "curl" ]; then
+    curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 15 --max-time 900 "$1" -o "$2"
+  else
+    wget -q --https-only --secure-protocol=TLSv1_2 --max-redirect=0 --timeout=15 -O "$2" "$1"
+  fi
+}
 [ "${BIN_URL#https://}"  != "$BIN_URL"  ] || die "binary URL is not https."
 [ "${SPEC_URL#https://}" != "$SPEC_URL" ] || die "spec URL is not https."
-ok "downloading node binary ($ARCH)…"; $DL "$BIN_URL"  -o "$TMP/harlequin-node"   || die "download failed: $BIN_URL"
-ok "downloading launch chain spec…";   $DL "$SPEC_URL" -o "$TMP/mainnet-raw.json" || die "download failed: $SPEC_URL"
+ok "downloading node binary ($ARCH)…"; dl "$BIN_URL"  "$TMP/harlequin-node"   || die "download failed: $BIN_URL"
+ok "downloading launch chain spec…";   dl "$SPEC_URL" "$TMP/mainnet-raw.json" || die "download failed: $SPEC_URL"
 
 # 4. verify sha256 — ABORT on mismatch (the security boundary of this script)
 verify() { # <file> <expected>
@@ -179,7 +233,13 @@ RPC_URL="$RPC_URL"
 VCEOF
 cat >> "$TMP/verify-checkpoint.sh" <<'VCEOF'
 set -euo pipefail
-rpc() { curl -fsS -m 10 -H 'Content-Type: application/json' -d "$1" "$RPC_URL" 2>/dev/null || true; }
+rpc() { # curl if present, wget otherwise — a bare server may have only one of the two.
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsS -m 10 -H 'Content-Type: application/json' -d "$1" "$RPC_URL" 2>/dev/null || true
+  else
+    wget -q -O- --timeout=10 --header='Content-Type: application/json' --post-data="$1" "$RPC_URL" 2>/dev/null || true
+  fi
+}
 res() { printf '%s' "$1" | grep -o '"result":"[^"]*"' | head -1 | cut -d'"' -f4 || true; }
 
 # 1. wait for the LOCAL node RPC (up to ~60s)
@@ -202,12 +262,36 @@ fi
 
 # 3. wait until the pinned height exists locally, then compare. Waiting is safe;
 #    joining the wrong chain is not — so this loop never gives up on its own.
-GOT=""
+# Honesty of the waiting line (measured on a 1 GB box, 2026-07-30): a node short on memory does not
+# die — it CRAWLS, and while it thrashes its RPC stops answering. The old line then printed
+# "best block 0", which reads like "it started over" and sends people away thinking it is broken.
+# So: say when the node is not answering, say when it IS answering but not advancing, and say the
+# rate when it moves — a person who can see progress waits; one staring at a frozen 0 does not.
+GOT=""; PREV=""; SAME=0
 while :; do
   GOT="$(res "$(rpc "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"chain_getBlockHash\",\"params\":[$CHECKPOINT_HEIGHT]}")")"
   [ -n "$GOT" ] && break
-  BESTHEX="$(printf '%s' "$(rpc '{"id":1,"jsonrpc":"2.0","method":"chain_getHeader","params":[]}')" | grep -o '"number":"0x[0-9a-fA-F]*"' | head -1 | cut -d'"' -f4 || true)"
-  echo "    syncing… best block $(( ${BESTHEX:-0} )) / checkpoint $CHECKPOINT_HEIGHT — waiting."
+  HDR="$(rpc '{"id":1,"jsonrpc":"2.0","method":"chain_getHeader","params":[]}')"
+  BESTHEX="$(printf '%s' "$HDR" | grep -o '"number":"0x[0-9a-fA-F]*"' | head -1 | cut -d'"' -f4 || true)"
+  if [ -z "$BESTHEX" ]; then
+    echo "    the node is not answering right now (it may be busy syncing, or short on memory) — waiting."
+  else
+    BEST=$(( BESTHEX ))
+    if [ "$BEST" = "${PREV:-}" ]; then
+      SAME=$((SAME+1))
+      if [ "$SAME" -ge 4 ]; then
+        echo "    stuck at block $BEST / $CHECKPOINT_HEIGHT for ~$((SAME*15))s — this usually means too little"
+        echo "    memory (see the requirements on https://harlequinproject.org/join). The node is alive; it is crawling."
+      else
+        echo "    syncing… block $BEST / $CHECKPOINT_HEIGHT — no progress this round, waiting."
+      fi
+    else
+      [ -n "${PREV:-}" ] && echo "    syncing… block $BEST / $CHECKPOINT_HEIGHT (+$((BEST-PREV)) in 15s)." \
+                        || echo "    syncing… block $BEST / $CHECKPOINT_HEIGHT."
+      SAME=0
+    fi
+    PREV="$BEST"
+  fi
   sleep 15
 done
 
@@ -258,7 +342,9 @@ Wants=network-online.target
 [Service]
 User=harlequin
 Group=harlequin
-# --pool-type single-state: root fix for the intermittent `Essential task txpool-background failed`
+# --pool-type single-state: root fix for the intermittent "Essential task txpool-background failed"
+# (no backticks in this heredoc: it is unquoted, so the shell would try to RUN whatever they wrap —
+#  measured on a clean box as 'bash: line 252: Essential: command not found' right before start)
 # crash of the fork-aware pool. It bit twice on 2026-07-25, BOTH times while a node was catching up at
 # ~1000 blocks/s — exactly what every newcomer does. A node that dies mid-sync is a person who does not
 # try again, so the flag ships with the installer rather than waiting for a deployment round.
@@ -270,6 +356,7 @@ ExecStart=$PREFIX/harlequin-node \\
   --port 30333 \\
   --consensus woven-trust-12000 \\
   --network-backend libp2p \\
+  --no-mdns \\
   --bootnodes "${BOOTNODE}" "${BOOTNODE2}" "${BOOTNODE3}" \\
   --state-pruning archive \\
   --blocks-pruning archive \\
@@ -352,6 +439,7 @@ nohup ./harlequin-node \\
   --port 30333 \\
   --consensus woven-trust-12000 \\
   --network-backend libp2p \\
+  --no-mdns \\
   --wasmtime-instantiation-strategy recreate-instance-copy-on-write \\
   --bootnodes "${BOOTNODE}" "${BOOTNODE2}" "${BOOTNODE3}" \\
   --state-pruning archive \\
@@ -417,6 +505,7 @@ exec ./harlequin-node \\
   --port 30333 \\
   --consensus woven-trust-12000 \\
   --network-backend libp2p \\
+  --no-mdns \\
   --wasmtime-instantiation-strategy recreate-instance-copy-on-write \\
   --bootnodes "${BOOTNODE}" "${BOOTNODE2}" "${BOOTNODE3}" \\
   --state-pruning archive \\
