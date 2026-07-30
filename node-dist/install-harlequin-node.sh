@@ -106,12 +106,12 @@ ok "cpu: $ARCH"
 # 1b. Memory and disk preflight. MEASURED on 2026-07-30, same box, same path, only the RAM changed:
 #     1 GB → 0.0 blocks/s, stuck at block 47,152, ~10 days to finish, and NO error: the node crawls in
 #     silence and the person concludes the project is broken. 2 GB → 840-1,066 blocks/s, whole chain in
-#     ~2 minutes — BUT the first sync peaked at 2,031 MB and only survived because that box had swap;
-#     at rest it settles around 1,997 MB + 260 MB swap. A 2 GB VPS with no swap (most cheap ones) does
-#     not slow down: the kernel KILLS the node. And the overnight watch closed the case: 2 GB WITH
-#     512 MB of swap synced fine and then ate 509 of those 512 MB in ninety minutes, stalling on
-#     ~1,800 allocations. So the honest floor is 4 GB — on a machine with room the node settles near
-#     230 MB and never touches swap.
+#     ~2 minutes — but the first sync peaked at 2,031 MB and leaned on that box's swap to get there.
+#     Overnight watch (8 h) settled the shape: that same 2 GB box took swap to 509/512 MB and ~1,800
+#     allocation stalls DURING the sync, then RECOVERED — swap back to 404 MB, stall counter frozen,
+#     still in step with the chain, zero errors. So the pressure is the SYNC, not steady state.
+#     2 GB with NO swap is UNMEASURED and is not published as a fact. A roomy box settles at
+#     230-320 MB and never touches swap (measured over 7 h 46 m) — hence 4 GB as the recommendation.
 MEM_MB=0; SWAP_MB=0
 if [ -r /proc/meminfo ]; then
   MEM_MB="$(awk '/^MemTotal:/{printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo 0)"
@@ -133,9 +133,9 @@ if [ "${MEM_MB:-0}" -gt 0 ]; then
     # afternoon and starts failing at 3 a.m. is the worst failure there is: nobody can reproduce it.
     echo
     echo "  ⚠ ${MEM_MB} MB of memory (swap: ${SWAP_MB:-0} MB). This node wants 4 GB."
-    echo "    Under that it can look fine for hours and then choke: measured on 2 GB + 512 MB swap,"
-    echo "    it filled the swap in 90 minutes and started stalling. If you go ahead anyway, give it"
-    echo "    at least 2 GB of swap:"
+    echo "    Measured: 2 GB syncs the whole chain and verifies — but at the ceiling, with the kernel"
+    echo "    trimming its cache thousands of times to make room. It does NOT get killed, with or"
+    echo "    without swap. 1 GB never finishes. Swap makes 2 GB less painful, not necessary:"
     echo "        fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile"
     echo "    Continuing anyway in 15s — Ctrl+C to stop."
     echo
