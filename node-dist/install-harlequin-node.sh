@@ -35,9 +35,17 @@ SPEC_URL="$DIST_BASE/dist/mainnet-raw.json"
 SPEC_SHA256="ba1b25f7179d24c89aabd0a5f924d06f15365e1040cff3be2811a771e42086a6"  # SEALED launch chainspec (genesis 2026-07-18)
 
 BIN_URL_x86_64="$DIST_BASE/dist/harlequin-node"
-BIN_SHA_x86_64="fb50ba6a3b48c45e9d38f70c440ea3362eb724af308882da4c6479a8e5111ad3" # spec-3 rollout node (door upgrade; gate v2 SYNC-vs-TIP; marca puerta-spec3-2026-07-26)
+BIN_SHA_x86_64="c3172c558c4b6210f87424c7e2e4c82d6f0912d93147905ac8eb7a6e4b67f648" # sync-fairness node (marca sync-fairness-2026-08-01) — running on all four nodes since 2026-08-03
 BIN_URL_aarch64="$DIST_BASE/dist/harlequin-node-arm64"
-BIN_SHA_aarch64="1b65c660043a9d9efded6314f77f46a3c4f6cec501cb6c2dd310058fe65fa54e" # spec-3 rollout aarch64 (cross-built from the same marca puerta-spec3-2026-07-26)
+# ── PHONES, TABLETS AND RASPBERRY PI: YOUR VERSION IS THE PREVIOUS ONE ────────────────────────────
+# Said plainly because you should not have to deduce it: the download for ARM machines (phone,
+# tablet, Raspberry Pi) is still the July build. The August fix — a node that had fallen behind no
+# longer penalises the peer that could catch it up — is only in the build for ordinary PCs and
+# servers so far. Nothing is broken for you: this is the same build that has been serving since
+# July, and it joins and syncs fine. It simply lacks that one improvement until the ARM build is
+# rebuilt from the same marked source. Cross-building it takes time, so it is a task with a date
+# rather than a promise.
+BIN_SHA_aarch64="1b65c660043a9d9efded6314f77f46a3c4f6cec501cb6c2dd310058fe65fa54e" # spec-3 rollout aarch64 (cross-built from the marca puerta-spec3-2026-07-26) — PREVIOUS build, see note above
 
 # Baked into the spec too; passed explicitly in portable mode for first-dial robustness.
 # THREE DOORS, NOT ONE (2026-07-26). Until today the installer handed out a single address, so every
@@ -63,14 +71,16 @@ SVC="harlequin-node"
 # operator you already trust. If the sources disagree — STOP, do not join.
 # F4 NOTE: values below pin the LAUNCH chain at genesis. At the relaunch ceremony (F4) they are
 # re-pinned to a fresh finalized checkpoint, and on every release thereafter.
-# Re-pinned 2026-07-29 to a POST-APPLY finalized block: #79830 is past the runtime upgrade at #79501,
-# so this pin alone proves the chain you joined is the one running spec 3. Cross-verified on three
-# independent nodes before pinning (bootnode RPC, oracle04 RPC, ct103 finality log: "finalised #79830
-# … committee 4, alpha 3/4").
-CHECKPOINT_HEIGHT="79830"
-CHECKPOINT_HASH="0xda9180c4276481a76c00125272029b715fe924c535a2aec4d6556100401deb44"
+# Re-pinned 2026-08-14 to block #188805, finalized and then left to settle: it sits roughly a thousand
+# blocks below the finalized head, so it is not a fresh block that a reorganisation could still drop.
+# It is also well past the runtime upgrade at #79501, so this pin alone proves the chain you joined is
+# the one running the current runtime. Cross-verified on three independent nodes before pinning — by
+# height and by hash, agreeing exactly — and the previous pin (#79830, 2026-07-29) was verified the
+# same way.
+CHECKPOINT_HEIGHT="188805"
+CHECKPOINT_HASH="0x6f9b5400dc22e8e63b9a320e6d67793fe2dcd11596bbcf1603cde715e9765edc"
 CHECKPOINT_CHAIN="Harlequin Launch (cold-start)"  # system_chain name (spec id: hlq_launch)
-CHECKPOINT_PINNED_AT="2026-07-29"  # re-pin to a fresher finalized block before each public release
+CHECKPOINT_PINNED_AT="2026-08-14"  # re-pin to a fresher finalized block before each public release
 RPC_URL="http://127.0.0.1:9944"   # node RPC is local-only by default; the check runs on YOUR box
 # ─────────────────────────────────────────────────────────────────────────────
 
