@@ -12,25 +12,19 @@ services:
       dockerfile: Dockerfile
     container_name: harlequin-node
     restart: unless-stopped
-    # First run generates the node-key into the volume, then starts the node.
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - >
-        test -f /data/node-key || harlequin-node key generate-node-key --file /data/node-key;
-        chmod 600 /data/node-key;
-        exec harlequin-node
-        --base-path /data
-        --chain /etc/harlequin/mainnet-raw.json
-        --node-key-file /data/node-key
-        --name "${HLQ_NODE_NAME:-hlq-docker-node}"
-        --port 30333
-        --state-pruning archive
+    # NO `entrypoint`/`command` here, on purpose (2026-09-17). This file used to override the image with its
+    # own flag list, and Docker drops the image's CMD whenever a compose file sets `entrypoint`. That list
+    # had no --bootnodes (the sealed chain spec only carries 127.0.0.1), no --consensus (the binary then
+    # defaults to instant-seal), no --blocks-pruning and no txpool fix: `docker compose up` gave a node
+    # stuck at genesis with zero peers, published as the easy way in. The ONE flag list is the Dockerfile
+    # CMD. The node-key needs no pre-step: a non-authority node creates `--node-key-file` if it is missing
+    # (sc-cli node_key_params.rs; only authorities refuse).
     ports:
       - "30333:30333"          # p2p — open this in your firewall to accept peers
     volumes:
       - hlq-data:/data
-      # The launch chain spec (carries the real bootnode multiaddr) mounted read-only:
-      - ./mainnet-raw.json:/etc/harlequin/mainnet-raw.json:ro
+      # No chain-spec mount: the image already carries the spec, sha256-verified at build. Mounting a local
+      # copy over it would replace a checked file with an unchecked one.
     # Hardening: no new privileges, drop all caps (a sync node needs none).
     security_opt:
       - no-new-privileges:true

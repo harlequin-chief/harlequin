@@ -32,10 +32,23 @@ set -euo pipefail
 # Pinned distribution (re-pinned on every release; sha256 is the security boundary of this script).
 DIST_BASE="https://harlequinproject.org"
 SPEC_URL="$DIST_BASE/dist/mainnet-raw.json"
+
+# SECOND PLACE TO DOWNLOAD FROM (2026-08-27). Everything you are about to fetch comes from ONE machine.
+# If it is down, the network keeps running and existing nodes keep talking — but nobody NEW can join,
+# because there is nowhere to get the program. That is the single point of failure, and it is not the
+# network: it is the download.
+#
+# Setting this to a base URL makes the installer try there when the first place does not answer. It does
+# NOT weaken anything: the sha256 pins above are still checked against whatever arrives, so a hostile
+# mirror cannot hand you a different binary — the script would stop. A mirror adds a PLACE, not a trust.
+#
+# Empty on purpose while no mirror is published. Empty means "there is no second place", and the
+# installer SAYS SO when the first one fails, instead of pretending it tried.
+MIRROR_BASE=""
 SPEC_SHA256="ba1b25f7179d24c89aabd0a5f924d06f15365e1040cff3be2811a771e42086a6"  # SEALED launch chainspec (genesis 2026-07-18)
 
 BIN_URL_x86_64="$DIST_BASE/dist/harlequin-node"
-BIN_SHA_x86_64="c3172c558c4b6210f87424c7e2e4c82d6f0912d93147905ac8eb7a6e4b67f648" # sync-fairness node (marca sync-fairness-2026-08-01) — running on all four nodes since 2026-08-03
+BIN_SHA_x86_64="ad04a91715e8cac987978ed56d62b648812edda081aff65565c43e524194d5b4" # sync-fairness node (marca sync-fairness-2026-08-01), rebuilt 2026-09-17 with every build path remapped (same code the four nodes run as c3172c55; that build carried the build machine's paths)
 BIN_URL_aarch64="$DIST_BASE/dist/harlequin-node-arm64"
 # ── PHONES, TABLETS AND RASPBERRY PI: YOUR VERSION IS THE PREVIOUS ONE ────────────────────────────
 # Said plainly because you should not have to deduce it: the download for ARM machines (phone,
@@ -231,8 +244,27 @@ dl() { # <url> <dest> — same guarantees on either tool: HTTPS-only, TLS>=1.2, 
 }
 [ "${BIN_URL#https://}"  != "$BIN_URL"  ] || die "binary URL is not https."
 [ "${SPEC_URL#https://}" != "$SPEC_URL" ] || die "spec URL is not https."
-ok "downloading node binary ($ARCH)…"; dl "$BIN_URL"  "$TMP/harlequin-node"   || die "download failed: $BIN_URL"
-ok "downloading launch chain spec…";   dl "$SPEC_URL" "$TMP/mainnet-raw.json" || die "download failed: $SPEC_URL"
+# dl_or_mirror <primary-url> <dest> <what>: try the published place; if it does not answer, try the
+# mirror — and if there is no mirror, say exactly that. A download that fails in silence, or a mirror
+# variable that is empty and looks configured, is how someone ends up with half an installation.
+dl_or_mirror() {
+  local url="$1" dest="$2" what="$3"
+  dl "$url" "$dest" && return 0
+  if [ -z "$MIRROR_BASE" ]; then
+    die "could not download the $what from $url, and this installer has NO mirror configured.
+     Nothing is broken on your side. The single place that serves the files is not answering.
+     Check https://harlequinproject.org — and if you have the sha256 from a source you trust, any
+     copy of the file works: the installer verifies it before using it."
+  fi
+  info "the main place did not answer — trying the mirror…"
+  local path="${url#*/dist/}"
+  dl "$MIRROR_BASE/$path" "$dest" \
+    || die "could not download the $what from either place ($url and $MIRROR_BASE/$path)."
+  ok "got the $what from the mirror. It will be sha256-verified exactly like the main one."
+}
+
+ok "downloading node binary ($ARCH)…"; dl_or_mirror "$BIN_URL"  "$TMP/harlequin-node"   "node binary"
+ok "downloading launch chain spec…";   dl_or_mirror "$SPEC_URL" "$TMP/mainnet-raw.json" "chain spec"
 
 # 4. verify sha256 — ABORT on mismatch (the security boundary of this script)
 verify() { # <file> <expected>
@@ -447,6 +479,20 @@ else
   install -m 0755 "$TMP/verify-checkpoint.sh" "$PREFIX/verify-checkpoint.sh"
   ok "installed binary + spec under $PREFIX."
 
+  # node-key (network identity, NOT an account; never overwritten). WITHOUT this the node draws a
+  # fresh identity on every start: to everyone else you are a different machine each time, so the
+  # standing you build with your peers is thrown away at every restart. The systemd path has had
+  # this since day one; the portable path — the one a phone or a tablet takes — did not, and nobody
+  # noticed because nobody ever walked that path from scratch. Added 2026-08-27.
+  if [ ! -f "$PREFIX/node-key" ]; then
+    "$PREFIX/harlequin-node" key generate-node-key --file "$PREFIX/node-key" >/dev/null 2>&1 \
+      || die "could not generate node-key."
+    chmod 600 "$PREFIX/node-key"
+    ok "generated network node-key (0600) — your node keeps the same identity across restarts."
+  else
+    ok "node-key already present (left untouched)."
+  fi
+
   # --wasmtime-instantiation-strategy recreate-instance-copy-on-write: avoids wasmtime's pooling
   # allocator (reserves a huge mmap that dies inside proot/Android).
   # v4.1 UX: the node runs DETACHED from the terminal (nohup + logfile + pidfile). Closing the
@@ -461,9 +507,12 @@ if [ -f node.pid ] && kill -0 "\$(cat node.pid)" 2>/dev/null; then
   echo "  ✓ node already running (pid \$(cat node.pid)). Status: ./node-status.sh" >&2
   exit 0
 fi
+# same ceiling the systemd unit sets with LimitNOFILE: a syncing node opens a lot of files at once.
+ulimit -n 65536 2>/dev/null || true
 nohup ./harlequin-node \\
   --base-path ./data \\
   --chain ./mainnet-raw.json \\
+  --node-key-file ./node-key \\
   --name "${NODE_NAME}" \\
   --port 30333 \\
   --consensus woven-trust-12000 \\
@@ -527,9 +576,11 @@ SP
 #!/usr/bin/env bash
 set -euo pipefail
 cd "\$(dirname "\$0")"
+ulimit -n 65536 2>/dev/null || true
 exec ./harlequin-node \\
   --base-path ./data \\
   --chain ./mainnet-raw.json \\
+  --node-key-file ./node-key \\
   --name "${NODE_NAME}" \\
   --port 30333 \\
   --consensus woven-trust-12000 \\

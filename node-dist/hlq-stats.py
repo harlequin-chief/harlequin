@@ -6,7 +6,7 @@ serves that file same-origin; the Network page (network.js) fetches it. Read-onl
 node, never writes anything but the output file.
 
 What it publishes (deliberately minimal — aggregate only, nothing that deanonymises a peer):
-  chain name, best block, finalized block, peer count, syncing flag, updated timestamp (UTC).
+  chain name, best block, finalized block, peer count, syncing flag, and how OLD the reading is.
 What it NEVER publishes: peer IPs, peer-ids, node names, RPC internals, machine info.
 
 Usage:
@@ -91,7 +91,12 @@ def collect(rpc_url):
         "peers": health.get("peers"),
         "syncing": health.get("isSyncing"),
         "recentBlocks": recent,
-        "updated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        # OPSEC (2026-08-01): this used to publish the absolute server clock ("updated":
+        # "2026-07-30T18:01:36Z"). Anyone polling the file could read our machine time and,
+        # over a few reads, the rhythm of how we operate it — when someone is at the keyboard
+        # and when nobody is. A visitor only needs to know whether the reading is fresh, so we
+        # serve an AGE in seconds and never a wall-clock stamp. `builtAt` stays internal.
+        "ageSeconds": 0,
     }
 
 def write_atomic(path, data):
@@ -115,15 +120,47 @@ def main():
     ap.add_argument("--rpc", default="http://127.0.0.1:9944")
     ap.add_argument("--out", default="/var/www/harlequin/network.json")
     ap.add_argument("--interval", type=int, default=0)
+    ap.add_argument("--stale-after", type=int, default=480,
+                    help="seconds without the finalized head advancing before the local view is "
+                         "treated as suspect (natural cadence is ~180s; 480s ≈ >2 missed rounds)")
     args = ap.parse_args()
+
+    # Anti-fork guard (2026-07-28, from the 27-jul incident): when the local node is isolated it
+    # keeps authoring a solo fork and this feed would publish that fork as the truth. The finalized
+    # head is the only part of the view that carries the committee's signatures, so it is the trust
+    # anchor: if it stops advancing (or the node has 0 peers), we freeze the last CONFIRMED snapshot
+    # and say so (viewStale) instead of serving an unbacked tip. Live peers/updated stay honest.
+    guard = {"fin": None, "since": None, "snapshot": None}
 
     def tick():
         try:
-            write_atomic(args.out, collect(args.rpc))
-            return True
+            data = collect(args.rpc)
         except Exception as e:
             print(f"hlq-stats: node unreachable / error: {e}", file=sys.stderr)
             # leave the previous network.json in place; do not write a broken file
+            return False
+        now = time.time()
+        fin = data.get("finalizedBlock")
+        if fin is not None and fin != guard["fin"]:
+            guard.update(fin=fin, since=now, snapshot=data)
+        finality_stalled = guard["since"] is not None and (now - guard["since"]) > args.stale_after
+        no_peers = not data.get("peers")
+        if (finality_stalled or no_peers) and guard["snapshot"] is not None:
+            out = dict(guard["snapshot"])            # last view backed by an advancing finality
+            out["peers"] = data.get("peers")         # current reachability stays honest
+            out["syncing"] = data.get("syncing")
+            out["viewStale"] = True
+            # Same rule for the freeze marker: how long we have been blind, not since when.
+            out["staleForSeconds"] = int(now - guard["since"])
+            out["ageSeconds"] = int(now - guard["since"])
+        else:
+            out = data
+            out["viewStale"] = False
+        try:
+            write_atomic(args.out, out)
+            return True
+        except Exception as e:
+            print(f"hlq-stats: write error: {e}", file=sys.stderr)
             return False
 
     if args.interval <= 0:
