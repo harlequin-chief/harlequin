@@ -1,0 +1,19 @@
+[package]
+name = "apply-tool"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+description = "Offline assembler for MultisigUpgrade::apply_upgrade — verifies the wasm against the announced code_hash, signs with an ephemeral mask and emits the extrinsic hex. Ceremony tooling, never part of a release."
+publish = false
+
+[dependencies]
+# `mainnet` is mandatory here: it removes Sudo from the pallet list, and with it the RuntimeCall
+# variant indices of the LIVE chain — an extrinsic encoded against the devnet layout would carry
+# the wrong pallet index.
+harlequin-runtime = { path = "../../../runtime", features = ["std", "mainnet"] }
+polkadot-sdk = { version = "2604.2.0", features = ["node", "frame-system", "pallet-transaction-payment"] }
+pallet-multisig-upgrade = { path = "../../../pallet-multisig-upgrade", features = ["std"] }
+codec = { package = "parity-scale-codec", version = "3" }
+sp-core = "*"
+sp-runtime = "*"
+clap = { version = "4", features = ["derive"] }

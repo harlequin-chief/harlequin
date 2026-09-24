@@ -16,17 +16,22 @@
 //!   window + every node's offline recompute of the blob is for. HONEST LIMIT, stated plainly: code
 //!   replaces code — no runtime can mechanically prove properties of its successor. What this buys is
 //!   that a treacherous upgrade must lie IN PUBLIC, on-chain, attributably, with a window to refuse it.
-//! - **HARD expiry**: the key lives [`Config::InitialLife`] blocks (DECIDED: 12 months) and then stops
+//! - **HARD expiry**: the key lives [`Config::InitialLife`] blocks (the maintainer: 3 months, a ceiling) and then stops
 //!   applying upgrades. **Burn**: 3 approvals burn it forever, irreversibly, early (the safe direction
 //!   needs no window).
-//! - **Geometric renewal** (never orphaned, never perpetual): at/near expiry the key can be renewed for
-//!   HALF the previous window — but it costs **4-of-5** AND a **co-signature of the majority of the
-//!   current finality-grade set** ([`CommitteeInspect`]): an act of the NETWORK, not of the founders.
-//!   The series ½+¼+… converges — the key mathematically cannot be perpetual (Art. VI in arithmetic).
+//! - **Renewal, OPTION B — renewable forever, owned by no one** (DECIDED the maintainer, replaces
+//!   the geometric decay): at/near expiry the key can be renewed for ONE full [`Config::InitialLife`]
+//!   window (3 months) — but it costs **4-of-5** AND a **co-signature of the majority of the current
+//!   finality-grade set** ([`CommitteeInspect`]), snapshotted at open: an act of the NETWORK, not of
+//!   the founders, ratified by a FRESH reputation-sortitioned set each cycle. What keeps it from
+//!   being perpetual is the SUNSET, not arithmetic decay: if nobody actively renews it, it dies alone
+//!   at expiry (Art. VI: "temporary and renewed" — literally). A neglected key is a dead key.
 //! - **Disaster renewal** (R2): when the chain is broken enough that no committee can be sampled for
 //!   [`Config::DisasterEpochs`] consecutive epochs (objective on-chain metric, self-evaluated), renewal
-//!   is possible at **5-of-5** (unanimity) for a QUARTER window, `set_code` scope only. Even the worst
-//!   case repairs without crowning anyone (¼ < ½: still converging).
+//!   is possible at **5-of-5** (unanimity) for a QUARTER window, `set_code` scope only — an emergency
+//!   bridge until a normal, committee-ratified renewal is possible again. Never crowns anyone.
+//! - **Custody seat = keyhole, not voice** (DECIDED the maintainer): the 5th seat may sign renewals,
+//!   veto and burn, but can never propose or approve an upgrade — code only passes with founder votes.
 //! - **Seat cession**: a signer may cede its own seat to a member of high standing
 //!   ([`StandingInspect`], floor = the network's own p25 bar) through the same public
 //!   propose/approve/window process. Founders hold seats only because at block 0 nobody else existed.
@@ -136,7 +141,8 @@ pub mod pallet {
         /// version bump on the candidate blob).
         type CodeSetter: SetCode;
 
-        /// Initial life of the key in blocks (DECIDED, the maintainer: 12 months). Renewals halve it.
+        /// Life of the key in blocks per grant (the maintainer: 3 months). OPTION B ():
+        /// every normal renewal grants exactly this window again — sunset, not decay.
         #[pallet::constant]
         type InitialLife: Get<BlockNumberFor<Self>>;
 
@@ -161,12 +167,12 @@ pub mod pallet {
     pub type Signers<T: Config> =
         StorageValue<_, BoundedVec<T::AccountId, ConstU32<SEATS>>, ValueQuery>;
 
-    /// Block at which the key stops applying upgrades. Extended only by renewal (halving windows).
+    /// Block at which the key stops applying upgrades. Extended only by renewal (full windows, B).
     #[pallet::storage]
     pub type LifeEnd<T: Config> = StorageValue<_, BlockNumberFor<T>, ValueQuery>;
 
-    /// The CURRENT window length — the geometric term. Next normal renewal grants half of this,
-    /// a disaster renewal a quarter. Genesis: [`Config::InitialLife`].
+    /// The window length granted by the LAST renewal (display/audit). OPTION B: a normal renewal
+    /// grants a full [`Config::InitialLife`]; a disaster renewal a quarter of it.
     #[pallet::storage]
     pub type CurrentWindow<T: Config> = StorageValue<_, BlockNumberFor<T>, ValueQuery>;
 
@@ -236,12 +242,24 @@ pub mod pallet {
     #[pallet::storage]
     pub type EpochsWithoutCommittee<T> = StorageValue<_, u32, ValueQuery>;
 
+    /// The custody seat (keyhole-only, the maintainer). Set at genesis; `None` = all seats full.
+    /// Restricted from `propose_upgrade`/`approve_upgrade` — it never pushes code. It keeps veto
+    /// (brake), burn (renunciation) and renewal signatures (recovery), so losing a founder still
+    /// leaves the emergency arithmetic intact without ever giving custody a voice over upgrades.
+    #[pallet::storage]
+    pub type Custody<T: Config> = StorageValue<_, T::AccountId, OptionQuery>;
+
     #[pallet::genesis_config]
     #[derive(frame::prelude::DefaultNoBound)]
     pub struct GenesisConfig<T: Config> {
         /// The 5 founding seats. Exactly [`SEATS`] accounts (genesis panics otherwise: the thresholds'
         /// arithmetic assumes 5 — booting with fewer would silently lower every bar).
         pub signers: alloc::vec::Vec<T::AccountId>,
+        /// The CUSTODY seat (DECIDED the maintainer: "custody does not vote"). Must be one of
+        /// `signers`. It is a keyhole, not a voice: it may co-sign renewals (normal and disaster),
+        /// veto (a brake), and burn (renouncing power) — but it can never propose or approve an
+        /// upgrade, so code only ever passes with founder votes.
+        pub custody: Option<T::AccountId>,
     }
 
     #[pallet::genesis_build]
@@ -263,6 +281,13 @@ pub mod pallet {
             let bounded: BoundedVec<T::AccountId, ConstU32<SEATS>> =
                 self.signers.clone().try_into().expect("len checked == SEATS; qed");
             Signers::<T>::put(bounded);
+            if let Some(c) = &self.custody {
+                assert!(
+                    self.signers.contains(c),
+                    "multisig genesis: the custody seat must hold one of the 5 locks"
+                );
+                Custody::<T>::put(c.clone());
+            }
             LifeEnd::<T>::put(T::InitialLife::get());
             CurrentWindow::<T>::put(T::InitialLife::get());
         }
@@ -287,7 +312,7 @@ pub mod pallet {
         RenewalProposed { disaster: bool },
         /// A committee member co-signed the pending renewal (the network's ratification).
         RenewalCosigned { cosigns: u32 },
-        /// The key was renewed: new expiry + the halved (or quartered) window. Ever smaller.
+        /// The key was renewed: new expiry + the granted window (full = normal, quarter = disaster).
         KeyRenewed { life_end: BlockNumberFor<T>, window: BlockNumberFor<T>, disaster: bool },
         /// A seat cession was proposed (public window, like everything else).
         CessionProposed { from: T::AccountId, to: T::AccountId },
@@ -342,6 +367,9 @@ pub mod pallet {
         AlreadySigner,
         /// Only the seat's own holder may cede it.
         NotYourSeat,
+        /// The custody seat is a keyhole, not a voice (the maintainer): it cannot propose or
+        /// approve upgrades. Renewals, veto and burn remain open to it.
+        CustodyKeyholeOnly,
     }
 
     #[pallet::hooks]
@@ -381,6 +409,7 @@ pub mod pallet {
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
             Self::ensure_signer(&who)?;
+            Self::ensure_not_custody(&who)?;
             Self::ensure_alive()?;
             ensure!(PendingUpgrade::<T>::get().is_none(), Error::<T>::AlreadyPending);
             // FLAG-1, the mechanical half: the declaration must equal the sealed truth, and the
@@ -405,6 +434,7 @@ pub mod pallet {
         pub fn approve_upgrade(origin: OriginFor<T>, code_hash: [u8; 32]) -> DispatchResult {
             let who = ensure_signed(origin)?;
             Self::ensure_signer(&who)?;
+            Self::ensure_not_custody(&who)?;
             Self::ensure_alive()?;
             PendingUpgrade::<T>::try_mutate(|maybe| {
                 let (hash, _, _, approvals) =
@@ -573,10 +603,11 @@ pub mod pallet {
             })
         }
 
-        /// Execute the renewal. Normal: 4-of-5 + a strict majority of the CURRENT committee's
-        /// co-signatures → the window HALVES. Disaster: 5-of-5 + the metric still holding → the window
-        /// QUARTERS. Either way the new life runs from `max(now, old end)` and the series converges:
-        /// arithmetic, not promises, keeps the key from being perpetual.
+        /// Execute the renewal. Normal: 4-of-5 + a strict majority of the SNAPSHOTTED committee's
+        /// co-signatures → ONE full `InitialLife` window (OPTION B, the maintainer: renewable
+        /// forever, dead-by-default). Disaster: 5-of-5 + the metric still holding → a QUARTER window,
+        /// an emergency bridge. Either way the new life runs from `max(now, old end)`; what keeps the
+        /// key from being perpetual is the sunset — silence kills it — not arithmetic decay.
         #[pallet::call_index(8)]
         #[pallet::weight(Weight::from_parts(200_000, 0))]
         pub fn apply_renewal(origin: OriginFor<T>) -> DispatchResult {
@@ -617,9 +648,11 @@ pub mod pallet {
                     Error::<T>::NotEnoughCosigns
                 );
             }
-            let old_window = CurrentWindow::<T>::get();
-            let divisor: u32 = if disaster { 4 } else { 2 };
-            let window = old_window / divisor.into();
+            // OPTION B: each normal renewal grants ONE full InitialLife window — no halving. The
+            // sunset is the guard: an unrenewed key dies alone. Disaster grants a quarter: enough to
+            // repair, not enough to reign between real (committee-ratified) renewals.
+            let base = T::InitialLife::get();
+            let window = if disaster { base / 4u32.into() } else { base };
             let window = window.max(One::one()); // a zero window would be a silent burn — floor at 1
             let now = frame_system::Pallet::<T>::block_number();
             let life_end = now.max(LifeEnd::<T>::get()).saturating_add(window);
@@ -702,6 +735,11 @@ pub mod pallet {
                     *slot = to.clone();
                 }
             });
+            // The keyhole restriction travels WITH the custody seat: whoever holds that lock next is
+            // just as voiceless over upgrades as the founder-era custodian was.
+            if Custody::<T>::get().as_ref() == Some(&from) {
+                Custody::<T>::put(to.clone());
+            }
             PendingCession::<T>::kill();
             Self::deposit_event(Event::SeatCeded { from, to });
             Ok(())
@@ -711,6 +749,16 @@ pub mod pallet {
     impl<T: Config> Pallet<T> {
         fn ensure_signer(who: &T::AccountId) -> DispatchResult {
             ensure!(Signers::<T>::get().contains(who), Error::<T>::NotSigner);
+            Ok(())
+        }
+
+        /// The custody seat never pushes code (the maintainer: keyhole, not voice). Only the
+        /// upgrade verbs call this — renewals, veto and burn stay open to custody.
+        fn ensure_not_custody(who: &T::AccountId) -> DispatchResult {
+            ensure!(
+                Custody::<T>::get().map_or(true, |c| &c != who),
+                Error::<T>::CustodyKeyholeOnly
+            );
             Ok(())
         }
 
@@ -751,8 +799,8 @@ pub mod pallet {
 mod tests {
     use crate as pallet_multisig_upgrade;
     use crate::{
-        Burned, CommitteeInspect, CurrentWindow, EpochsWithoutCommittee, Error, InvariantDeclaration,
-        LifeEnd, SealedInvariants, SetCode, Signers, StandingInspect,
+        Burned, CommitteeInspect, CurrentWindow, Custody, EpochsWithoutCommittee, Error,
+        InvariantDeclaration, LifeEnd, SealedInvariants, SetCode, Signers, StandingInspect,
     };
     use frame::testing_prelude::*;
 
@@ -834,7 +882,7 @@ mod tests {
     fn new_test_ext() -> TestState {
         let mut ext: TestState = RuntimeGenesisConfig {
             system: Default::default(),
-            multisig: pallet_multisig_upgrade::GenesisConfig { signers: F.to_vec() },
+            multisig: pallet_multisig_upgrade::GenesisConfig { signers: F.to_vec(), custody: None },
         }
         .build_storage()
         .unwrap()
@@ -966,7 +1014,7 @@ mod tests {
             assert_ok!(Multisig::cosign_renewal(RuntimeOrigin::signed(101)));
             System::set_block_number(1005); // the renewal's own objection window elapses
             assert_ok!(Multisig::apply_renewal(RuntimeOrigin::signed(9)));
-            assert_eq!(CurrentWindow::<Test>::get(), 500);
+            assert_eq!(CurrentWindow::<Test>::get(), 1000); // OPTION B: full window again, no decay
         });
     }
 
@@ -1027,7 +1075,10 @@ mod tests {
     }
 
     #[test]
-    fn renewal_needs_4_of_5_plus_committee_majority_and_halves() {
+    // Renamed: was `..._and_halves`, a leftover from the geometric-decay design that
+    // OPTION B replaced (DECIDED the maintainer). The body already asserts the opposite — a FULL
+    // window, no decay — so the old name told a scanner the exact reverse of what is guaranteed.
+    fn renewal_needs_4_of_5_plus_committee_majority_and_grants_a_full_window() {
         new_test_ext().execute_with(|| {
             // not due while the key has more than a window of life left
             assert_noop!(
@@ -1052,10 +1103,10 @@ mod tests {
                 Error::<Test>::ObjectionWindowOpen
             );
             System::set_block_number(1005); // proposed at 995 + window 10
-            // 2 of 3 committee co-signs = strict majority → renews; window HALVES (1000 → 500)
+            // 2 of 3 committee co-signs = strict majority → renews; OPTION B: FULL window again
             assert_ok!(Multisig::apply_renewal(RuntimeOrigin::signed(9)));
-            assert_eq!(CurrentWindow::<Test>::get(), 500);
-            assert_eq!(LifeEnd::<Test>::get(), 1005 + 500); // key had expired at 1000 → extends from now
+            assert_eq!(CurrentWindow::<Test>::get(), 1000); // no decay — sunset is the guard
+            assert_eq!(LifeEnd::<Test>::get(), 1005 + 1000); // key had expired at 1000 → extends from now
         });
     }
 
@@ -1205,11 +1256,76 @@ mod tests {
         });
     }
 
+    fn custody_ext() -> TestState {
+        let mut ext: TestState = RuntimeGenesisConfig {
+            system: Default::default(),
+            multisig: pallet_multisig_upgrade::GenesisConfig {
+                signers: F.to_vec(),
+                custody: Some(5),
+            },
+        }
+        .build_storage()
+        .unwrap()
+        .into();
+        ext.execute_with(|| System::set_block_number(1));
+        ext
+    }
+
+    #[test]
+    fn custody_is_keyhole_not_voice() {
+        custody_ext().execute_with(|| {
+            // custody can NEVER push code: neither propose...
+            assert_noop!(
+                Multisig::propose_upgrade(RuntimeOrigin::signed(5), [7u8; 32], sealed()),
+                Error::<Test>::CustodyKeyholeOnly
+            );
+            // ...nor approve someone else's proposal
+            let hash = propose_ok(b"new-runtime");
+            assert_noop!(
+                Multisig::approve_upgrade(RuntimeOrigin::signed(5), hash),
+                Error::<Test>::CustodyKeyholeOnly
+            );
+            // but the BRAKE stays in its hand: custody vetoes like any seat
+            assert_ok!(Multisig::veto_upgrade(RuntimeOrigin::signed(5), hash));
+            // and RENUNCIATION too: custody counts toward the burn
+            assert_ok!(Multisig::approve_burn(RuntimeOrigin::signed(5)));
+        });
+    }
+
+    #[test]
+    fn custody_signs_renewals() {
+        custody_ext().execute_with(|| {
+            // at expiry, renewal (the recovery verb) is open to custody like any seat
+            System::set_block_number(995); // within one objection window of LifeEnd = 1000
+            assert_ok!(Multisig::propose_renewal(RuntimeOrigin::signed(5), false));
+            assert_ok!(Multisig::approve_renewal(RuntimeOrigin::signed(1)));
+        });
+    }
+
+    #[test]
+    fn custody_restriction_travels_with_the_ceded_seat() {
+        custody_ext().execute_with(|| {
+            // custody (seat 5) cedes its lock to a high-standing mask
+            MockStanding::set(&vec![(201u64, 80i128)]);
+            assert_ok!(Multisig::propose_cession(RuntimeOrigin::signed(5), 201));
+            assert_ok!(Multisig::approve_cession(RuntimeOrigin::signed(1)));
+            assert_ok!(Multisig::approve_cession(RuntimeOrigin::signed(2)));
+            System::set_block_number(12);
+            assert_ok!(Multisig::apply_cession(RuntimeOrigin::signed(9)));
+            assert_eq!(Custody::<Test>::get(), Some(201), "the keyhole followed the seat");
+            // the new custodian is exactly as voiceless over upgrades as the old one
+            assert_noop!(
+                Multisig::propose_upgrade(RuntimeOrigin::signed(201), [9u8; 32], sealed()),
+                Error::<Test>::CustodyKeyholeOnly
+            );
+        });
+    }
+
     #[test]
     fn genesis_without_signers_boots_inert() {
         let mut ext: TestState = RuntimeGenesisConfig {
             system: Default::default(),
-            multisig: pallet_multisig_upgrade::GenesisConfig { signers: vec![] },
+            multisig: pallet_multisig_upgrade::GenesisConfig { signers: vec![], custody: None },
         }
         .build_storage()
         .unwrap()

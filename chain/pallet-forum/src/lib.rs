@@ -5,11 +5,11 @@
 //! IPFS address), a monotonic order id, and an optional thread parent. This keeps the chain small while the
 //! *ordering and authorship* — the parts that need consensus — are canonical and tamper-evident.
 //!
-//! **Moderation is by reputation, not authority.** A post is **hidden ONLY by a jury verdict**
-//! (`pallet-justice`), routed here through a pluggable [`Config::ModerationOrigin`] — exactly the pattern the
-//! other pallets use for their privileged-but-not-royal inputs (e.g. `ServiceOrigin`, `EvidenceOrigin`). There
-//! is no admin delete and no author edit: the index is append-only, so the record of what was said — and that
-//! a jury hid it — is itself non-repudiable. Hiding sets a flag; it never erases the entry (no memory-holing).
+//! **Nothing is hidden — moderation lives off-chain, in the reader.** The chain has NO hide/delete/flag
+//! surface at all: the index is append-only and every entry stays exactly as posted. Jury verdicts
+//! (`pallet-justice`) label *conduct* on the public record; clients and each free reader decide what to
+//! render, informed by those verdicts. The base layer stays neutral and blind (32-byte hashes only, body
+//! off-chain in IPFS) — no operator, jury, or majority holds a button that suppresses speech.
 //!
 //! **Anti-spam (pre-mainnet note).** This crate gates posting at `ensure_signed` only. Production should
 //! additionally require a registered mask (`pallet-directory`) and either a small HLQ fee (`pallet-tokens`)
@@ -50,8 +50,6 @@ pub mod pallet {
         pub parent: Option<u64>,
         /// Block at which it was indexed (ordering tiebreak / display).
         pub at: BlockNumberFor<T>,
-        /// Hidden by a jury verdict. The entry remains (append-only); clients hide the body. Never erased.
-        pub hidden: bool,
     }
 
     #[pallet::config]
@@ -59,10 +57,6 @@ pub mod pallet {
         /// The aggregate event type of the runtime.
         type RuntimeEvent: From<Event<Self>>
             + IsType<<Self as frame_system::Config>::RuntimeEvent>;
-
-        /// Origin allowed to hide a post — the **jury verdict** path (`pallet-justice`), pluggable like the
-        /// other pallets' privileged origins. NOT a signed admin: moderation is by reputation, not authority.
-        type ModerationOrigin: EnsureOrigin<Self::RuntimeOrigin>;
 
         /// Max thread nesting depth checked at post time (bounds reply chains / display cost). A reply's depth
         /// is its parent's depth + 1; roots are depth 0.
@@ -90,8 +84,6 @@ pub mod pallet {
     pub enum Event<T: Config> {
         /// A post was indexed: `id` (its order), by `author`, body at `body`, replying to `parent`.
         Posted { id: u64, author: T::AccountId, body: BodyHash, parent: Option<u64> },
-        /// A post was hidden by a jury verdict (the entry remains; only the body is hidden by clients).
-        PostHidden { id: u64 },
     }
 
     #[pallet::error]
@@ -100,10 +92,6 @@ pub mod pallet {
         ParentNotFound,
         /// The reply would exceed `MaxThreadDepth`.
         ThreadTooDeep,
-        /// No post with that id.
-        PostNotFound,
-        /// The post is already hidden.
-        AlreadyHidden,
     }
 
     #[pallet::call]
@@ -134,7 +122,6 @@ pub mod pallet {
                     body,
                     parent,
                     at: frame_system::Pallet::<T>::block_number(),
-                    hidden: false,
                 },
             );
             Depth::<T>::insert(id, depth);
@@ -143,21 +130,6 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Hide a post. Gated by `ModerationOrigin` — i.e. a jury verdict, never a signed admin. The entry is
-        /// kept (append-only, no memory-holing); the `hidden` flag tells clients not to render the body.
-        #[pallet::call_index(1)]
-        #[pallet::weight(Weight::from_parts(15_000, 0))]
-        pub fn hide_post(origin: OriginFor<T>, id: u64) -> DispatchResult {
-            T::ModerationOrigin::ensure_origin(origin)?;
-            Posts::<T>::try_mutate(id, |maybe| -> DispatchResult {
-                let p = maybe.as_mut().ok_or(Error::<T>::PostNotFound)?;
-                ensure!(!p.hidden, Error::<T>::AlreadyHidden);
-                p.hidden = true;
-                Ok(())
-            })?;
-            Self::deposit_event(Event::PostHidden { id });
-            Ok(())
-        }
     }
 
     impl<T: Config> Pallet<T> {
@@ -176,7 +148,7 @@ pub mod pallet {
 #[cfg(test)]
 mod tests {
     use crate as pallet_forum;
-    use crate::{Error, Posts};
+    use crate::Error;
     use frame::testing_prelude::*;
 
     construct_runtime! {
@@ -193,9 +165,6 @@ mod tests {
 
     impl pallet_forum::Config for Test {
         type RuntimeEvent = RuntimeEvent;
-        // In the mock, the moderation (jury verdict) origin stands in as root; the runtime wires it to the
-        // real pallet-justice verdict path. Lets us assert "only the moderation origin can hide".
-        type ModerationOrigin = EnsureRoot<Self::AccountId>;
         type MaxThreadDepth = ConstU32<3>;
     }
 
@@ -247,25 +216,91 @@ mod tests {
     }
 
     #[test]
-    fn hide_only_by_moderation_origin_keeps_entry() {
+    fn no_moderation_surface_exists() {
+        // Moderation-B doctrine: the chain holds NO hide/delete/flag path. The only extrinsic is `post`
+        // (call_index 0) — asserted structurally: the entry, once indexed, is immutable and complete.
         new_test_ext().execute_with(|| {
             assert_ok!(Forum::post(RuntimeOrigin::signed(1), h(1), None));
-            // a plain signed account (even the author) cannot hide — moderation is jury-only, not authority
-            assert_noop!(Forum::hide_post(RuntimeOrigin::signed(1), 0), DispatchError::BadOrigin);
-            // the moderation origin (jury verdict; root in the mock) hides it
-            assert_ok!(Forum::hide_post(RuntimeOrigin::root(), 0));
-            let p = Posts::<Test>::get(0).unwrap();
-            assert!(p.hidden); // flagged...
-            assert_eq!(p.author, 1); // ...but the entry (and its authorship) is NOT erased — no memory-holing
-            // idempotency guard
-            assert_noop!(Forum::hide_post(RuntimeOrigin::root(), 0), Error::<Test>::AlreadyHidden);
+            let p = Forum::get(0).unwrap();
+            assert_eq!(p.author, 1);
+            assert_eq!(p.body, h(1)); // exactly as posted, nothing to flip afterwards
+        });
+    }
+
+    // ── Adversarial pass () ────────────────────────────────────────────────────────────
+    // A forum with no moderation surface only stays uncensorable if a privileged origin has no way
+    // in, and only stays navigable if the depth guard cannot be walked around. Both are asserted
+    // here rather than assumed.
+
+    #[test]
+    fn no_privileged_origin_can_post() {
+        new_test_ext().execute_with(|| {
+            // The pallet's whole claim is that there is nobody to petition and nobody who can speak
+            // with extra authority. Root and none must be refused like any unsigned caller.
+            assert!(Forum::post(RuntimeOrigin::root(), h(1), None).is_err());
+            assert!(Forum::post(RuntimeOrigin::none(), h(1), None).is_err());
+            assert_eq!(Forum::count(), 0, "a privileged origin got a post indexed");
         });
     }
 
     #[test]
-    fn hide_missing_post_rejected() {
+    fn depth_guard_cannot_be_walked_around_by_replying_to_the_deepest_post() {
         new_test_ext().execute_with(|| {
-            assert_noop!(Forum::hide_post(RuntimeOrigin::root(), 0), Error::<Test>::PostNotFound);
+            // Build a thread down to MaxThreadDepth = 3.
+            assert_ok!(Forum::post(RuntimeOrigin::signed(1), h(0), None)); // id 0, depth 0
+            assert_ok!(Forum::post(RuntimeOrigin::signed(1), h(1), Some(0))); // id 1, depth 1
+            assert_ok!(Forum::post(RuntimeOrigin::signed(1), h(2), Some(1))); // id 2, depth 2
+            assert_ok!(Forum::post(RuntimeOrigin::signed(1), h(3), Some(2))); // id 3, depth 3 (limit)
+
+            // One more level is refused — for ANY author, so it is a structural bound, not a per-user one.
+            assert_noop!(
+                Forum::post(RuntimeOrigin::signed(1), h(4), Some(3)),
+                Error::<Test>::ThreadTooDeep
+            );
+            assert_noop!(
+                Forum::post(RuntimeOrigin::signed(2), h(4), Some(3)),
+                Error::<Test>::ThreadTooDeep
+            );
+            // The refusal must not consume an id, or the order bound would grow on failed calls.
+            assert_eq!(Forum::count(), 4, "a refused reply consumed an id");
+
+            // Replying higher up the same thread still works: the guard limits depth, not the thread.
+            assert_ok!(Forum::post(RuntimeOrigin::signed(2), h(5), Some(2)));
+            assert_eq!(Forum::count(), 5);
+        });
+    }
+
+    #[test]
+    fn reply_to_a_nonexistent_or_future_parent_is_refused_and_leaves_nothing() {
+        new_test_ext().execute_with(|| {
+            assert_ok!(Forum::post(RuntimeOrigin::signed(1), h(0), None)); // id 0
+
+            // A parent that never existed, and one that would only exist later: both refused.
+            for ghost in [7u64, 1u64, u64::MAX] {
+                assert_noop!(
+                    Forum::post(RuntimeOrigin::signed(1), h(9), Some(ghost)),
+                    Error::<Test>::ParentNotFound
+                );
+            }
+            assert_eq!(Forum::count(), 1, "a refused reply consumed an id");
+            assert!(Forum::get(1).is_none(), "a refused reply left a ghost post");
+        });
+    }
+
+    #[test]
+    fn posts_are_immutable_once_indexed_even_by_their_own_author() {
+        new_test_ext().execute_with(|| {
+            // Append-only means there is no edit and no delete — not even for yourself. The proof is
+            // that the pallet exposes exactly ONE call; re-posting creates a NEW id and leaves the
+            // original untouched.
+            assert_ok!(Forum::post(RuntimeOrigin::signed(1), h(1), None));
+            assert_ok!(Forum::post(RuntimeOrigin::signed(1), h(2), None));
+
+            let first = Forum::get(0).expect("first post");
+            assert_eq!(first.body, h(1), "the original body changed");
+            assert_eq!(first.author, 1);
+            assert_eq!(first.parent, None);
+            assert_eq!(Forum::count(), 2);
         });
     }
 }

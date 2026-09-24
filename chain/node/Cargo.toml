@@ -49,7 +49,10 @@ std = ["harlequin-runtime/std", "polkadot-sdk/std"]
 mainnet = ["harlequin-runtime/mainnet"]
 
 [workspace]
-members = [".", "tools/devnet-driver", "tools/hlq-sigverify"]
+members = [".", "tools/devnet-driver", "tools/hlq-sigverify", "tools/apply-tool", "tools/bind-tool", "tools/encode-probe"]
+# The vendored patch crate resolves via [patch.crates-io], not as a member (its dev-deps stay out of
+# our lock). Standalone tests: `cd vendor/sc-network-sync && cargo test` (own [workspace] table).
+exclude = ["vendor/sc-network-sync"]
 
 # core2 0.4.0 (needed transitively by multihash 0.17 → litep2p → sc-network) was YANKED from crates.io
 # (the author yanked the whole crate), so a fresh resolve fails. The source still exists on git; patch to it.
@@ -58,3 +61,11 @@ members = [".", "tools/devnet-driver", "tools/hlq-sigverify"]
 # rev 545e84b = "Bump version to 0.4.0" (the next commit deprecated/gutted the crate). Immutable pin =
 # the exact 0.4.0 source, reproducible. Widely-used crate (46M downloads), yanked wholesale by the author.
 core2 = { git = "https://github.com/bbqsrc/core2", rev = "545e84b" }
+# HARLEQUIN PATCH (, ticket 3154fe0d): vendored sc-network-sync 0.56.1 with the
+# inflight-backoff BAN removed — 3 flap-disconnects reported a FATAL reputation that banned the peer,
+# reserved or not (reserved only guarantees redial after expiry), turning every home-link flap into a
+# ban loop in BOTH directions (bootnode↔ct103, tablet). Flap != malice on our mesh: the escalating
+# (now capped) sync backoff already protects request scheduling; every other scoring path stays.
+# 4 marked hunks in vendor/sc-network-sync/src/strategy/disconnected_peers.rs, byte-identical
+# otherwise. RE-EVALUATE on every polkadot-sdk bump (#112).
+sc-network-sync = { path = "vendor/sc-network-sync" }

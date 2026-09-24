@@ -341,6 +341,9 @@ pub mod pallet {
         /// The suit index is out of range (must be 0..=3 — the four suits). #853 (audit):
         /// an unchecked `dimension` used to silently collapse to Governance in `suit_of`.
         BadDimension,
+        /// (Audit, HIGH) A named `extra_interested` account has no real relation to either
+        /// party — the exclusion list may only flag genuinely-interested accounts, never pool-poison.
+        UnrelatedInterested,
     }
 
     #[pallet::call]
@@ -549,6 +552,21 @@ pub mod pallet {
             ensure!(dimension < 4, Error::<T>::BadDimension);
             ensure!(plaintiff != defendant, Error::<T>::SelfCase);
 
+            // Bound the RAW input length BEFORE any per-item work (macro-audit, HIGH DoS):
+            // `evidence_ids`/`extra_interested` arrive as unbounded `Vec` (SCALE does not cap them), and the
+            // dedup + per-item `owns_evidence`/`has_interest` storage checks below run over every element
+            // BEFORE the `BoundedVec` conversion rejects an oversized set — so a signed caller could pass a
+            // huge vector and force O(n) chain-state work under the flat call weight. A valid case can never
+            // exceed these caps anyway, so gate at the door.
+            ensure!(
+                (evidence_ids.len() as u32) <= T::MaxCaseEvidence::get(),
+                Error::<T>::TooManyEvidenceRefs
+            );
+            ensure!(
+                (extra_interested.len() as u32) <= T::MaxInterested::get(),
+                Error::<T>::TooManyInterested
+            );
+
             // (Acta J2, the reviewer's review pt. 2) Validate the disputed evidence AT THE DOOR: every named
             // record must be a live record of the DEFENDANT in THIS dimension. Dedup so a repeated id
             // cannot pad the case. Rejecting here keeps a junk case from looking valid all window long.
@@ -567,6 +585,20 @@ pub mod pallet {
 
             // Parties = plaintiff + defendant + explicit flags. The interest test widens this through the
             // trust graph; this is the seed set both the draw and the later guards re-use.
+            // Audit (HIGH): `extra_interested` was taken on the opener's word — a plaintiff
+            // could name up to `MaxInterested` ARBITRARY accounts (e.g. every inconvenient high-reputation
+            // juror) and have them excluded from the draw with zero verification, hand-picking the jury.
+            // Fix: every extra_interested account must ACTUALLY be interested — related (depth-1, vouch
+            // edge either direction / shared cluster) to a REAL party (plaintiff or defendant). An
+            // unrelated name is rejected outright, so the exclusion list can only ever SHRINK a genuine
+            // conflict, never poison the pool with strangers.
+            let real_parties = [plaintiff.clone(), defendant.clone()];
+            for extra in extra_interested.iter() {
+                ensure!(
+                    T::Interest::has_interest(extra, &real_parties),
+                    Error::<T>::UnrelatedInterested
+                );
+            }
             let mut parties: Vec<T::AccountId> = alloc::vec![plaintiff.clone(), defendant.clone()];
             parties.extend(extra_interested.into_iter());
             let parties_bv: BoundedVec<T::AccountId, T::MaxInterested> =
@@ -740,7 +772,9 @@ pub mod pallet {
 #[cfg(test)]
 mod tests {
     use crate as pallet_justice;
-    use crate::{BeaconInspect, CaseStatus, Cases, InterestInspect, RectifyOnVerdict, ReputationInspect};
+    use crate::{
+        BeaconInspect, CaseStatus, Cases, InterestInspect, RectifyOnVerdict, ReputationInspect, Votes,
+    };
     use frame::testing_prelude::*;
 
     construct_runtime! {
@@ -940,11 +974,31 @@ mod tests {
     }
 
     #[test]
-    fn kin_of_a_party_is_excluded_from_the_draw() {
+    fn unrelated_extra_interested_is_rejected() {
+        // Audit (HIGH): a plaintiff must NOT be able to hand-pick the jury by flagging
+        // arbitrary strangers as "interested". Account 13 has no relation to parties 10/11 (kin = differ
+        // by 100) → naming it is rejected, so the exclusion list cannot poison the pool.
         new_test_ext().execute_with(|| {
-            // Make 12 a party; its "kin" is 112 — but 112 is not in the pool, so inject a pool kin: use
-            // defendant 10 whose kin is 110 (not in pool). Instead test the substantive relation directly:
-            // flag 13 explicitly interested; 13 must not appear, and neither may anything kin to parties.
+            assert_noop!(
+                Justice::open_case(
+                    RuntimeOrigin::signed(10),
+                    11,
+                    [0u8; 32],
+                    0,
+                    100,
+                    vec![],
+                    vec![13]
+                ),
+                crate::Error::<Test>::UnrelatedInterested
+            );
+        });
+    }
+
+    #[test]
+    fn genuinely_related_extra_interested_is_accepted_and_excluded() {
+        // A truly-interested account (110 = kin of party 10, abs_diff 100) MAY be flagged and is kept
+        // off the draw — the fix rejects strangers, not real conflicts.
+        new_test_ext().execute_with(|| {
             assert_ok!(Justice::open_case(
                 RuntimeOrigin::signed(10),
                 11,
@@ -952,14 +1006,10 @@ mod tests {
                 0,
                 100,
                 vec![],
-                vec![13]
+                vec![110]
             ));
             let jury = jury_of(0);
-            assert!(!jury.contains(&13), "explicitly-interested account was drawn");
-            // every juror is non-interested w.r.t. the parties {10,11,13}
-            for j in &jury {
-                assert!(!MockInterest::has_interest(j, &[10, 11, 13]));
-            }
+            assert!(!jury.contains(&110), "flagged interested account was drawn");
         });
     }
 
@@ -1181,6 +1231,92 @@ mod tests {
             assert_noop!(
                 Justice::open_case(RuntimeOrigin::signed(10), 10, [0u8; 32], 0, 100, vec![], vec![]),
                 crate::Error::<Test>::SelfCase
+            );
+        });
+    }
+
+    // ── Adversarial pass () ────────────────────────────────────────────────────────────
+    // The suite above is already strong on juries, evidence and quorum. What it never asserted is the
+    // most basic constitutional claim of this pallet: that there is NO authority. Justice here is
+    // adjudicated by a sortitioned jury — so a privileged origin must be powerless on every single
+    // call, including the incapacity route, which is the one an authority would most want to abuse.
+
+    #[test]
+    fn no_authority_privileged_origins_are_powerless_on_every_call() {
+        new_test_ext().execute_with(|| {
+            for origin in [RuntimeOrigin::root(), RuntimeOrigin::none()] {
+                // Cannot prosecute...
+                assert!(Justice::open_case(
+                    origin.clone(), 10, [1u8; 32], 0, 100, vec![], vec![]
+                ).is_err());
+                // ...and cannot declare somebody incapable, which would be the authority's favourite
+                // door: capacity is adjudicated, never decreed (§1.5e, Art. III).
+                assert!(Justice::open_incapacity_case(
+                    origin.clone(), 10, [1u8; 32], vec![]
+                ).is_err());
+            }
+            assert!(Cases::<Test>::get(0).is_none(), "a privileged origin opened a case");
+
+            // With a real case open, root/none can neither vote nor force it shut.
+            assert_ok!(Justice::open_case(
+                RuntimeOrigin::signed(1), 10, [1u8; 32], 0, 100, vec![], vec![]
+            ));
+            past_extended_window();
+            for origin in [RuntimeOrigin::root(), RuntimeOrigin::none()] {
+                assert!(Justice::cast_vote(origin.clone(), 0, true).is_err());
+                assert!(Justice::close_case(origin.clone(), 0).is_err());
+            }
+            assert_eq!(
+                Cases::<Test>::get(0).expect("case still exists").status,
+                CaseStatus::Open,
+                "a privileged origin resolved a case"
+            );
+        });
+    }
+
+    #[test]
+    fn a_resolved_case_cannot_be_reopened_or_revoted() {
+        new_test_ext().execute_with(|| {
+            assert_ok!(Justice::open_case(
+                RuntimeOrigin::signed(1), 10, [1u8; 32], 0, 100, vec![], vec![]
+            ));
+            let jury = jury_of(0);
+            past_extended_window();
+            assert_ok!(Justice::close_case(RuntimeOrigin::signed(1), 0));
+
+            // Once resolved, the verdict is final: no second close, and no late vote that could
+            // change a tally after the fact.
+            assert_noop!(
+                Justice::close_case(RuntimeOrigin::signed(1), 0),
+                crate::Error::<Test>::NotOpen
+            );
+            if let Some(j) = jury.first() {
+                assert_noop!(
+                    Justice::cast_vote(RuntimeOrigin::signed(*j), 0, true),
+                    crate::Error::<Test>::NotOpen
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn a_juror_changing_its_mind_is_counted_once_not_twice() {
+        new_test_ext().execute_with(|| {
+            assert_ok!(Justice::open_case(
+                RuntimeOrigin::signed(1), 10, [1u8; 32], 0, 100, vec![], vec![]
+            ));
+            let jury = jury_of(0);
+            let juror = *jury.first().expect("a jury was drawn");
+
+            // Votes are stored per juror, so re-voting overwrites. Assert that explicitly: a juror who
+            // flips must leave exactly ONE vote behind, never two entries that could inflate a tally.
+            assert_ok!(Justice::cast_vote(RuntimeOrigin::signed(juror), 0, true));
+            assert_ok!(Justice::cast_vote(RuntimeOrigin::signed(juror), 0, false));
+            assert_eq!(Votes::<Test>::get(0, juror), Some(false), "the flip did not take");
+            assert_eq!(
+                Votes::<Test>::iter_prefix(0).count(),
+                1,
+                "re-voting created a second vote entry"
             );
         });
     }

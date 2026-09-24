@@ -195,6 +195,13 @@ pub mod pallet {
         #[pallet::constant]
         type MaxCommittee: Get<u32>;
 
+        /// SOV-by-endurance (DECIDED the maintainer, option A): ceiling `k` of the consecutive-era
+        /// streak that multiplies SOV weight. Serving era N with a streak of `MaxStreak` earns full
+        /// SOV weight; a newcomer's first era earns 1×. Missing an era resets the streak to zero —
+        /// endurance is the one currency a sybil cannot mint. PARÁMETRO (mainnet 8, testnet low).
+        #[pallet::constant]
+        type MaxStreak: Get<u32>;
+
         /// Source of the conservative on-chain reputation (min of suits) that the committee sortition reads.
         /// The runtime wires it to pallet-reputation's `consensus_reputation()`.
         type Reputation: super::ConsensusReputation<Self::AccountId>;
@@ -248,6 +255,14 @@ pub mod pallet {
     #[pallet::storage]
     pub type EraServiceAccumulator<T: Config> =
         StorageDoubleMap<_, Twox64Concat, u64, Blake2_128Concat, T::AccountId, u64, ValueQuery>;
+
+    /// SOV-by-endurance: the consecutive-era service streak per account (capped at
+    /// [`Config::MaxStreak`]). Bumped once per era by [`Pallet::era_service_streak`] when the rewards
+    /// consumer reads the closing era; any account with a streak that did NOT serve the era is reset
+    /// (removed). Time served, not tokens held — the multiplier a sybil cannot fake.
+    #[pallet::storage]
+    pub type ConsecutiveEras<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, u32, ValueQuery>;
 
     /// The finality committee CACHED for each committee epoch (`height / EPOCH_LENGTH`). Computed ONCE when
     /// the epoch starts (with that epoch's reputation) and only queried afterwards — so a vote for a past
@@ -539,6 +554,33 @@ pub mod pallet {
         pub fn clear_era(era: u64) {
             let _ = EraServiceAccumulator::<T>::clear_prefix(era, u32::MAX, None);
         }
+
+        /// CONSUMER API (rewards) — SOV-by-endurance: the era's `(account, service, streak)` triples,
+        /// bumping each server's consecutive-era streak (capped at [`Config::MaxStreak`]) and
+        /// RESETTING every streak whose holder did not serve this era. Call EXACTLY ONCE per era, at
+        /// the same boundary as [`era_service`](Self::era_service) (pallet-tokens' reward split);
+        /// calling it twice for one era would double-bump.
+        pub fn era_service_streak(era: u64) -> alloc::vec::Vec<(T::AccountId, u64, u32)> {
+            let servers = Self::era_service(era);
+            let cap = T::MaxStreak::get().max(1);
+            let mut out = alloc::vec::Vec::with_capacity(servers.len());
+            for (who, w) in servers {
+                let streak = ConsecutiveEras::<T>::get(&who).saturating_add(1).min(cap);
+                ConsecutiveEras::<T>::insert(&who, streak);
+                out.push((who, w, streak));
+            }
+            // Endurance broken = streak gone: every tracked account that did NOT serve this era is
+            // removed (reset to zero). Bounded by accounts holding a live streak — the same
+            // per-era O(participants) bucket as the accumulator itself.
+            let broken: alloc::vec::Vec<T::AccountId> = ConsecutiveEras::<T>::iter()
+                .filter(|(who, _)| !out.iter().any(|(s, _, _)| s == who))
+                .map(|(who, _)| who)
+                .collect();
+            for who in broken {
+                ConsecutiveEras::<T>::remove(&who);
+            }
+            out
+        }
     }
 
     // ── INHERENT PLUMBING (sketch for the reviewer's consensus review, then compiled against the runtime) ──────
@@ -598,8 +640,8 @@ mod tests {
     use crate as pallet_participation;
     use crate::{
         author_message, signed_message, AuthoredInEpoch, BlockAuthor, CommitteeForEpoch,
-        CommitteeInputs, ConsensusReputation, FinalityVotesInEpoch, LastCreditedHeight,
-        ParticipationRecord, SignedVote,
+        CommitteeInputs, ConsecutiveEras, ConsensusReputation, EraServiceAccumulator,
+        FinalityVotesInEpoch, LastCreditedHeight, ParticipationRecord, SignedVote,
     };
     use frame::deps::sp_core::{sr25519, Pair};
     use frame::testing_prelude::*;
@@ -645,6 +687,7 @@ mod tests {
         type EpochLength = ConstU64<10>;
         type EraLength = ConstU64<10>;
         type MaxCommittee = ConstU32<64>;
+        type MaxStreak = ConstU32<8>;
         type Reputation = MockReputation;
         type Committee = MockCommittee;
     }
@@ -793,6 +836,61 @@ mod tests {
             assert_ok!(Participation::note_participation(RuntimeOrigin::none(), record(key, sig, 1)));
             assert_eq!(AuthoredInEpoch::<Test>::get(0, acct_of(&key)), 0, "non-committee author must NOT be credited");
             assert_eq!(BlockAuthor::<Test>::get(), None);
+        });
+    }
+
+    // ── SOV-by-endurance (the maintainer): the consecutive-era streak ─────────────────────────────
+
+    /// Seed the era accumulator directly (the consumer-side unit: streak math, not the inherent path).
+    fn seed_era(era: u64, who: u64, w: u64) {
+        EraServiceAccumulator::<Test>::insert(era, who, w);
+    }
+
+    #[test]
+    fn streak_climbs_by_one_per_served_era_and_caps() {
+        new_test_ext().execute_with(|| {
+            for era in 0..12u64 {
+                seed_era(era, 7, 100);
+                let out = Participation::era_service_streak(era);
+                let (_, _, streak) = out.iter().find(|(a, _, _)| *a == 7).copied().unwrap();
+                // climbs 1, 2, 3... and stops at the MaxStreak=8 ceiling
+                assert_eq!(streak, ((era + 1).min(8)) as u32);
+                Participation::clear_era(era);
+            }
+        });
+    }
+
+    #[test]
+    fn streak_resets_on_a_missed_era_and_restarts_at_one() {
+        new_test_ext().execute_with(|| {
+            // eras 0-2 served → streak 3
+            for era in 0..3u64 {
+                seed_era(era, 7, 100);
+                Participation::era_service_streak(era);
+                Participation::clear_era(era);
+            }
+            assert_eq!(ConsecutiveEras::<Test>::get(7), 3);
+            // era 3 NOT served (another account keeps the era alive) → 7's streak is wiped
+            seed_era(3, 8, 100);
+            Participation::era_service_streak(3);
+            Participation::clear_era(3);
+            assert_eq!(ConsecutiveEras::<Test>::get(7), 0, "a broken streak is gone, not paused");
+            // era 4 served again → restarts at 1, no memory of the old run
+            seed_era(4, 7, 100);
+            let out = Participation::era_service_streak(4);
+            assert_eq!(out.iter().find(|(a, _, _)| *a == 7).unwrap().2, 1);
+        });
+    }
+
+    #[test]
+    fn genesis_first_era_everyone_starts_at_streak_one() {
+        new_test_ext().execute_with(|| {
+            // the founders' first era: nobody carries a head start into block 0
+            for who in 1..=4u64 {
+                seed_era(0, who, 10);
+            }
+            let out = Participation::era_service_streak(0);
+            assert!(out.iter().all(|(_, _, s)| *s == 1), "no arranque con ventaja");
         });
     }
 }

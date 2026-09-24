@@ -6,8 +6,9 @@
 //! must turn "the same post" into the *same bytes* before hashing. This crate fixes that canonical
 //! serialization so the addressing is interoperable and the verify-by-recompute is exact.
 //!
-//! Scope: the **body** only. Threading (`parent` id), ordering (`id`), author and moderation are
-//! on-chain concerns handled by `pallet-forum`; the client passes `parent` to the extrinsic separately.
+//! Scope: the **body** only. Threading (`parent` id), ordering (`id`) and author are on-chain concerns
+//! handled by `pallet-forum` (which keeps NO moderation surface — nothing is ever hidden); the client
+//! passes `parent` to the extrinsic separately.
 //!
 //! Pipeline:
 //! ```text

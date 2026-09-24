@@ -26,7 +26,7 @@ extern crate alloc;
 
 pub use pallet::*;
 
-/// A mask handle: the first 16 bytes of `sha256(account.encode)`. Self-certifying — derivable by anyone
+/// A mask handle: the first 16 bytes of `sha256(account.encode())`. Self-certifying — derivable by anyone
 /// from the account, so it cannot be squatted. Displayed client-side (e.g. base32); stored raw here.
 pub type Handle = [u8; 16];
 
@@ -113,7 +113,7 @@ pub mod pallet {
     }
 
     impl<T: Config> Pallet<T> {
-        /// The canonical mask-handle derivation: `sha256(account.encode)[..16]`. Reuses the chain's
+        /// The canonical mask-handle derivation: `sha256(account.encode())[..16]`. Reuses the chain's
         /// dep-free SHA-256 (the same primitive as the beacon) so the derivation is identical everywhere.
         /// The client MUST reproduce this exactly for `handle == derive(pubkey)` to hold off-chain.
         pub fn derive(who: &T::AccountId) -> Handle {
@@ -228,6 +228,90 @@ mod tests {
             // can re-publish after withdrawing
             assert_ok!(Directory::register(RuntimeOrigin::signed(1)));
             assert_eq!(Directory::handle_of(&1u64), Some(h));
+        });
+    }
+
+    // ── Adversarial pass () ────────────────────────────────────────────────────────────
+    // The tests above cover the happy path and basic rejections. These attack the pallet's own
+    // *claims*: that there is no naming authority, no admin removal, and no way to corrupt the
+    // directory's accounting. A claim in a doc-comment that nothing tests is just a hope.
+
+    #[test]
+    fn no_admin_surface_root_can_neither_register_nor_deregister() {
+        new_test_ext().execute_with(|| {
+            // The censorship-resistance claim (module docs: "no admin, no gate") only holds if a
+            // privileged origin is powerless here. Root must not be able to publish a mask...
+            assert!(Directory::register(RuntimeOrigin::root()).is_err());
+            assert!(Directory::register(RuntimeOrigin::none()).is_err());
+            assert_eq!(MaskCount::<Test>::get(), 0);
+
+            // ...nor to REMOVE somebody else's mask, which is the one that would matter to a State.
+            assert_ok!(Directory::register(RuntimeOrigin::signed(1)));
+            let h = Directory::handle_of(&1u64).expect("registered");
+            assert!(Directory::deregister(RuntimeOrigin::root()).is_err());
+            assert!(Directory::deregister(RuntimeOrigin::none()).is_err());
+            // the mask is untouched: still published, still resolving to its holder
+            assert_eq!(Directory::handle_of(&1u64), Some(h));
+            assert_eq!(Directory::resolve(&h), Some(1u64));
+            assert_eq!(MaskCount::<Test>::get(), 1);
+        });
+    }
+
+    #[test]
+    fn mask_count_survives_churn_and_never_underflows() {
+        new_test_ext().execute_with(|| {
+            // Repeated publish/withdraw cycles must leave the counter exact — a drifting counter
+            // would silently misreport directory size forever (it is never recomputed).
+            for _ in 0..50 {
+                assert_ok!(Directory::register(RuntimeOrigin::signed(1)));
+                assert_ok!(Directory::register(RuntimeOrigin::signed(2)));
+                assert_eq!(MaskCount::<Test>::get(), 2);
+                assert_ok!(Directory::deregister(RuntimeOrigin::signed(1)));
+                assert_ok!(Directory::deregister(RuntimeOrigin::signed(2)));
+                assert_eq!(MaskCount::<Test>::get(), 0);
+            }
+            // Withdrawing from an empty directory is refused, and cannot wrap the counter round to u64::MAX.
+            assert_noop!(
+                Directory::deregister(RuntimeOrigin::signed(1)),
+                Error::<Test>::NotRegistered
+            );
+            assert_eq!(MaskCount::<Test>::get(), 0);
+        });
+    }
+
+    #[test]
+    fn one_holders_withdrawal_cannot_disturb_another_mask() {
+        new_test_ext().execute_with(|| {
+            // Isolation between masks: churning one account must not evict or rebind a neighbour's.
+            assert_ok!(Directory::register(RuntimeOrigin::signed(1)));
+            assert_ok!(Directory::register(RuntimeOrigin::signed(2)));
+            let h2 = Directory::handle_of(&2u64).expect("registered");
+
+            assert_ok!(Directory::deregister(RuntimeOrigin::signed(1)));
+            assert_eq!(Directory::handle_of(&2u64), Some(h2));
+            assert_eq!(Directory::resolve(&h2), Some(2u64));
+            assert_eq!(MaskCount::<Test>::get(), 1);
+        });
+    }
+
+    #[test]
+    fn handles_stay_unique_across_a_crowded_directory() {
+        new_test_ext().execute_with(|| {
+            // Bulk registration: every account must land on its own handle and resolve back to itself.
+            // This is the practical form of the collision guard — `HandleCollision` is unreachable in
+            // honest use, so what is actually worth asserting is that it never fires and no two
+            // accounts share a slot.
+            let n: u64 = 200;
+            let mut seen = alloc::collections::BTreeSet::new();
+            for who in 1..=n {
+                assert_ok!(Directory::register(RuntimeOrigin::signed(who)));
+                let h = Directory::handle_of(&who).expect("registered");
+                assert_eq!(h, Directory::derive(&who));
+                assert_eq!(Directory::resolve(&h), Some(who));
+                assert!(seen.insert(h), "two accounts derived the same handle");
+            }
+            assert_eq!(MaskCount::<Test>::get(), n);
+            assert_eq!(seen.len() as u64, n);
         });
     }
 }

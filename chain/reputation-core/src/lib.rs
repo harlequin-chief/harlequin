@@ -972,6 +972,12 @@ pub fn checkpoint_escalation(
 
 /// Decay by inactivity (§1.7): uncontributed reputation evaporates. Farming then sitting still does
 /// not pay off long-term (extra anti-collusion defence). `r <- r * factor`.
+///
+/// `std`-only, like every other f64 helper here: this is the oracle/prototype path. It was the one
+/// float function left ungated, so a future caller could have linked it into the `no_std` runtime
+/// build and quietly put floating point on a consensus path. Nothing calls it outside this crate's
+/// own tests today; the gate keeps it that way. The runtime uses the fixed-point path instead.
+#[cfg(feature = "std")]
 pub fn decay(reputation: &BTreeMap<String, f64>, factor: f64) -> BTreeMap<String, f64> {
     reputation.iter().map(|(k, v)| (k.clone(), v * factor)).collect()
 }
@@ -1106,6 +1112,38 @@ mod tests {
         for (c, fv) in &f {
             let xv = x[c] as f64 / FP_SCALE as f64;
             assert!((fv - xv).abs() < 1e-6, "comm {c}: f64 {fv} vs fp {xv}");
+        }
+    }
+
+    /// Regression lock (audit LOW review): `community_suspicion_fp` indexes the label map
+    /// directly (`label[i]`, `label[&j]`, `label[n]`). Indexing a `BTreeMap` PANICS on a missing key,
+    /// and this runs inside the per-epoch consensus recompute — a panic there would take the node
+    /// down, deterministically, on every node at once.
+    ///
+    /// It is safe today only because `communities()` seeds EVERY node with its own label before any
+    /// propagation, so an isolated node (no edges at all) still has an entry. That is an invariant of
+    /// `communities`, not something the caller checks — so it is pinned here. If anyone ever makes
+    /// `communities` return labels only for connected nodes, this test fails instead of the chain.
+    #[test]
+    fn isolated_nodes_are_labelled_so_the_suspicion_pass_cannot_panic() {
+        let mut g = TrustGraph::new();
+        // Two connected, two completely isolated (never attested, in either direction).
+        g.attest("a", "b", "commerce", 1.0);
+        let nodes: Vec<String> =
+            ["a", "b", "lonely", "hermit"].iter().map(|s| s.to_string()).collect();
+
+        let label = g.communities("commerce", &nodes);
+        for n in &nodes {
+            assert!(label.contains_key(n), "node {n} left unlabelled by communities()");
+        }
+
+        // The suspicion pass must run over the isolated nodes without panicking.
+        let ev_fp: BTreeMap<String, i128> = BTreeMap::new();
+        let out = g.community_suspicion_fp("commerce", &nodes, &label, &ev_fp);
+        // Each isolated node forms its own community and carries no internal edges → zero suspicion.
+        for n in ["lonely", "hermit"] {
+            let c = &label[&n.to_string()];
+            assert_eq!(out.get(c), Some(&0), "isolated {n} should carry no suspicion");
         }
     }
 

@@ -1,0 +1,15 @@
+[package]
+name = "encode-probe"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+description = "Ground truth for the browser's SCALE encoder: encodes set_vote_key with the real runtime types so the hand-written JS can be diffed against it. Test aid, never shipped."
+publish = false
+
+[dependencies]
+harlequin-runtime = { path = "../../../runtime", features = ["std", "mainnet"] }
+polkadot-sdk = { version = "2604.2.0", features = ["node", "frame-system", "pallet-transaction-payment"] }
+pallet-reputation = { path = "../../../pallet-reputation", features = ["std"] }
+codec = { package = "parity-scale-codec", version = "3" }
+sp-core = "*"
+sp-runtime = "*"

@@ -56,6 +56,56 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
         )?;
     let client = Arc::new(client);
 
+    // 🔴 NODE×RUNTIME SPEC-COHERENCE GATE (incident) — runs at the EARLIEST point: right after
+    // the client exists, BEFORE the txpool / import queue / finality gadget. The 21-jul halt was a node
+    // built from newer runtime CODE decoding the sealed WASM's consensus-API bytes with a changed layout,
+    // because `spec_version` had been frozen across incompatible builds. With the bump to 2, a node built
+    // for spec N running against a live runtime of spec M≠N is incoherent and may crash later (txpool) or
+    // decode consensus silently wrong — either way it must NOT be trusted. We surface it here, before any
+    // of that, so the operator gets one clear line at boot instead of a mystery crash or a silent 2/4.
+    // Validatable without the live chain: boot against a chainspec whose genesis WASM is the old spec
+    // (e.g. --chain mainnet-raw.json, spec 1) → this fires FAILED. See chain/DIAG-v3-epoch-halt-.md.
+    {
+        use sp_api::{Core, ProvideRuntimeApi};
+        let expected = harlequin_runtime::VERSION.spec_version;
+        let at = client.chain_info().finalized_hash;
+        match client.runtime_api().version(at) {
+            Ok(rv) if rv.spec_version == expected => {
+                log::info!(target: "woven-trust", "startup spec-coherence: node built for spec {expected}, live runtime spec {} — OK.", rv.spec_version);
+            }
+            Ok(rv) if rv.spec_version < expected => {
+                // Gate v2 (, the oracle03/new-joiner deadlock): a LOWER local spec is the
+                // sync-forward case — this node's local finalized state simply predates a runtime
+                // upgrade the binary already carries (a fresh node syncing from genesis always starts
+                // here). Historical blocks execute under their own on-chain wasm, so syncing is safe;
+                // coherence only matters at the tip, and the finality worker re-checks it every tick
+                // and stays PASSIVE (no votes, no finalisation) until the live runtime matches. v1 of
+                // this gate hard-aborted here, which deadlocked every node whose DB predated the
+                // upgrade: it could not start, so it could never sync past the apply block.
+                log::warn!(
+                    target: "woven-trust",
+                    "startup spec-coherence: local finalized state is at runtime spec {} but this node is built for spec {expected} — syncing forward. The node will not participate in finality until the live runtime matches its build.",
+                    rv.spec_version
+                );
+            }
+            Ok(rv) => {
+                // HARD ABORT (not just a warning): a HIGHER live spec means this binary is older than
+                // the chain's rules — it would decode consensus state wrong at the tip (the
+                // 2/4 wedge). Staying alive only repeats the "wrong in silence" that cost 2 hours.
+                // Refuse to start; the operator must run the node built for this runtime.
+                let msg = format!(
+                    "🔴 STARTUP SPEC-COHERENCE CHECK FAILED: this node was built alongside runtime spec_version {expected}, but the runtime it is running against is spec_version {} (newer). This binary is OUTDATED for this chain — refusing to start (a spec-incoherent node decodes consensus wrong → the 2026-07-21 2/4 wedge). Upgrade the node binary to the one built for the live runtime.",
+                    rv.spec_version
+                );
+                log::error!(target: "woven-trust", "{msg}");
+                return Err(ServiceError::Other(msg));
+            }
+            Err(e) => {
+                log::error!(target: "woven-trust", "🔴 STARTUP SPEC-COHERENCE CHECK: could not read runtime version ({e:?}) — node×runtime coherence unconfirmed.");
+            }
+        }
+    }
+
     let telemetry = telemetry.map(|(worker, telemetry)| {
         task_manager.spawn_handle().spawn("telemetry", None, worker.run());
         telemetry

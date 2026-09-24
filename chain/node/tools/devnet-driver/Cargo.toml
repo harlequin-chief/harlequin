@@ -9,6 +9,14 @@ publish = false
 [dependencies]
 harlequin-runtime = { path = "../../../runtime", features = ["std"] }
 pallet-reputation = { path = "../../../pallet-reputation", features = ["std"] }
+pallet-beacon = { path = "../../../pallet-beacon", features = ["std"] }
+pallet-multisig-upgrade = { path = "../../../pallet-multisig-upgrade", features = ["std"] }
+pallet-directory = { path = "../../../pallet-directory", features = ["std"] }
+pallet-forum = { path = "../../../pallet-forum", features = ["std"] }
+pallet-market = { path = "../../../pallet-market", features = ["std"] }
+pallet-tokens = { path = "../../../pallet-tokens", features = ["std"] }
+consensus-core = { path = "../../../consensus-core", features = ["std"] }
+reputation-core = { path = "../../../reputation-core" }
 polkadot-sdk = { version = "2604.2.0", features = ["node", "frame-system", "pallet-sudo", "pallet-transaction-payment"] }
 codec = { package = "parity-scale-codec", version = "3" }
 serde = "1"

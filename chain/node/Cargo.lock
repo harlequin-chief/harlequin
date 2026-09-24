@@ -476,6 +476,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
+name = "apply-tool"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "harlequin-runtime",
+ "pallet-multisig-upgrade",
+ "parity-scale-codec",
+ "polkadot-sdk",
+ "sp-core",
+ "sp-runtime",
+]
+
+[[package]]
 name = "approx"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1556,6 +1569,15 @@ dependencies = [
  "hash-db",
  "log",
  "parity-scale-codec",
+]
+
+[[package]]
+name = "bind-tool"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "hex",
+ "sp-core",
 ]
 
 [[package]]
@@ -4121,11 +4143,19 @@ name = "devnet-driver"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "consensus-core",
  "harlequin-runtime",
  "jsonrpsee",
+ "pallet-beacon",
+ "pallet-directory",
+ "pallet-forum",
+ "pallet-market",
+ "pallet-multisig-upgrade",
  "pallet-reputation",
+ "pallet-tokens",
  "parity-scale-codec",
  "polkadot-sdk",
+ "reputation-core",
  "serde",
  "serde_json",
  "sp-core",
@@ -4467,6 +4497,18 @@ dependencies = [
  "xcm-emulator",
  "xcm-runtime-apis",
  "xcm-simulator",
+]
+
+[[package]]
+name = "encode-probe"
+version = "0.1.0"
+dependencies = [
+ "harlequin-runtime",
+ "pallet-reputation",
+ "parity-scale-codec",
+ "polkadot-sdk",
+ "sp-core",
+ "sp-runtime",
 ]
 
 [[package]]
@@ -15557,8 +15599,6 @@ dependencies = [
 [[package]]
 name = "sc-network-sync"
 version = "0.56.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f19962da3f0c2d117ee13eae25144f40d00c3db3ba71b399f45358487410bec8"
 dependencies = [
  "array-bytes",
  "async-channel 1.9.0",

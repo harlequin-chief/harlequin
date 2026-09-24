@@ -10,9 +10,10 @@
 //! client computation (off `pallet-reputation`) — NOT stored or done here (news ≠ power; the pallet keeps
 //! the orthogonality of market/tokens).
 //!
-//! **Withdraw vs hide.** The author may `withdraw` their own item (flag, append-only); a jury may `hide`
-//! an abusive one via `ModerationOrigin` (never a signed admin). Both keep the entry and free the
-//! author's *active* cap slot. **Anti-spam:** every `publish` passes a pluggable [`PublishGate`] (default
+//! **Withdraw only — nothing is hidden.** The author may `withdraw` their own item (a flag, append-only;
+//! frees the active cap slot). There is NO hide path: the chain keeps no moderation surface at all
+//! (moderation-B doctrine) — jury verdicts label conduct in `pallet-justice`, and clients/readers decide
+//! what to render. **Anti-spam:** every `publish` passes a pluggable [`PublishGate`] (default
 //! no-op; production wires the B6 micro-fee).
 
 #![cfg_attr(not(feature = "std"), no_std)]
@@ -30,7 +31,7 @@ pub mod pallet {
     use frame::prelude::*;
 
     /// Pre-publish gate (anti-spam). Production wires it to the B6 micro-fee or a reputation /
-    /// registered-mask check; the default `` impl is a no-op.
+    /// registered-mask check; the default `()` impl is a no-op.
     pub trait PublishGate<AccountId> {
         fn ensure_can_publish(who: &AccountId) -> DispatchResult;
     }
@@ -64,8 +65,6 @@ pub mod pallet {
         pub at: BlockNumberFor<T>,
         /// The author retracted it (flag; entry kept — append-only). Frees the active cap slot.
         pub withdrawn: bool,
-        /// Hidden by a jury verdict (flag; entry kept — no memory-holing). Frees the active cap slot.
-        pub hidden: bool,
     }
 
     #[pallet::config]
@@ -73,17 +72,14 @@ pub mod pallet {
         type RuntimeEvent: From<Event<Self>>
             + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
-        /// Origin allowed to hide an item — the **jury verdict** path (`pallet-justice`). NOT a signed admin.
-        type ModerationOrigin: EnsureOrigin<Self::RuntimeOrigin>;
-
-        /// Pre-publish gate (anti-spam). Default `` = no-op; production wires the B6 micro-fee here.
+        /// Pre-publish gate (anti-spam). Default `()` = no-op; production wires the B6 micro-fee here.
         type Postage: PublishGate<Self::AccountId>;
 
         /// Max length of the on-chain headline (keep small to bound on-chain state, e.g. ≤128 bytes).
         #[pallet::constant]
         type MaxHeadlineLen: Get<u32>;
 
-        /// Max number of *active* (not withdrawn, not hidden) items a single mask may hold at once.
+        /// Max number of *active* (not withdrawn) items a single mask may hold at once.
         #[pallet::constant]
         type MaxPerMask: Get<u32>;
     }
@@ -95,11 +91,11 @@ pub mod pallet {
     #[pallet::storage]
     pub type NextId<T> = StorageValue<_, u64, ValueQuery>;
 
-    /// `id → item`. The ordered index. Append-only: entries are never removed (withdraw/hide set flags).
+    /// `id → item`. The ordered index. Append-only: entries are never removed (withdraw sets a flag).
     #[pallet::storage]
     pub type Items<T: Config> = StorageMap<_, Blake2_128Concat, u64, NewsItem<T>, OptionQuery>;
 
-    /// `mask → its ACTIVE item ids`. Bounded by `MaxPerMask`. publish adds; withdraw/hide remove.
+    /// `mask → its ACTIVE item ids`. Bounded by `MaxPerMask`. publish adds; withdraw removes.
     #[pallet::storage]
     pub type ItemsOf<T: Config> =
         StorageMap<_, Blake2_128Concat, T::AccountId, BoundedVec<u64, T::MaxPerMask>, ValueQuery>;
@@ -111,8 +107,6 @@ pub mod pallet {
         Published { id: u64, author: T::AccountId, body: BodyHash },
         /// An item was withdrawn by its author (entry kept; active slot freed).
         Withdrawn { id: u64 },
-        /// An item was hidden by a jury verdict (entry kept; active slot freed).
-        Hidden { id: u64 },
     }
 
     #[pallet::error]
@@ -123,8 +117,6 @@ pub mod pallet {
         NotYourNews,
         /// The item is already withdrawn.
         AlreadyWithdrawn,
-        /// The item is already hidden.
-        AlreadyHidden,
         /// The mask already holds `MaxPerMask` active items.
         TooManyActiveNews,
     }
@@ -156,7 +148,6 @@ pub mod pallet {
                     body,
                     at: frame_system::Pallet::<T>::block_number(),
                     withdrawn: false,
-                    hidden: false,
                 },
             );
             NextId::<T>::put(id.saturating_add(1));
@@ -181,22 +172,6 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Hide an item. Gated by `ModerationOrigin` — a jury verdict, never a signed admin. Flag (entry
-        /// kept — no memory-holing) + frees the author's active cap slot.
-        #[pallet::call_index(2)]
-        #[pallet::weight(Weight::from_parts(15_000, 0))]
-        pub fn hide(origin: OriginFor<T>, id: u64) -> DispatchResult {
-            T::ModerationOrigin::ensure_origin(origin)?;
-            let author = Items::<T>::try_mutate(id, |maybe| -> Result<T::AccountId, DispatchError> {
-                let n = maybe.as_mut().ok_or(Error::<T>::NewsNotFound)?;
-                ensure!(!n.hidden, Error::<T>::AlreadyHidden);
-                n.hidden = true;
-                Ok(n.author.clone())
-            })?;
-            ItemsOf::<T>::mutate(&author, |ids| ids.retain(|x| *x != id));
-            Self::deposit_event(Event::Hidden { id });
-            Ok(())
-        }
     }
 
     impl<T: Config> Pallet<T> {
@@ -237,7 +212,6 @@ mod tests {
 
     impl pallet_news::Config for Test {
         type RuntimeEvent = RuntimeEvent;
-        type ModerationOrigin = EnsureRoot<Self::AccountId>;
         type Postage = ();
         type MaxHeadlineLen = ConstU32<32>;
         type MaxPerMask = ConstU32<2>;
@@ -297,30 +271,9 @@ mod tests {
     }
 
     #[test]
-    fn hide_only_by_moderation_origin_keeps_entry_frees_slot() {
-        new_test_ext().execute_with(|| {
-            assert_ok!(News::publish(RuntimeOrigin::signed(1), hl(b"x"), b(1)));
-            assert_noop!(News::hide(RuntimeOrigin::signed(1), 0), DispatchError::BadOrigin);
-            assert_ok!(News::hide(RuntimeOrigin::root(), 0));
-            let n = Items::<Test>::get(0).unwrap();
-            assert!(n.hidden);
-            assert_eq!(n.author, 1);
-            assert!(News::active_of(&1).is_empty());
-            assert_noop!(News::hide(RuntimeOrigin::root(), 0), Error::<Test>::AlreadyHidden);
-        });
-    }
-
-    #[test]
     fn withdraw_missing_item_rejected() {
         new_test_ext().execute_with(|| {
             assert_noop!(News::withdraw(RuntimeOrigin::signed(1), 0), Error::<Test>::NewsNotFound);
-        });
-    }
-
-    #[test]
-    fn hide_missing_item_rejected() {
-        new_test_ext().execute_with(|| {
-            assert_noop!(News::hide(RuntimeOrigin::root(), 0), Error::<Test>::NewsNotFound);
         });
     }
 

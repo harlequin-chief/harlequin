@@ -1,0 +1,12 @@
+[package]
+name = "bind-tool"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+description = "Node side of the node-to-mask binding: creates the node's vote key if absent and prints the two PUBLIC values (vote public key + proof of possession) that the owner's mask signs in the browser. No account secret ever passes through this tool."
+publish = false
+
+[dependencies]
+sp-core = "*"
+clap = { version = "4", features = ["derive"] }
+hex = "0.4"
