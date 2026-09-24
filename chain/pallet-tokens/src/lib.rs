@@ -133,6 +133,11 @@ pub mod pallet {
     pub trait EraServiceSource<AccountId> {
         /// Accumulated verified service `(account, weight)` for `era`.
         fn era_service(era: u64) -> alloc::vec::Vec<(AccountId, u64)>;
+        /// SOV-by-endurance (the maintainer): the era's `(account, service, streak)` triples, where
+        /// `streak` is the account's consecutive-era count AFTER this era, capped by the source (k=8
+        /// mainnet). MUST be called exactly once per era — the source bumps and resets streaks inside.
+        /// HLQ stays spot (`era_service`); SOV weight = service × streak: same list, endurance-scaled.
+        fn era_service_streak(era: u64) -> alloc::vec::Vec<(AccountId, u64, u32)>;
         /// Clear `era`'s accumulator once the reward split has paid it (called right after the split).
         fn clear_era(era: u64);
     }
@@ -201,6 +206,15 @@ pub mod pallet {
     #[pallet::storage]
     pub type Epoch<T> = StorageValue<_, u64, ValueQuery>;
 
+    /// Founder accounts (G2, SPEC §3.5b — the maintainer: "founders collect ZERO", enforced in
+    /// protocol, not by promise). Genesis-declared, never mutated afterwards (no extrinsic touches it).
+    /// Their share of every era pool is computed for proportionality but NEVER minted (no early-joiner
+    /// jackpot: a lone first citizen still receives only their own proportional share), and a founder
+    /// block-author's fee share is burned. The first coin of Harlequin is minted by the people.
+    #[pallet::storage]
+    pub type Founders<T: Config> =
+        StorageValue<_, BoundedVec<T::AccountId, ConstU32<8>>, ValueQuery>;
+
     /// FEELESS accounting (SPEC-RELAUNCH §2): budget-epoch index in which an account was first seen
     /// (its "age" clock — waiting is the only way to age, so farming masks buys nothing today).
     #[pallet::storage]
@@ -222,6 +236,10 @@ pub mod pallet {
     pub struct GenesisConfig<T: Config> {
         /// `(account, hlq, sov)` balances granted at genesis.
         pub balances: alloc::vec::Vec<(T::AccountId, u128, u128)>,
+        /// Founder accounts excluded from emission and fee income (G2, SPEC §3.5b). Empty on dev/testnet.
+        /// `serde(default)` so pre-G2 chain-spec JSONs (no `founders` key) still deserialize.
+        #[serde(default)]
+        pub founders: alloc::vec::Vec<T::AccountId>,
     }
 
     #[pallet::genesis_build]
@@ -236,6 +254,20 @@ pub mod pallet {
             for (who, _, _) in &self.balances {
                 assert!(seen.insert(who.clone()), "duplicate account in genesis token balances");
             }
+            // G2: founder set is genesis-sealed. Duplicates rejected (same class of silent corruption
+            // as duplicate balances); a founder with a genesis balance would contradict "founders start
+            // with nothing" — rejected too.
+            let mut fseen = alloc::collections::BTreeSet::new();
+            for f in &self.founders {
+                assert!(fseen.insert(f.clone()), "duplicate account in genesis founder set");
+                assert!(!seen.contains(f), "founder account must not carry a genesis balance");
+            }
+            let bounded: BoundedVec<T::AccountId, ConstU32<8>> = self
+                .founders
+                .clone()
+                .try_into()
+                .expect("at most 8 founder accounts in genesis");
+            Founders::<T>::put(bounded);
             for (who, hlq, sov) in &self.balances {
                 Accounts::<T>::insert(who, Balances { hlq: *hlq, sov: *sov });
                 // E4 fix: a genesis-funded account materialises too (existence reference), so it can pay
@@ -464,11 +496,13 @@ pub mod pallet {
             let burn = tokens_core::burn_amount(fee, T::FeeBurnBps::get());
             let to_node = fee - burn;
             let (burned, node) = match author {
-                Some(node) if to_node > 0 => {
+                // G2 (SPEC §3.5b): a founder author earns nothing — their fee share burns like the
+                // no-author case. Founders collect zero, by protocol.
+                Some(node) if to_node > 0 && !Self::is_founder(node) => {
                     let _ = Self::credit(Coin::Hlq, node, to_node);
                     (burn, node.clone())
                 }
-                _ => (fee, payer.clone()), // no author → burn everything (event still names the payer)
+                _ => (fee, payer.clone()), // no author / founder author → burn everything
             };
             if burned > 0 {
                 Burned::<T>::mutate(Coin::Hlq, |x| *x = x.saturating_add(burned));
@@ -557,13 +591,16 @@ pub mod pallet {
 
         /// Mint a coin's scheduled emission for `epoch` into a pool (respecting the hard cap), returning the
         /// amount. Reuses `tokens-core` so the pallet enforces the same rule as the host engine.
-        fn mint_pool(coin: Coin, params: CurveParams, epoch: u64) -> u128 {
-            let minted = Minted::<T>::get(coin);
-            let amount = params.core().mint_amount(epoch, minted);
-            if amount > 0 {
-                Minted::<T>::mutate(coin, |m| *m = m.saturating_add(amount));
-            }
-            amount
+        /// The era's scheduled pool for a coin — a pure QUERY (does not touch `Minted`). Only what is
+        /// actually credited gets registered against the cap (see `run_epoch`): a founder's share is
+        /// never minted, so it never consumes cap (G2 + the no-phantom-supply rule, audit 🔴#2).
+        fn scheduled_pool(coin: Coin, params: CurveParams, epoch: u64) -> u128 {
+            params.core().mint_amount(epoch, Minted::<T>::get(coin))
+        }
+
+        /// G2 (SPEC §3.5b): is this account in the genesis-sealed founder set?
+        pub fn is_founder(who: &T::AccountId) -> bool {
+            Founders::<T>::get().iter().any(|f| f == who)
         }
 
         /// One era: mint HLQ + SOV emission, then split each pool among nodes by capped service weight.
@@ -577,36 +614,63 @@ pub mod pallet {
             // (`ended_epoch_start / EraLength`) for the era that just closed — so `era_service(epoch)`
             // returns the just-ended era. (Byte-exact review point: equivalence holds while `EraLength` is
             // constant and `Epoch` starts at 0 at genesis; P-5 keeps `EraLength` a multiple of EpochLength.)
+            // ONE read for both coins (SOV-by-endurance, the maintainer): the triples carry the
+            // spot service (HLQ's weight) AND the bumped streak. A single call keeps the account
+            // list/order IDENTICAL for both splits (the invariant the design demands) and bumps each
+            // streak exactly once.
             let mut who: alloc::vec::Vec<T::AccountId> = alloc::vec::Vec::new();
             let mut weights: alloc::vec::Vec<u64> = alloc::vec::Vec::new();
-            for (acct, w) in T::ServiceSource::era_service(epoch) {
+            let mut sov_weights: alloc::vec::Vec<u64> = alloc::vec::Vec::new();
+            for (acct, w, streak) in T::ServiceSource::era_service_streak(epoch) {
                 if w > 0 {
                     who.push(acct);
                     weights.push(w);
+                    // SOV weight = spot service × consecutive-era streak (source-capped at k):
+                    // the same era of work counts k× more from a mask that has served k eras in a
+                    // row. Endurance is the multiplier a sybil cannot mint — only time serves.
+                    sov_weights.push(w.saturating_mul(streak.max(1) as u64));
                 }
             }
             Self::cap_weights(&mut weights); // §3.1 anti-Sybil cap, BEFORE the split
+            Self::cap_weights(&mut sov_weights); // same cap discipline on the endurance-scaled vector
 
             // The curve is a MAXIMUM emission, never forced (SPEC-RELAUNCH §2, audit 🔴#2): with no
             // verified service this era, NOTHING is minted — the tranche simply stays unminted under the
             // hard cap. The old order (mint, then look for receivers) vaporised the era's emission into
             // `Minted` with no one credited: phantom supply that permanently ate the cap.
+            // G2 (SPEC §3.5b, the maintainer): shares are computed over EVERYONE's capped weight
+            // (proportionality intact — a lone first citizen gets only their own slice, no jackpot),
+            // but a FOUNDER's slice is simply never minted: not credited, not counted against the cap.
+            // With only founders serving, nothing is minted at all — the first coin of Harlequin
+            // enters circulation when the first citizen earns it.
             let (hlq_pool, sov_pool) = if who.is_empty() {
                 (0, 0)
             } else {
-                let hlq_pool = Self::mint_pool(Coin::Hlq, T::HlqCurve::get(), epoch);
-                let sov_pool = Self::mint_pool(Coin::Sov, T::SovCurve::get(), epoch);
+                let hlq_pool = Self::scheduled_pool(Coin::Hlq, T::HlqCurve::get(), epoch);
+                let sov_pool = Self::scheduled_pool(Coin::Sov, T::SovCurve::get(), epoch);
                 let hlq_shares = tokens_core::split_service_reward(hlq_pool, &weights);
-                let sov_shares = tokens_core::split_service_reward(sov_pool, &weights);
+                let sov_shares = tokens_core::split_service_reward(sov_pool, &sov_weights);
+                let (mut hlq_minted, mut sov_minted) = (0u128, 0u128);
                 for (i, acct) in who.iter().enumerate() {
+                    if Self::is_founder(acct) {
+                        continue; // founder slice stays unminted under the cap
+                    }
                     if hlq_shares[i] > 0 {
                         let _ = Self::credit(Coin::Hlq, acct, hlq_shares[i]);
+                        hlq_minted = hlq_minted.saturating_add(hlq_shares[i]);
                     }
                     if sov_shares[i] > 0 {
                         let _ = Self::credit(Coin::Sov, acct, sov_shares[i]);
+                        sov_minted = sov_minted.saturating_add(sov_shares[i]);
                     }
                 }
-                (hlq_pool, sov_pool)
+                if hlq_minted > 0 {
+                    Minted::<T>::mutate(Coin::Hlq, |m| *m = m.saturating_add(hlq_minted));
+                }
+                if sov_minted > 0 {
+                    Minted::<T>::mutate(Coin::Sov, |m| *m = m.saturating_add(sov_minted));
+                }
+                (hlq_minted, sov_minted)
             };
 
             // Clear the era's accumulator (in the feed source) and advance.
@@ -628,7 +692,11 @@ pub mod pallet {
             }
             let mut sorted: alloc::vec::Vec<u64> = weights.to_vec();
             sorted.sort_unstable();
-            let median = sorted[sorted.len() / 2];
+            // Audit (HIGH): `sorted[len/2]` picks the UPPER median for even n — for n=2 that
+            // is the LARGER weight, so `cap = larger*k ≥ larger` and the cap NEVER fires (a 2-participant
+            // era let a whale take ~all the pool). Use the LOWER median for even n (`(len-1)/2`) so the
+            // cap tracks the honest low tail, not the whale being capped against itself.
+            let median = sorted[(sorted.len() - 1) / 2];
             let k = T::ServiceCapK::get() as u128;
             // ceil(median * k): median*k is small (weights are bounded), u128 is safe.
             let cap = (median as u128).saturating_mul(k);
@@ -686,11 +754,37 @@ mod tests {
     // non-forgeable accumulator, replacing the removed Root-gated `record_service` extrinsic.
     std::thread_local! {
         static SERVICE: core::cell::RefCell<Vec<(u64, u64)>> = const { core::cell::RefCell::new(Vec::new()) };
+        // Mock streak ledger: mirrors pallet-participation's ConsecutiveEras (bump-on-read, reset
+        // absentees, cap at MOCK_MAX_STREAK) so run_epoch's endurance math is exercised for real.
+        static STREAKS: core::cell::RefCell<Vec<(u64, u32)>> = const { core::cell::RefCell::new(Vec::new()) };
     }
+    const MOCK_MAX_STREAK: u32 = 8;
     pub struct MockServiceSource;
     impl pallet_tokens::EraServiceSource<u64> for MockServiceSource {
         fn era_service(_era: u64) -> Vec<(u64, u64)> {
             SERVICE.with(|s| s.borrow().clone())
+        }
+        fn era_service_streak(_era: u64) -> Vec<(u64, u64, u32)> {
+            let servers = SERVICE.with(|s| s.borrow().clone());
+            STREAKS.with(|st| {
+                let mut ledger = st.borrow_mut();
+                let mut out = Vec::with_capacity(servers.len());
+                for (who, w) in servers {
+                    let streak = match ledger.iter_mut().find(|(a, _)| *a == who) {
+                        Some(e) => {
+                            e.1 = e.1.saturating_add(1).min(MOCK_MAX_STREAK);
+                            e.1
+                        }
+                        None => {
+                            ledger.push((who, 1));
+                            1
+                        }
+                    };
+                    out.push((who, w, streak));
+                }
+                ledger.retain(|(a, _)| out.iter().any(|(w, _, _)| w == a)); // absentees reset
+                out
+            })
         }
         fn clear_era(_era: u64) {
             SERVICE.with(|s| s.borrow_mut().clear());
@@ -713,6 +807,7 @@ mod tests {
     /// Reset the mock feed — every ext starts with no seeded service (thread_local can outlive one test).
     fn reset_service() {
         SERVICE.with(|s| s.borrow_mut().clear());
+        STREAKS.with(|s| s.borrow_mut().clear());
     }
 
     fn new_test_ext() -> TestState {
@@ -724,11 +819,73 @@ mod tests {
         reset_service();
         RuntimeGenesisConfig {
             system: Default::default(),
-            tokens: pallet_tokens::GenesisConfig { balances },
+            tokens: pallet_tokens::GenesisConfig { balances, founders: vec![] },
         }
         .build_storage()
         .unwrap()
         .into()
+    }
+
+    fn ext_with_founders(founders: Vec<u64>) -> TestState {
+        reset_service();
+        RuntimeGenesisConfig {
+            system: Default::default(),
+            tokens: pallet_tokens::GenesisConfig { balances: vec![], founders },
+        }
+        .build_storage()
+        .unwrap()
+        .into()
+    }
+
+    // --- G2 (SPEC §3.5b): founders collect ZERO, by protocol ---
+
+    #[test]
+    fn founder_emission_share_is_never_minted_and_no_jackpot() {
+        ext_with_founders(vec![1]).execute_with(|| {
+            // founder (1) and one citizen (2), equal verified service
+            seed_service(1, 1);
+            seed_service(2, 1);
+            Tokens::run_epoch();
+            // founder: zero income, both coins
+            assert_eq!(Tokens::balance(&1, Coin::Hlq), 0);
+            assert_eq!(Tokens::balance(&1, Coin::Sov), 0);
+            // citizen: their OWN proportional slice only (era-0 HLQ pool = 1000 → half),
+            // NOT the whole pool — the founder slice stays unminted (no early-joiner jackpot)
+            let citizen_hlq = Tokens::balance(&2, Coin::Hlq);
+            assert_eq!(citizen_hlq, 500);
+            // the cap ledger counts ONLY what was credited (no phantom supply)
+            assert_eq!(Minted::<Test>::get(Coin::Hlq), citizen_hlq);
+            assert_eq!(Minted::<Test>::get(Coin::Sov), Tokens::balance(&2, Coin::Sov));
+        });
+    }
+
+    #[test]
+    fn founders_only_era_mints_nothing() {
+        ext_with_founders(vec![1, 2]).execute_with(|| {
+            seed_service(1, 3);
+            seed_service(2, 2);
+            Tokens::run_epoch();
+            // the first coin of Harlequin is minted by the people: founders alone mint NOTHING
+            assert_eq!(Minted::<Test>::get(Coin::Hlq), 0);
+            assert_eq!(Minted::<Test>::get(Coin::Sov), 0);
+            assert_eq!(Tokens::balance(&1, Coin::Hlq), 0);
+            assert_eq!(Tokens::balance(&2, Coin::Hlq), 0);
+            assert_eq!(Epoch::<Test>::get(), 1); // the era still advances
+        });
+    }
+
+    #[test]
+    fn founder_author_fee_share_burns_fully() {
+        ext_with_founders(vec![1]).execute_with(|| {
+            // founder author → entire fee burns (like the no-author soft-drop)
+            Tokens::fee_settle(&9, Some(&1), 100);
+            assert_eq!(Tokens::balance(&1, Coin::Hlq), 0);
+            assert_eq!(Burned::<Test>::get(Coin::Hlq), 100);
+            // non-founder author sanity: 50/50 split still holds
+            Tokens::fee_settle(&9, Some(&3), 100);
+            assert_eq!(Tokens::balance(&3, Coin::Hlq), 50);
+            assert_eq!(Burned::<Test>::get(Coin::Hlq), 150);
+        });
     }
 
     // --- transfers: checked, supply-conserving, money-only ---
@@ -872,14 +1029,86 @@ mod tests {
         });
     }
 
+    // --- SOV-by-endurance (the maintainer): SOV weight = spot service × consecutive-era streak ---
+
+    /// Pre-set a mask's mock streak (mirrors participation's ConsecutiveEras before an era read).
+    /// `era_service_streak` will bump it by one when the era is processed.
+    fn set_streak(who: u64, streak: u32) {
+        STREAKS.with(|st| {
+            let mut l = st.borrow_mut();
+            match l.iter_mut().find(|(a, _)| *a == who) {
+                Some(e) => e.1 = streak,
+                None => l.push((who, streak)),
+            }
+        });
+    }
+
+    #[test]
+    fn sov_rewards_endurance_hlq_stays_spot() {
+        new_test_ext().execute_with(|| {
+            // Same SPOT service, but 1 is a veteran (streak → 8 after the bump) and 2 a newcomer
+            // (streak → 1). HLQ (spot) must split equal; SOV must favour the veteran.
+            set_streak(1, 7); // becomes 8 when the era is read
+            seed_service(1, 5);
+            seed_service(2, 5);
+            Tokens::run_epoch();
+            assert_eq!(
+                Tokens::balance(&1, Coin::Hlq),
+                Tokens::balance(&2, Coin::Hlq),
+                "HLQ is spot: same era, same service, same pay"
+            );
+            assert!(
+                Tokens::balance(&1, Coin::Sov) > Tokens::balance(&2, Coin::Sov),
+                "endurance must win SOV: veteran {} vs newcomer {}",
+                Tokens::balance(&1, Coin::Sov),
+                Tokens::balance(&2, Coin::Sov)
+            );
+        });
+    }
+
+    #[test]
+    fn in_and_out_cartel_never_compounds_sov() {
+        new_test_ext().execute_with(|| {
+            // Identical spot service this era, but the steady mask (1) carries a real streak while the
+            // in-and-out cartel mask (9) is perpetually back at 1 (its alternation reset it). Endurance,
+            // the one thing it cannot fake by re-entering, keeps its SOV below the steady mask's.
+            set_streak(1, 7); // steady → streak 8
+            // 9 has no streak → newcomer-equivalent (1) every time it re-enters
+            seed_service(1, 5);
+            seed_service(9, 5);
+            Tokens::run_epoch();
+            assert!(
+                Tokens::balance(&1, Coin::Sov) > Tokens::balance(&9, Coin::Sov),
+                "steady {} vs cartel {}",
+                Tokens::balance(&1, Coin::Sov),
+                Tokens::balance(&9, Coin::Sov)
+            );
+        });
+    }
+
     // --- anti-Sybil cap §3.1: ceil(median·k) applied BEFORE the split ---
 
     #[test]
     fn cap_weights_flattens_the_tail() {
-        // sorted [1,1,1,100], median (index len/2=2) = 1, k=2 -> cap 2; whale 100 -> 2.
+        // sorted [1,1,1,100], lower median (index (4-1)/2=1) = 1, k=2 -> cap 2; whale 100 -> 2.
         let mut w = vec![1u64, 1, 100, 1];
         Tokens::cap_weights(&mut w);
         assert_eq!(w, vec![1, 1, 2, 1]);
+    }
+
+    #[test]
+    fn cap_weights_even_n_caps_the_whale() {
+        // Audit regression: even n must NOT no-op. n=2 [1,100]: lower median = 1,
+        // k=2 -> cap 2; the whale must be flattened to 2, not left at 100 (the old upper-median bug).
+        let mut w2 = vec![1u64, 100];
+        Tokens::cap_weights(&mut w2);
+        assert_eq!(w2, vec![1, 2], "n=2 whale not capped -> even-n no-op bug");
+        // n=4 Sybil majority [1,50,50,50]: lower median (index 1) = 50, cap=100 -> unchanged here,
+        // but a lone honest small node is not the median so the attacker can't hide behind itself:
+        // the true drain case is n=2, covered above. Also check n=6 with one whale.
+        let mut w6 = vec![1u64, 1, 1, 1, 1, 600];
+        Tokens::cap_weights(&mut w6);
+        assert_eq!(w6, vec![1, 1, 1, 1, 1, 2], "even-n whale not capped");
     }
 
     #[test]

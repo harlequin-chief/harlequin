@@ -179,6 +179,13 @@ pub mod pallet {
         #[pallet::constant]
         type AttestBudget: Get<u32>;
 
+        /// (G1 gap-check, §1.5d) Initial value of `ProbationWindow`. On the king-less mainnet
+        /// no origin can dispatch `set_probation_window` (EvidenceOrigin is Root and Sudo is not compiled
+        /// in), so the shipped default IS the live value forever: a 0 default would ship the vouch-bomb
+        /// guard permanently off. PARÁMETRO — a mutable calibration, but it must ship non-zero on mainnet.
+        #[pallet::constant]
+        type DefaultProbationWindow: Get<BlockNumberFor<Self>>;
+
         /// (🔴#5-iii, SPEC-RELAUNCH §7) ABSOLUTE floor of attester consensus reputation, raw fixed-point
         /// (PARÁMETRO). The epoch floor is `max(p25 of the rep>0 set, this)` — see [`AttestFloorFp`] —
         /// so even at genesis/empty state a zero-reputation mask's testimony admits nothing. Below the
@@ -314,10 +321,16 @@ pub mod pallet {
 
     /// Probation window (§1.5d, C4): a fraud by a protégé whose sponsor's vouch is YOUNGER than this many
     /// blocks does NOT cascade to that sponsor — the propagated trust has not matured, so there is nothing
-    /// to claw back (kills the "vouch-bomb": vouch then immediately defraud to drain the sponsor). `0` = off
-    /// (default), so it is opt-in and never changes existing behaviour until set. A tunable dial.
+    /// to claw back (kills the "vouch-bomb": vouch then immediately defraud to drain the sponsor). `0` = off.
+    /// Starts at `DefaultProbationWindow` (G1 gap-check: on the king-less mainnet nothing can
+    /// dispatch `set_probation_window`, so the default IS the live value — it must ship non-zero there).
+    #[pallet::type_value]
+    pub fn ProbationWindowInitial<T: Config>() -> BlockNumberFor<T> {
+        T::DefaultProbationWindow::get()
+    }
     #[pallet::storage]
-    pub type ProbationWindow<T: Config> = StorageValue<_, BlockNumberFor<T>, ValueQuery>;
+    pub type ProbationWindow<T: Config> =
+        StorageValue<_, BlockNumberFor<T>, ValueQuery, ProbationWindowInitial<T>>;
 
     /// §1.4b entrenchment-guard halt threshold: the largest single-entity share of consensus reputation
     /// above which an epoch counts toward the halt (≈1/3, FP_SCALE-scaled). **HARD constant — deliberately
@@ -337,6 +350,12 @@ pub mod pallet {
     /// (🔴#5-ii) Depth at which the pair attest counter saturates: past 16 halvings the pair is SPENT
     /// and admits exactly 0 — this keeps the m2 grow-only entry a single small u8 forever.
     pub const ATTEST_PAIR_DECAY_MAX: u8 = 16;
+
+    /// (#837) Domain-separation prefix for the node-binding possession proof. The hot session key
+    /// signs `BIND_LABEL ‖ mask_account(32 bytes)`; wallet-core must sign the identical bytes with the
+    /// standard substrate sr25519 context. The label keeps this signature from ever being valid as a
+    /// login or spend (and vice-versa) — the same domain-separation discipline as the login path.
+    pub const BIND_LABEL: &[u8] = b"hlq-node-bind-v1";
 
     /// (Acta J2 §3) Evidence-journal dust sweep width: how many record ids the epoch boundary scans
     /// (circular cursor) pruning records whose current worth decayed to 0. Bounds the per-epoch cost to
@@ -376,6 +395,19 @@ pub mod pallet {
         ValueQuery,
     >;
 
+    /// §1.6 anti-split (#599) — hysteresis arm flag for the CLUSTER leg of the entrenchment guard.
+    /// `false` (genesis default): the per-suit cluster share is computed and surfaced every epoch
+    /// ([`Event::ClusterGuard`]) but does NOT feed the halt — at block 0 the founders are one
+    /// mutually-vouching community (~100% share) by construction, and halting the chain for being
+    /// young would punish the start, not entrenchment. It ARMS — permanently, one-way — on the first
+    /// epoch where the WORST per-suit cluster share sits strictly between 0 and the threshold: every
+    /// dimension genuinely decentralised at once (the `> 0` floor keeps empty/rep-zero early epochs
+    /// from arming it vacuously). From then on the guard punishes RE-concentration: the effective
+    /// share becomes `max(single-entity, cluster)` and the halt/self-heal machinery applies whole.
+    /// Deterministic consensus state, written in `run_epoch`.
+    #[pallet::storage]
+    pub type ClusterGuardArmed<T> = StorageValue<_, bool, ValueQuery>;
+
     /// Last epoch's network telemetry (SPEC §5c) — what the nodes serve to the public panel.
     #[pallet::storage]
     pub type LastReport<T> = StorageValue<_, EpochReport, OptionQuery>;
@@ -390,6 +422,16 @@ pub mod pallet {
     #[pallet::storage]
     pub type VoteKeys<T: Config> =
         StorageMap<_, Blake2_128Concat, T::AccountId, [u8; 32], OptionQuery>;
+
+    /// Reverse of [`VoteKeys`]: hot session pubkey → the cold account it is delegated for (#837).
+    /// Kept in lockstep with `VoteKeys` on every bind/clear so the uniqueness invariant that genesis
+    /// enforces in-memory (no two accounts share one hot key — sharing would make the node's
+    /// vote→account resolution collide and split finality) is checkable in O(1) inside the live
+    /// `bind_session_key` extrinsic, without iterating the whole map. Populated from `VoteKeys` by the
+    /// runtime-upgrade migration and, for fresh chains, in `genesis_build`.
+    #[pallet::storage]
+    pub type VoteKeyOwner<T: Config> =
+        StorageMap<_, Blake2_128Concat, [u8; 32], T::AccountId, OptionQuery>;
 
     /// Genesis: seed the founding cohort's objective evidence (§1.4), so the chain boots with members
     /// who already have standing to bootstrap trust. Nothing here is reputation — only the evidence
@@ -446,6 +488,9 @@ pub mod pallet {
             }
             for (who, session_pubkey) in &self.vote_keys {
                 VoteKeys::<T>::insert(who, *session_pubkey);
+                // #837: keep the reverse map coherent from block 0 so a post-genesis bind sees the
+                // founding delegations when it checks hot-key uniqueness.
+                VoteKeyOwner::<T>::insert(*session_pubkey, who);
             }
             // Derive the founding cohort's reputation at block 0 so the chain boots with a real,
             // reputation-weighted committee (not a fallback). Reputation is still DERIVED, never
@@ -488,6 +533,17 @@ pub mod pallet {
         /// consecutive over-threshold epochs, and whether finality is currently `halted`. Emitted whenever
         /// the halt state flips or the share sits over threshold, so the freeze/heal is publicly auditable.
         EntrenchmentHalt { share_fp: i128, counter: u32, halted: bool },
+        /// §1.6 anti-split (#599) cluster leg observability (Art X): the WORST per-suit cluster share
+        /// of consensus reputation this epoch (`cluster_share_fp`) and whether the cluster guard is
+        /// `armed` (hysteresis: arms once, permanently, when every suit is decentralised at once).
+        /// Emitted when the arm flips or the cluster share sits over threshold — the community can
+        /// watch concentration openly even while the leg is still observe-only.
+        ClusterGuard { cluster_share_fp: i128, armed: bool },
+        /// #837: an account bound a hot session (vote) key to itself — its node can now be credited
+        /// for the finality service that key signs. `rotated` is true when it replaced a previous key.
+        VoteKeyBound { who: T::AccountId, session_pubkey: [u8; 32], rotated: bool },
+        /// #837: an account cleared its hot session key delegation (unbind); it reverts to direct signing.
+        VoteKeyCleared { who: T::AccountId, session_pubkey: [u8; 32] },
     }
 
     #[pallet::error]
@@ -513,6 +569,15 @@ pub mod pallet {
         /// (🔴#5-i) The caller has spent its attestation budget for this epoch — testimony is
         /// rate-limited by the chain's clock, however many masks are minted.
         AttestBudgetExhausted,
+        /// (#837) The hot session key is already delegated to a DIFFERENT account. One hot key serves
+        /// exactly one cold account; sharing would collide the node's vote→account resolution.
+        SessionKeyInUse,
+        /// (#837) The possession proof failed: `pop_sig` is not a valid signature by `sk_pub` over
+        /// `hlq-node-bind-v1 ++ mask_account ++ genesis_hash`. Either the caller does not hold the hot
+        /// key or the message was built wrong — the bind is refused so nobody can claim a foreign key.
+        BadPossessionProof,
+        /// (#837) `clear_vote_key` on an account that has no delegation to clear.
+        NoVoteKeyToClear,
     }
 
     #[pallet::hooks]
@@ -527,6 +592,24 @@ pub mod pallet {
             }
             // Placeholder weight (recompute is heavy; benchmark + offchain-worker move pre-mainnet).
             Weight::from_parts(1_000_000_000, 0)
+        }
+
+        /// (#837) One-shot migration: build the [`VoteKeyOwner`] reverse map from the existing
+        /// [`VoteKeys`] on the upgrade that introduces `set_vote_key`. The live chain sealed its
+        /// genesis delegations only in the forward map; without this, the first bind could not detect
+        /// that a genesis hot key is already taken. Idempotent — re-running finds the entries present
+        /// and rewrites the same values, so a repeated upgrade is harmless.
+        fn on_runtime_upgrade() -> Weight {
+            let mut reads = 0u64;
+            let mut writes = 0u64;
+            for (who, sk_pub) in VoteKeys::<T>::iter() {
+                reads += 1;
+                if VoteKeyOwner::<T>::get(sk_pub).is_none() {
+                    VoteKeyOwner::<T>::insert(sk_pub, who);
+                    writes += 1;
+                }
+            }
+            T::DbWeight::get().reads_writes(reads, writes)
         }
     }
 
@@ -719,12 +802,18 @@ pub mod pallet {
                     .try_push((target.clone(), suit, weight))
                     .map_err(|_| Error::<T>::TooManyVouches)
             })?;
-            // §1.5d probation: stamp when this vouch was cast, so the cascade can shield a sponsor whose
-            // vouch has not yet matured (anti vouch-bomb).
-            VouchedAt::<T>::insert(
-                (voucher.clone(), target.clone(), suit),
-                frame_system::Pallet::<T>::block_number(),
-            );
+            // §1.5d probation: stamp when this vouch was FIRST cast, so the cascade can shield a sponsor
+            // whose vouch has not yet matured (anti vouch-bomb). Audit (HIGH): an unconditional
+            // insert let a sponsor REFRESH the timestamp every `<ProbationWindow` blocks (re-vouch, or
+            // revoke+re-vouch) and stay permanently "fresh" ⇒ never cascade-slashed for a protégé's fraud,
+            // defeating "you answer for whom you bring in". Fix: the first-vouch timestamp NEVER regresses
+            // — only set it if absent, so re-vouching keeps the original maturity clock (and a re-vouch
+            // after revoke inherits the old, matured timestamp = cascade applies = the safe direction).
+            let now = frame_system::Pallet::<T>::block_number();
+            let key = (voucher.clone(), target.clone(), suit);
+            if !VouchedAt::<T>::contains_key(&key) {
+                VouchedAt::<T>::insert(&key, now);
+            }
             Self::deposit_event(Event::Vouched { voucher, target, suit, weight });
             Ok(())
         }
@@ -764,6 +853,70 @@ pub mod pallet {
             T::JusticeOrigin::ensure_origin(origin)?;
             Self::cascade_slash(&culprit, suit, loss, depth);
             Self::deposit_event(Event::FraudSlashed { culprit, suit, loss });
+            Ok(())
+        }
+
+        /// (#837) Bind a hot session (vote) key to the CALLER's account, proving possession of that hot
+        /// key. The mask (cold account) is the `Signed` origin — native authorization, and the system
+        /// nonce gives native anti-replay, so no separate authorization signature is needed. `pop_sig`
+        /// is the hot key signing `BIND_LABEL ‖ mask_account`: it proves the caller HOLDS `sk_pub`
+        /// (nobody can bind a key they do not control) and ties that proof to THIS mask (the account is
+        /// named in the signed bytes), so a captured proof cannot be turned against another account.
+        /// Cross-chain replay is precluded by the extrinsic envelope's own `CheckGenesis`, so the proof
+        /// needs no genesis hash of its own. Uniqueness is hard: one hot key serves exactly one cold
+        /// account — sharing would collide the node's vote→account resolution and split finality.
+        /// Re-binding a new key by the same account rotates; [`Self::clear_vote_key`] unbinds.
+        #[pallet::call_index(8)]
+        #[pallet::weight(Weight::from_parts(120_000, 0))]
+        pub fn set_vote_key(
+            origin: OriginFor<T>,
+            sk_pub: [u8; 32],
+            pop_sig: [u8; 64],
+        ) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+            // Possession proof: the hot key signs BIND_LABEL ‖ this account. Verified byte-for-byte
+            // against wallet-core's signer (standard substrate sr25519 context).
+            let mut msg = alloc::vec::Vec::with_capacity(BIND_LABEL.len() + 32);
+            msg.extend_from_slice(BIND_LABEL);
+            who.using_encoded(|b| msg.extend_from_slice(b));
+            {
+                use frame::deps::sp_core::sr25519::{Public, Signature};
+                let ok = frame::deps::sp_io::crypto::sr25519_verify(
+                    &Signature::from_raw(pop_sig),
+                    &msg,
+                    &Public::from_raw(sk_pub),
+                );
+                ensure!(ok, Error::<T>::BadPossessionProof);
+            }
+            // Uniqueness: the hot key must not already be delegated to a DIFFERENT account.
+            if let Some(owner) = VoteKeyOwner::<T>::get(sk_pub) {
+                ensure!(owner == who, Error::<T>::SessionKeyInUse);
+            }
+            // Rotation: release the caller's previous hot key from the reverse map, if any and different.
+            let rotated = if let Some(old) = VoteKeys::<T>::get(&who) {
+                if old != sk_pub {
+                    VoteKeyOwner::<T>::remove(old);
+                }
+                true
+            } else {
+                false
+            };
+            VoteKeys::<T>::insert(&who, sk_pub);
+            VoteKeyOwner::<T>::insert(sk_pub, &who);
+            Self::deposit_event(Event::VoteKeyBound { who, session_pubkey: sk_pub, rotated });
+            Ok(())
+        }
+
+        /// (#837) Clear the caller's hot session key delegation (unbind); the account reverts to direct
+        /// signing. Frees the hot key in the reverse map so it can be bound elsewhere.
+        #[pallet::call_index(9)]
+        #[pallet::weight(Weight::from_parts(60_000, 0))]
+        pub fn clear_vote_key(origin: OriginFor<T>) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+            let sk_pub = VoteKeys::<T>::get(&who).ok_or(Error::<T>::NoVoteKeyToClear)?;
+            VoteKeys::<T>::remove(&who);
+            VoteKeyOwner::<T>::remove(sk_pub);
+            Self::deposit_event(Event::VoteKeyCleared { who, session_pubkey: sk_pub });
             Ok(())
         }
     }
@@ -949,25 +1102,93 @@ pub mod pallet {
         /// share back at/under threshold **resets** the counter → finality self-resumes. The reputation feed
         /// is EXACTLY [`consensus_reputation`](Self::consensus_reputation) — the same values the committee is
         /// weighted on (`node/finality.rs`) — so guard and sortition can never disagree about who holds how
-        /// much. v1 passes an EMPTY cluster map (`cold_start_halt_share_fp` collapses to single-entity);
-        /// anti-split clustering is #754 (enabling it now would false-halt the mutually-vouching founders).
+        /// much. The cluster leg (§1.6 anti-split, #599) runs per suit — `communities()` over that
+        /// suit's vouch edges, weighed against the SAME consensus reps — and the WORST suit counts:
+        /// the union graph would fuse unrelated communities through weak cross-suit bridges and
+        /// false-halt. While [`ClusterGuardArmed`] is `false` the cluster share is observe-only
+        /// (founders are one community at birth by construction); it arms permanently on the first
+        /// epoch every suit is decentralised at once, and from then on the effective share is
+        /// `max(single-entity, cluster)` into the SAME counter/halt/bands machinery.
         fn step_entrenchment_guard(consensus_reps: &[(T::AccountId, i128)]) {
-            use alloc::string::ToString;
-            // v1 keys reps by positional index — fine because labels are empty, so the share is key-agnostic
-            // (`max_i r_i / Σ r_j` doesn't depend on the ids). #754 (cluster anti-split) MUST re-key BOTH this
-            // map AND the labels map by the REAL account (SCALE-hex of `_acc`) so `communities()` can join
-            // account → cluster; that rewrite lives with #754, not here. Negatives are safe: the share fns
-            // filter `r > 0` on numerator AND denominator, so slashed/decayed reps can't shrink Σ or inflate.
-            let reps: alloc::collections::BTreeMap<alloc::string::String, i128> = consensus_reps
-                .iter()
-                .enumerate()
-                .map(|(i, (_acc, r))| (i.to_string(), *r))
-                .collect();
-            // v1: empty labels → cold_start_halt_share_fp collapses to the single-entity share. Passed
-            // explicitly so the call site is already cluster-ready for #754 (populate from communities).
-            let labels: alloc::collections::BTreeMap<alloc::string::String, alloc::string::String> =
-                alloc::collections::BTreeMap::new();
-            let share_fp = reputation_core::cold_start_halt_share_fp(&labels, &reps);
+            use core::fmt::Write as _;
+            // Keys are the REAL account (SCALE-hex), never positional indices: reps and labels are
+            // joined BY KEY inside `max_cluster_share_fp`, and two independently-built maps only agree
+            // order-independently if the key is the account itself (a positional join would lie in
+            // silence — the class of bug that kills consensus without noise). Negatives are safe: the
+            // share fns filter `r > 0` on numerator AND denominator, so slashed/decayed reps can't
+            // shrink Σ or inflate.
+            let key = |acc: &T::AccountId| -> alloc::string::String {
+                let bytes = codec::Encode::encode(acc);
+                let mut s = alloc::string::String::with_capacity(bytes.len() * 2);
+                for b in bytes {
+                    let _ = write!(s, "{:02x}", b);
+                }
+                s
+            };
+            let reps: alloc::collections::BTreeMap<alloc::string::String, i128> =
+                consensus_reps.iter().map(|(acc, r)| (key(acc), *r)).collect();
+            let nodes: alloc::vec::Vec<alloc::string::String> = reps.keys().cloned().collect();
+            // Cluster leg: rebuild the vouch graph keyed by account-hex (the recompute graph is keyed
+            // positionally and is gone by now; one extra Vouches sweep per epoch is negligible next to
+            // EigenTrust). `communities()` uses adjacency only, so the f64 edge weight cannot affect
+            // the labels (determinism unchanged — f64 stays out of #599's blast radius).
+            let mut graph = reputation_core::TrustGraph::new();
+            for (acc, edges) in Vouches::<T>::iter() {
+                let s = key(&acc);
+                for (target, suit, weight) in edges.into_iter() {
+                    graph.attest(&s, &key(&target), suit.dim_name(), weight as f64);
+                }
+            }
+            let mut cluster_share_fp: i128 = 0;
+            let mut real_cluster = false; // any community of ≥2 rep-positive members, in any suit
+            for suit in Suit::ALL {
+                let labels = graph.communities(suit.dim_name(), &nodes);
+                let suit_share = reputation_core::max_cluster_share_fp(&labels, &reps);
+                if suit_share > cluster_share_fp {
+                    cluster_share_fp = suit_share;
+                }
+                if !real_cluster {
+                    // Count label sizes over rep-POSITIVE nodes only (the same r > 0 filter the share
+                    // fns apply) so a zero-weight ghost ring can't count as a "real" cluster.
+                    let mut sizes: alloc::collections::BTreeMap<&alloc::string::String, u32> =
+                        alloc::collections::BTreeMap::new();
+                    for (node, label) in labels.iter() {
+                        if reps.get(node).is_some_and(|r| *r > 0) {
+                            let n = sizes.entry(label).or_insert(0);
+                            *n += 1;
+                            if *n >= 2 {
+                                real_cluster = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            // Hysteresis arm (one-way, four-eyes R1 fix): arming needs REAL clusters that are BOUNDED —
+            // at least one non-singleton community among rep-positive members AND the worst per-suit
+            // share strictly under threshold. Sequence-independent: an edge-less bootstrap (singletons
+            // ~20%) does NOT arm, so founders who only vouch each other AFTER earning rep cannot walk
+            // into a false halt; their later ring sits over threshold and keeps the leg observe-only
+            // until honest growth dilutes it under 1/3 — the exact moment "decentralised" becomes true.
+            // The `> 0` floor keeps empty or all-rep-zero early epochs (founders seeded at ZERO) from
+            // arming vacuously.
+            let prev_armed = ClusterGuardArmed::<T>::get();
+            let armed = prev_armed
+                || (real_cluster
+                    && cluster_share_fp > 0
+                    && cluster_share_fp < ENTRENCHMENT_THRESHOLD_FP);
+            if armed != prev_armed {
+                ClusterGuardArmed::<T>::put(armed);
+            }
+            if armed != prev_armed || cluster_share_fp > ENTRENCHMENT_THRESHOLD_FP {
+                Self::deposit_event(Event::ClusterGuard { cluster_share_fp, armed });
+            }
+            // Single effective concentration signal into the ONE counter/halt/bands machine.
+            let single_fp = {
+                let v: alloc::vec::Vec<i128> = consensus_reps.iter().map(|(_, r)| *r).collect();
+                reputation_core::max_single_entity_share_fp(&v)
+            };
+            let share_fp = single_fp.max(if armed { cluster_share_fp } else { 0 });
             let (counter, halted) = reputation_core::entrenchment_halt_step(
                 share_fp,
                 ENTRENCHMENT_THRESHOLD_FP,
@@ -1397,8 +1618,8 @@ pub mod pallet {
 mod tests {
     use crate as pallet_reputation;
     use crate::{
-        Epoch, EntrenchmentBands, EntrenchmentCounter, EntrenchmentHalted, Error, Evidence, LastReport,
-        ReputationSnapshot, Suit, VoteKeys, CONSENSUS_LAMBDA_FP, ENTRENCHMENT_REQUIRED_EPOCHS,
+        ClusterGuardArmed, Epoch, EntrenchmentBands, EntrenchmentCounter, EntrenchmentHalted, Error, Evidence, LastReport,
+        ProbationWindow, ReputationSnapshot, Suit, VoteKeys, CONSENSUS_LAMBDA_FP, ENTRENCHMENT_REQUIRED_EPOCHS,
     };
     use frame::testing_prelude::*;
 
@@ -1453,6 +1674,9 @@ mod tests {
         type AttestStakeMultiplier = ConstU32<1>;
         type ServiceFeed = MockServiceFeed;
         type ServiceEvidenceRate = ConstU128<1>;
+        // G1: 0 here so the cascade tests exercise the window explicitly via set_probation_window;
+        // the runtime ships the real non-zero mainnet default (see runtime parameter_types).
+        type DefaultProbationWindow = ConstU64<0>;
     }
 
     fn new_test_ext() -> TestState {
@@ -1848,6 +2072,17 @@ mod tests {
     }
 
     #[test]
+    fn probation_window_starts_at_the_configured_default() {
+        // G1 (): the window boots from Config, not from a hardwired 0 — on mainnet the
+        // shipped default is the live value (no origin can dispatch the setter there).
+        new_test_ext().execute_with(|| {
+            let configured: u64 = <<Test as pallet_reputation::Config>::DefaultProbationWindow
+                as frame::prelude::Get<u64>>::get();
+            assert_eq!(ProbationWindow::<Test>::get(), configured);
+        });
+    }
+
+    #[test]
     fn probation_shields_sponsor_from_a_fresh_vouch_fraud() {
         // §1.5d / C4: with a probation window set, a protégé's fraud does NOT cascade to a sponsor whose
         // vouch is still fresh (the propagated trust has not matured) — kills the "vouch-bomb". Window 0
@@ -1861,6 +2096,30 @@ mod tests {
             assert_eq!(Evidence::<Test>::get(2u64, Suit::Commerce), 0); // culprit answers in full
             // sponsor SHIELDED: the vouch is within the probation window, so it is not cascaded
             assert_eq!(Evidence::<Test>::get(1u64, Suit::Commerce), 100);
+        });
+    }
+
+    #[test]
+    fn vouch_timestamp_never_regresses_so_liability_cannot_be_refreshed() {
+        // Audit (HIGH): re-vouching (or revoke+re-vouch) must NOT reset the maturity clock —
+        // otherwise a sponsor stays permanently "fresh" and escapes cascade forever. With a window of 50,
+        // a vouch cast at block 0 has matured by block 100; re-vouching at block 100 must keep the block-0
+        // stamp, so a fraud then DOES cascade to the sponsor.
+        new_test_ext().execute_with(|| {
+            make_reputable(1);
+            assert_ok!(Reputation::set_probation_window(RuntimeOrigin::root(), 50));
+            assert_ok!(Reputation::submit_evidence(RuntimeOrigin::root(), 2u64, Suit::Commerce, 100));
+            assert_ok!(Reputation::vouch(RuntimeOrigin::signed(1), 2u64, Suit::Commerce, 1)); // stamp=0
+            System::set_block_number(100);
+            // attacker refreshes: revoke + re-vouch (quota-neutral)
+            assert_ok!(Reputation::revoke_vouch(RuntimeOrigin::signed(1), 2u64, Suit::Commerce));
+            assert_ok!(Reputation::vouch(RuntimeOrigin::signed(1), 2u64, Suit::Commerce, 1)); // must NOT reset to 100
+            assert_ok!(Reputation::report_fraud(RuntimeOrigin::root(), 2u64, Suit::Commerce, 100, 2));
+            // the vouch is OLDER than the window (stamp still 0, now 100) -> cascade DOES hit the sponsor
+            assert!(
+                Evidence::<Test>::get(1u64, Suit::Commerce) < 100,
+                "sponsor escaped cascade by refreshing the vouch timestamp"
+            );
         });
     }
 
@@ -2219,6 +2478,190 @@ mod tests {
     }
 
     #[test]
+    fn cluster_guard_stays_unarmed_while_founders_are_one_community() {
+        new_test_ext().execute_with(|| {
+            // Founders with equal evidence AND a vouch ring in one suit: that suit is ONE community
+            // holding ~100% → the worst-suit share sits over threshold, so the leg must observe and
+            // never arm (matiz 2: arming needs EVERY suit decentralised at once) — and, unarmed, it
+            // must never halt however long it runs (iron scenario A at unit scale).
+            for who in 1u64..=5 {
+                for suit in Suit::ALL {
+                    assert_ok!(Reputation::submit_evidence(RuntimeOrigin::root(), who, suit, 1_000_000));
+                }
+            }
+            Reputation::run_epoch();
+            // Bare bootstrap epoch: no edges at all → singletons only → no REAL cluster → must NOT
+            // arm, however far under threshold the singleton shares sit (four-eyes R1 fix).
+            assert!(!ClusterGuardArmed::<Test>::get(), "an edge-less set must not arm the leg");
+            for who in 1u64..=5 {
+                let target = if who == 5 { 1 } else { who + 1 };
+                assert_ok!(Reputation::vouch(RuntimeOrigin::signed(who), target, Suit::Commerce, 1));
+            }
+            for _epoch in 0..10u32 {
+                for who in 1u64..=5 {
+                    for suit in Suit::ALL {
+                        assert_ok!(Reputation::submit_evidence(RuntimeOrigin::root(), who, suit, 1_000_000));
+                    }
+                }
+                Reputation::run_epoch();
+                assert!(!ClusterGuardArmed::<Test>::get(), "one founding community must keep the leg unarmed");
+                assert_eq!(EntrenchmentCounter::<Test>::get(), 0, "unarmed cluster share must not feed the counter");
+                assert!(!EntrenchmentHalted::<Test>::get());
+            }
+        });
+    }
+
+    #[test]
+    fn cluster_guard_arms_then_halts_a_sybil_ring_and_self_heals() {
+        new_test_ext().execute_with(|| {
+            // Five unconnected founders plus one LEGITIMATE small pair (6↔7): the pair is a real
+            // (size-2) community and every suit's worst cluster sits under 1/3 → the leg ARMS —
+            // "real clusters exist AND they are bounded" (four-eyes R1 semantics).
+            for who in 1u64..=5 {
+                for suit in Suit::ALL {
+                    assert_ok!(Reputation::submit_evidence(RuntimeOrigin::root(), who, suit, 1_000_000));
+                }
+            }
+            for who in 6u64..=7 {
+                for suit in Suit::ALL {
+                    assert_ok!(Reputation::submit_evidence(RuntimeOrigin::root(), who, suit, 200_000));
+                }
+            }
+            Reputation::run_epoch(); // snapshot so the pair's vouch quota opens
+            assert!(!ClusterGuardArmed::<Test>::get(), "singletons alone must not arm");
+            assert_ok!(Reputation::vouch(RuntimeOrigin::signed(6u64), 7u64, Suit::Commerce, 1));
+            assert_ok!(Reputation::vouch(RuntimeOrigin::signed(7u64), 6u64, Suit::Commerce, 1));
+            for who in 1u64..=5 {
+                for suit in Suit::ALL {
+                    assert_ok!(Reputation::submit_evidence(RuntimeOrigin::root(), who, suit, 1_000_000));
+                }
+            }
+            for who in 6u64..=7 {
+                for suit in Suit::ALL {
+                    assert_ok!(Reputation::submit_evidence(RuntimeOrigin::root(), who, suit, 200_000));
+                }
+            }
+            Reputation::run_epoch();
+            assert!(ClusterGuardArmed::<Test>::get(), "a real bounded pair must arm the leg");
+            assert!(!EntrenchmentHalted::<Test>::get());
+
+            // A sybil ring (10..13) with heavy evidence and mutual vouches in Commerce: each identity
+            // stays under 1/3 alone (single-entity is blind to it) but the RING holds well over 1/3 of
+            // consensus reputation → armed cluster leg must count it and halt after 7 sustained epochs.
+            for who in 10u64..=13 {
+                for suit in Suit::ALL {
+                    assert_ok!(Reputation::submit_evidence(RuntimeOrigin::root(), who, suit, 10_000_000));
+                }
+            }
+            Reputation::run_epoch(); // snapshot the ring so its vouch quota opens
+            for who in 10u64..=13 {
+                let target = if who == 13 { 10 } else { who + 1 };
+                assert_ok!(Reputation::vouch(RuntimeOrigin::signed(who), target, Suit::Commerce, 1));
+            }
+            let mut halted_at = 0u32;
+            for epoch in 1..=8u32 {
+                for who in 1u64..=5 {
+                    for suit in Suit::ALL {
+                        assert_ok!(Reputation::submit_evidence(RuntimeOrigin::root(), who, suit, 1_000_000));
+                    }
+                }
+                for who in 10u64..=13 {
+                    for suit in Suit::ALL {
+                        assert_ok!(Reputation::submit_evidence(RuntimeOrigin::root(), who, suit, 10_000_000));
+                    }
+                }
+                Reputation::run_epoch();
+                if EntrenchmentHalted::<Test>::get() {
+                    halted_at = epoch;
+                    break;
+                }
+            }
+            assert!(halted_at >= ENTRENCHMENT_REQUIRED_EPOCHS, "must not halt before 7 sustained epochs");
+            assert!(EntrenchmentHalted::<Test>::get(), "the armed leg must halt a ring no single identity betrays");
+
+            // Dilution (honest growth swamps the ring) → counter resets → finality self-resumes, and
+            // the leg STAYS armed (one-way hysteresis).
+            for _epoch in 0..3u32 {
+                for who in 1u64..=5 {
+                    for suit in Suit::ALL {
+                        assert_ok!(Reputation::submit_evidence(RuntimeOrigin::root(), who, suit, 100_000_000));
+                    }
+                }
+                Reputation::run_epoch();
+            }
+            assert!(!EntrenchmentHalted::<Test>::get(), "dilution below threshold must self-heal the freeze");
+            assert!(ClusterGuardArmed::<Test>::get(), "the arm is one-way");
+        });
+    }
+
+    #[test]
+    fn cluster_guard_r1_sequence_late_founder_ring_never_false_halts() {
+        new_test_ext().execute_with(|| {
+            // The exact R1 sequence from four-eyes: founders earn reputation with NO ring (singletons,
+            // ~20% < 1/3) → must not arm; they form the ring LATER (one community, ~100% > 1/3, held
+            // for 8+ epochs) → still must not arm and must NEVER halt (unarmed cluster is observe-only;
+            // single-entity stays under 1/3 throughout). Only when honest externals dilute the ring
+            // under 1/3 does the leg arm — and re-concentration AFTER that is a legitimate halt.
+            for _epoch in 0..3u32 {
+                for who in 1u64..=5 {
+                    for suit in Suit::ALL {
+                        assert_ok!(Reputation::submit_evidence(RuntimeOrigin::root(), who, suit, 1_000_000));
+                    }
+                }
+                Reputation::run_epoch();
+                assert!(!ClusterGuardArmed::<Test>::get(), "rep without a ring must not arm");
+            }
+            for who in 1u64..=5 {
+                let target = if who == 5 { 1 } else { who + 1 };
+                assert_ok!(Reputation::vouch(RuntimeOrigin::signed(who), target, Suit::Commerce, 1));
+            }
+            for _epoch in 0..8u32 {
+                for who in 1u64..=5 {
+                    for suit in Suit::ALL {
+                        assert_ok!(Reputation::submit_evidence(RuntimeOrigin::root(), who, suit, 1_000_000));
+                    }
+                }
+                Reputation::run_epoch();
+                assert!(!ClusterGuardArmed::<Test>::get(), "a late over-threshold ring must not arm the leg");
+                assert_eq!(EntrenchmentCounter::<Test>::get(), 0, "and must not feed the counter (R1: no false halt)");
+                assert!(!EntrenchmentHalted::<Test>::get(), "R1 regression: the late founder ring false-halted");
+            }
+            // Honest growth: six externals (no vouches) out-earn the ring → worst-suit cluster < 1/3
+            // with a real (founder-ring) cluster present → NOW it arms.
+            for _epoch in 0..2u32 {
+                for who in 1u64..=5 {
+                    for suit in Suit::ALL {
+                        assert_ok!(Reputation::submit_evidence(RuntimeOrigin::root(), who, suit, 1_000_000));
+                    }
+                }
+                for who in 20u64..=25 {
+                    for suit in Suit::ALL {
+                        assert_ok!(Reputation::submit_evidence(RuntimeOrigin::root(), who, suit, 4_000_000));
+                    }
+                }
+                Reputation::run_epoch();
+            }
+            assert!(ClusterGuardArmed::<Test>::get(), "a diluted real ring must arm the leg");
+            assert!(!EntrenchmentHalted::<Test>::get());
+            // Re-concentration after arming: the ring out-earns everyone again → legitimate halt in 7.
+            for _epoch in 0..7u32 {
+                for who in 1u64..=5 {
+                    for suit in Suit::ALL {
+                        assert_ok!(Reputation::submit_evidence(RuntimeOrigin::root(), who, suit, 50_000_000));
+                    }
+                }
+                for who in 20u64..=25 {
+                    for suit in Suit::ALL {
+                        assert_ok!(Reputation::submit_evidence(RuntimeOrigin::root(), who, suit, 1_000_000));
+                    }
+                }
+                Reputation::run_epoch();
+            }
+            assert!(EntrenchmentHalted::<Test>::get(), "re-concentration after arming must halt");
+        });
+    }
+
+    #[test]
     fn entrenchment_guard_self_heals_when_the_share_dilutes() {
         new_test_ext().execute_with(|| {
             // Drive account 1 into an entrenchment halt…
@@ -2284,6 +2727,69 @@ mod tests {
             assert_eq!(Reputation::entrenchment_recovery_for(start.saturating_sub(1)), None);
             // a height AFTER recovery is normal (not in any band) → no re-anchor needed
             assert_eq!(Reputation::entrenchment_recovery_for(h_r + 100), None);
+        });
+    }
+
+    #[test]
+    fn bind_session_key_proves_possession_uniqueness_rotation_and_clear() {
+        use crate::{BIND_LABEL, VoteKeyOwner, VoteKeys};
+        use frame::deps::sp_core::{sr25519, Pair};
+        new_test_ext().execute_with(|| {
+            // Build the possession-proof message EXACTLY as the pallet does: BIND_LABEL ‖ account
+            // encoding. This is the reference vector wallet-core must reproduce byte-for-byte (in the
+            // mock AccountId is u64 → 8 bytes; on the live chain AccountId32 → 32 bytes = the frozen
+            // 48-byte layout. The signing/verify path is identical either way).
+            let pop_msg = |acc: u64| -> alloc::vec::Vec<u8> {
+                let mut m = BIND_LABEL.to_vec();
+                acc.using_encoded(|b| m.extend_from_slice(b));
+                m
+            };
+            let mask = 1u64;
+            let hot = sr25519::Pair::from_seed(&[7u8; 32]);
+            let sk_pub = hot.public().0;
+
+            // A bad possession proof is refused — nobody binds a key they cannot sign for.
+            assert_noop!(
+                Reputation::set_vote_key(RuntimeOrigin::signed(mask), sk_pub, [0u8; 64]),
+                Error::<Test>::BadPossessionProof
+            );
+
+            // Valid bind: the hot key signs (label ‖ mask). Both maps are written.
+            let pop = hot.sign(&pop_msg(mask)).0;
+            assert_ok!(Reputation::set_vote_key(RuntimeOrigin::signed(mask), sk_pub, pop));
+            assert_eq!(VoteKeys::<Test>::get(mask), Some(sk_pub));
+            assert_eq!(VoteKeyOwner::<Test>::get(sk_pub), Some(mask));
+
+            // Another account that DOES hold the hot key still cannot bind it — it is taken. Account 2
+            // signs its own (valid) proof, so this fails on uniqueness, not on the proof.
+            let pop2 = hot.sign(&pop_msg(2u64)).0;
+            assert_noop!(
+                Reputation::set_vote_key(RuntimeOrigin::signed(2u64), sk_pub, pop2),
+                Error::<Test>::SessionKeyInUse
+            );
+
+            // Rotation: the same account binds a NEW hot key → old key freed from the reverse map.
+            let hot_b = sr25519::Pair::from_seed(&[9u8; 32]);
+            let sk_pub_b = hot_b.public().0;
+            let pop_b = hot_b.sign(&pop_msg(mask)).0;
+            assert_ok!(Reputation::set_vote_key(RuntimeOrigin::signed(mask), sk_pub_b, pop_b));
+            assert_eq!(VoteKeys::<Test>::get(mask), Some(sk_pub_b));
+            assert_eq!(VoteKeyOwner::<Test>::get(sk_pub), None, "old hot key must be released on rotation");
+            assert_eq!(VoteKeyOwner::<Test>::get(sk_pub_b), Some(mask));
+
+            // The freed old key can now be claimed by another account that holds it.
+            let pop_old_for3 = hot.sign(&pop_msg(3u64)).0;
+            assert_ok!(Reputation::set_vote_key(RuntimeOrigin::signed(3u64), sk_pub, pop_old_for3));
+            assert_eq!(VoteKeyOwner::<Test>::get(sk_pub), Some(3u64));
+
+            // Clear: unbind reverts to direct signing and frees the key.
+            assert_ok!(Reputation::clear_vote_key(RuntimeOrigin::signed(mask)));
+            assert_eq!(VoteKeys::<Test>::get(mask), None);
+            assert_eq!(VoteKeyOwner::<Test>::get(sk_pub_b), None);
+            assert_noop!(
+                Reputation::clear_vote_key(RuntimeOrigin::signed(mask)),
+                Error::<Test>::NoVoteKeyToClear
+            );
         });
     }
 }

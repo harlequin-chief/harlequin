@@ -34,8 +34,16 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_name: alloc::borrow::Cow::Borrowed("harlequin-runtime"),
     impl_name: alloc::borrow::Cow::Borrowed("harlequin-runtime"),
     authoring_version: 1,
-    // 1 = first F2/relaunch runtime (F3 gate A1: SPEC §3 hygiene — genesis ships >0, bumps each upgrade).
-    spec_version: 1,
+    // 1 = genesis (fa79dda9). 2 = the v4 upgrade (incident): the runtime CODE changed since
+    // genesis (return-type/storage layout of consensus APIs, #837, etc.) WITHOUT bumping this — so a node
+    // built from newer code silently decoded the sealed WASM's `vote_keys` bytes with the new layout →
+    // empty map → finality wedged at 2/4 with no error. The frozen spec_version was the ENABLER. Every
+    // runtime change bumps this from now on (it's also what `set_code` requires: strictly-greater), and
+    // the node's startup gate compares node-compiled spec vs on-chain spec to refuse an incoherent pair.
+    // 3 = la puerta abierta (26-jul-2026). Un upgrade que no sube este número NO es un upgrade: los
+    // nodos no lo distinguen del anterior y la guardia de coherencia del arranque no tiene con qué
+    // comparar. Se sube AQUÍ, en el candidato, nunca en la cadena viva.
+    spec_version: 3,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -205,6 +213,17 @@ impl HlqTxPayment {
                 | RuntimeCall::Reputation(pallet_reputation::Call::claim_attested_evidence { .. })
                 | RuntimeCall::Reputation(pallet_reputation::Call::vouch { .. })
                 | RuntimeCall::Reputation(pallet_reputation::Call::revoke_vouch { .. })
+                // THE NEWCOMER'S PACKAGE (). Measured on 25-jul: a mask born with nothing was
+                // refused a name, a voice, an offer and the right to bind its own node — all of it for
+                // want of a fee it cannot have, because coin is only earned by serving and serving needs
+                // the node bound. The circle closed on exactly the person this project exists for.
+                // These four ride the SAME rationed lane as the rest: the per-mask budget starts near
+                // zero, grows sublinearly with age and jumps when someone vouches. Anti-Sybil comes from
+                // the rite and from that budget, never from charging the poor at the door.
+                | RuntimeCall::Directory(pallet_directory::Call::register { .. })
+                | RuntimeCall::Reputation(pallet_reputation::Call::set_vote_key { .. })
+                | RuntimeCall::Forum(pallet_forum::Call::post { .. })
+                | RuntimeCall::Market(pallet_market::Call::publish { .. })
                 | RuntimeCall::BeaconPallet(pallet_beacon::Call::commit { .. })
                 | RuntimeCall::BeaconPallet(pallet_beacon::Call::reveal { .. })
                 | RuntimeCall::Justice(pallet_justice::Call::cast_vote { .. })
@@ -229,7 +248,17 @@ impl HlqTxPayment {
         while (isqrt + 1).saturating_mul(isqrt + 1) <= age {
             isqrt += 1;
         }
-        core::cmp::min(1 + isqrt + if has_rep { 4 } else { 0 }, 16)
+        // FLOOR = 4 (). THE BUDGET IS DERIVED FROM THE ROAD, NOT THE OTHER WAY ROUND: write
+        // down what someone must be able to do in order to exist, count it, and that is the number.
+        // The road is four acts — take a name, bind your node (so you can ever be paid), speak, and
+        // offer something. It was first set to 3 by reading it as "name, node, and speak OR offer";
+        // that "or" was the mistake — arriving is not a choice between talking and trading. Measured in
+        // the lab: with 3, one mask completed three acts and was refused the fourth, i.e. the door was
+        // left ajar, and the wait protects nobody: it is not a defence against abuse, it is a stumble
+        // for whoever arrives in good faith.
+        // It still grows only with AGE (sublinear: minting 10,000 masks buys 10,000 x almost-nothing)
+        // and jumps when someone vouches. No coin is given away: what is given is room to earn it.
+        core::cmp::min(4 + isqrt + if has_rep { 4 } else { 0 }, 16)
     }
 }
 
@@ -408,6 +437,16 @@ impl pallet_reputation::Config for Runtime {
     /// honesto, una unidad de verdad"). PARÁMETRO — joint F3 review calibrates it against the decay
     /// and the founders' launch seed before the ceremony.
     type ServiceEvidenceRate = ConstU128<1>;
+    /// (G1 gap-check, §1.5d) Vouch-bomb probation window at genesis. MAINNET = 7200 blocks
+    /// = **1 reputation epoch (1 day)**: a vouch must survive one full dawn before a protégé's fraud
+    /// can claw at its sponsor. It MUST be non-zero on mainnet: the setter has no dispatch path there
+    /// (EvidenceOrigin = Root, Sudo not compiled), so this default is the live value forever.
+    /// PARÁMETRO provisional — the maintainer ratifies the width alongside λ before the ceremony.
+    /// TESTNET = 0 (off) so fast-validation cascades behave as before and the dial stays exercisable.
+    #[cfg(feature = "mainnet")]
+    type DefaultProbationWindow = ConstU32<7200>;
+    #[cfg(not(feature = "mainnet"))]
+    type DefaultProbationWindow = ConstU32<0>;
 }
 
 impl pallet_manifesto::Config for Runtime {
@@ -422,12 +461,11 @@ impl pallet_directory::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
 }
 
-/// Forum index (#651): append-only ordered post index; body in IPFS, hide only by jury verdict. The
-/// `ModerationOrigin` is root for now (testnet placeholder for the pallet-justice verdict path → a moderation
-/// case whose guilty verdict calls `hide_post`); it is NOT a signed admin.
+/// Forum index (#651): append-only ordered post index; body in IPFS. NO moderation surface on chain
+/// (moderation-B, the maintainer): nothing is ever hidden — jury verdicts label conduct in
+/// `pallet-justice`, and clients/readers decide what to render.
 impl pallet_forum::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
-    type ModerationOrigin = EnsureRoot<Self::AccountId>;
     /// Cap thread nesting (bounds reply chains / display cost). A deployment parameter.
     type MaxThreadDepth = ConstU32<16>;
 }
@@ -436,9 +474,6 @@ impl pallet_forum::Config for Runtime {
 /// (operator-blind: the listing text lives off-chain), so mounting this never exposes what anyone trades.
 impl pallet_market::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
-    /// Hiding an offer is the jury-verdict path (root placeholder for pallet-justice, like the other
-    /// pallets); on the launch chain there is no sudo, so no authority silently hides an offer.
-    type ModerationOrigin = EnsureRoot<Self::AccountId>;
     /// v1 anti-spam = the per-mask active-offer cap alone (no-op gate): a newcomer's first listing is never
     /// gated behind holding HLQ (open entry). Swap to the B6 micro-fee here if real spam appears.
     type Postage = ();
@@ -450,7 +485,10 @@ impl pallet_market::Config for Runtime {
 
 // --- Tokenomics (#595 / SPEC §3, §9): two coins (HLQ daily-use, SOV reserve), hard-capped disinflationary
 // emission, money ≠ power. Numbers LOCKED by the maintainer: SOV hard cap 54,000,000 (deck of 54), HLQ hard cap
-// 540,000,000 (×10), decay r=3/4, founders 4% (declared, counts against the cap), fee burn 50/50. The
+// 540,000,000 (×10). SOV r=1/2 (steep, closes ~4-5y = credible scarcity); HLQ r=15/16 (long, ~20y, pays
+// nodes through the adoption ramp). Founders collect ZERO (G2, `pallet_tokens::Founders`) — NO premine,
+// so both curves are re-derived from the FULL cap (`initial = cap*(1-r)`). Fee burn 50/50. Numbers
+// stress-modelled `sim/coin_scenarios_stress.py` + `sim/fee_model.py`, ratified by the maintainer. The
 // per-era `initial` is DERIVED, not decreed: with r=3/4 the geometric series sums to `initial·4`, so
 // `initial = cap/4` makes cumulative emission converge to the cap (founder allocation is pre-minted against
 // it). The block cadence (`EraLength`) sets the ~6-month era; ONE decay step per era (`era_length: 1`). The
@@ -463,15 +501,25 @@ const COIN_UNIT: u128 = 1_000_000_000_000;
 
 #[cfg(feature = "mainnet")]
 parameter_types! {
-    /// HLQ — hard cap 540M, r=3/4, `initial = cap/4` ⇒ converges to the cap. No founder HLQ premine. DERIVED.
+    /// HLQ — the DAILY-USE coin: a LONG, flat emission so the network is paid for years and late-joiners
+    /// still earn (the maintainer, stress-modelled `sim/coin_scenarios_stress.py`). r=15/16, so per-era
+    /// emission halves only every ~5.2 eras (~2.6 yr): ~94% minted by 10 yr, tail to ~20 yr, then never
+    /// any more (fees sustain nodes thereafter — the Bitcoin transition, `sim/fee_model.py`). The long
+    /// curve is the SAFETY dial that overlaps the years it takes adoption to grow. `initial = cap/16`
+    /// ⇒ the geometric series sums exactly to the cap. No founder premine (G2). DERIVED.
     pub const HlqCurve: pallet_tokens::CurveParams = pallet_tokens::CurveParams {
-        initial: 135_000_000 * COIN_UNIT, decay_num: 3, decay_den: 4, era_length: 1,
+        initial: 33_750_000 * COIN_UNIT, decay_num: 15, decay_den: 16, era_length: 1,
         cap: 540_000_000 * COIN_UNIT,
     };
-    /// SOV — hard cap 54M, r=3/4. `initial = (cap − 4% founder)/4 = 51.84M/4` ⇒ the curve emits 51.84M over
-    /// ~7 years while the declared 2.16M founder allocation fills the rest of the 54M cap. DERIVED.
+    /// SOV — the RESERVE coin ("the gold"): a scarce, finite emission that CLOSES faster than HLQ but
+    /// spreads over ~7 years, not ~4 (the maintainer: closing in 4y would lock out anyone joining after
+    /// year 4 from ever EARNING fresh SOV; r=3/4 spreads the mint across more of the early-growth cohort
+    /// while staying clearly scarcer than HLQ's 20y curve — the fair-launch/Art VI middle). r=3/4: ~87%
+    /// minted by 3.5 yr, ~98% by 7 yr, then never any more. Earned by CONSTANCY (a streak of eras served,
+    /// capped ~4 yr) — endurance, not spot service. Re-derived from the FULL 54M cap: `initial = cap/4`
+    /// ⇒ the series sums to the whole cap, with NO 4% founder premine (G2 removed it). DERIVED.
     pub const SovCurve: pallet_tokens::CurveParams = pallet_tokens::CurveParams {
-        initial: 12_960_000 * COIN_UNIT, decay_num: 3, decay_den: 4, era_length: 1,
+        initial: 13_500_000 * COIN_UNIT, decay_num: 3, decay_den: 4, era_length: 1,
         cap: 54_000_000 * COIN_UNIT,
     };
 }
@@ -572,6 +620,13 @@ impl pallet_participation::Config for Runtime {
     type EraLength = ConstU32<10>;
     /// Max committee cached per epoch (bound); safe headroom over `COMMITTEE_TAU`-scale committees.
     type MaxCommittee = ConstU32<64>;
+    /// SOV-by-endurance ceiling (the maintainer, option A): full SOV weight after 8 consecutive
+    /// served eras. At a ~1-day era this is ~8 days to cap; the SOV curve (r=3/4, ~7y) and λ set what
+    /// that means in years. PARÁMETRO, re-ratifiable with the curve. TESTNET: 3 so devnets cap fast.
+    #[cfg(feature = "mainnet")]
+    type MaxStreak = ConstU32<8>;
+    #[cfg(not(feature = "mainnet"))]
+    type MaxStreak = ConstU32<3>;
     type Reputation = ReputationAdapter;
     type Committee = CommitteeInputsAdapter;
 }
@@ -602,6 +657,11 @@ impl pallet_tokens::EraServiceSource<<Runtime as frame_system::Config>::AccountI
 {
     fn era_service(era: u64) -> Vec<(<Runtime as frame_system::Config>::AccountId, u64)> {
         pallet_participation::Pallet::<Runtime>::era_service(era)
+    }
+    fn era_service_streak(
+        era: u64,
+    ) -> Vec<(<Runtime as frame_system::Config>::AccountId, u64, u32)> {
+        pallet_participation::Pallet::<Runtime>::era_service_streak(era)
     }
     fn clear_era(era: u64) {
         pallet_participation::Pallet::<Runtime>::clear_era(era)
@@ -829,16 +889,20 @@ impl pallet_multisig_upgrade::Config for Runtime {
     type Committee = RenewalCommittee;
     type Standing = CessionStanding;
     type CodeSetter = RootSetCode;
-    /// DECIDED (the maintainer): initial life 12 MONTHS. MAINNET: 365.25 days × 7200
-    /// blocks/day @12s = 2_629_800 blocks (D1 12s re-derivation applied). TESTNET: 200 so a devnet
-    /// exercises expiry+renewal fast.
+    /// DECIDED (the maintainer, revised from 12→3 months): the founding scaffold's TOP life is
+    /// **3 MONTHS** — long enough to fix launch defects, short enough that "founder holds a key" is
+    /// nearly ephemeral. MAINNET: 91.3 days × 7200 blocks/day @12s = 657_450 blocks. It is a CEILING,
+    /// not a right: the scaffold is meant to dissolve sooner when the society can stand on its own
+    /// (dissolve-on-threshold refinement, tracked separately). TESTNET: 200 so a devnet exercises
+    /// expiry+renewal fast.
     #[cfg(feature = "mainnet")]
-    type InitialLife = ConstU32<2_629_800>;
+    type InitialLife = ConstU32<657_450>;
     #[cfg(not(feature = "mainnet"))]
     type InitialLife = ConstU32<200>;
-    /// Objection window: 7 days @12s = 50_400 blocks (D1 12s re-derivation). TESTNET: 5.
+    /// Objection window: **2 days** @12s = 14_400 blocks (DECIDED the maintainer: 7d→2d; trade-off
+    /// accepted — less time to veto, faster emergency fixes). TESTNET: 5.
     #[cfg(feature = "mainnet")]
-    type ObjectionWindow = ConstU32<50_400>;
+    type ObjectionWindow = ConstU32<14_400>;
     #[cfg(not(feature = "mainnet"))]
     type ObjectionWindow = ConstU32<5>;
     /// Same epoch clock as the reputation pallet — one cadence, no drift.
@@ -928,35 +992,38 @@ sealed into genesis at the freeze, after the adversarial audit (Art. XII, Perman
                 .collect::<Vec<_>>()
                 .join(",");
             // Multisig-upgrade bridge (§3): the first FIVE dev accounts hold the seats (the pallet's
-            // genesis asserts exactly 5 — the thresholds' arithmetic is sealed to 5).
+            // genesis asserts exactly 5 — the thresholds' arithmetic is sealed to 5). The 5th (Eve)
+            // is CUSTODY (keyhole-only), same shape as launch, so devnets exercise the restriction.
             let seats = founders[..5]
                 .iter()
                 .map(|f| alloc::format!("\"{f}\""))
                 .collect::<Vec<_>>()
                 .join(",");
+            let dev_custody = founders[4];
             let json = alloc::format!(
                 "{{\"balances\":{{\"balances\":[{bal}]}},{sudo_part}\
 \"reputation\":{{\"evidence\":[{evidence}]}},\"manifesto\":{{\"text\":[{bytes}]}},\
-\"tokens\":{{\"balances\":[{hlq}]}},\"multisigUpgrade\":{{\"signers\":[{seats}]}}}}"
+\"tokens\":{{\"balances\":[{hlq}]}},\"multisigUpgrade\":{{\"signers\":[{seats}],\"custody\":\"{dev_custody}\"}}}}"
             );
             Some(json.into_bytes())
         } else if id == "launch" {
-            // --- LAUNCH cold-start shape (§1.4b "5 y punto"): the 5 founders, NO sudo, NO pre-funded
-            // balances, and only a SMALL declared evidence seed (10, vs the dev preset's 1000) in each
-            // suit — just enough that reputation is non-zero at block 0 so a committee can form (no
-            // genesis halt), while staying the validated 5×~0.20 share the entrenchment guard was checked
-            // against. The seed DECAYS from epoch 1 (Art. VI / decay), and the founders' SHARE dilutes as
-            // the network grows (FINDINGS-gate33), so the bootstrap advantage washes to ~0 — same end
-            // state as a pure zero start, on the already-hardware-validated reputation+decay path.
+            // --- LAUNCH cold-start shape (§1.4b, "4 y punto" — the maintainer): FOUR founders (one
+            // mask per suit; the Harlequin is the society itself), NO sudo, NO pre-funded balances, and
+            // only a SMALL declared evidence seed (10, vs the dev preset's 1000) in each suit — just
+            // enough that reputation is non-zero at block 0 so a committee can form (no genesis halt).
+            // 4 × 25% is the minimum safe shape under the entrenchment guard (25% < 1/3; with 3 the
+            // share rides the 33% edge, with 2 it halts). The seed DECAYS from epoch 1 (Art. VI /
+            // decay), and the founders' SHARE dilutes as the network grows (FINDINGS-gate33), so the
+            // bootstrap advantage washes to ~0 — same end state as a pure zero start.
             //
-            // Accounts here are the well-known dev keys = **PLACEHOLDERS**; the real 5 founder accounts are
-            // swapped in at the genesis ceremony (with the sealed manifesto + the BTC-beacon genesis value).
+            // Accounts here are the well-known dev keys = **PLACEHOLDERS**; the real accounts (all
+            // derived from the ONE founding phrase at the ceremony) are swapped in at genesis (with the
+            // sealed manifesto + the BTC-beacon genesis value).
             let founders = [
-                "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY", // Alice (placeholder)
-                "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty", // Bob   (placeholder)
-                "5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS59Y", // Charlie (placeholder)
-                "5DAAnrj7VHTznn2AWBemMuyBwZWs6FNFjdyVXUeYum3PTXFy", // Dave  (placeholder)
-                "5HGjWAeFDfFCWPsjFQdVV2Msvz2XtMktvgocEZcCj68kUMaw", // Eve   (placeholder)
+                "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY", // Alice (placeholder) — ♦
+                "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty", // Bob   (placeholder) — ♣
+                "5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS59Y", // Charlie (placeholder) — ♠
+                "5DAAnrj7VHTznn2AWBemMuyBwZWs6FNFjdyVXUeYum3PTXFy", // Dave  (placeholder) — ♥
             ];
             let suits = ["Commerce", "Technical", "Judicial", "Governance"];
             let mut ev: Vec<alloc::string::String> = Vec::new();
@@ -973,16 +1040,30 @@ sealed into genesis at the freeze, after the adversarial audit (Art. XII, Perman
 sealed into genesis at the freeze, after the adversarial audit (Art. XII, Permanence).";
             let bytes = text.iter().map(|b| alloc::format!("{b}")).collect::<Vec<_>>().join(",");
 
-            // Multisig-upgrade bridge (§3): the 5 founders hold the seats — 3-of-5 for set_code only,
-            // hard 12-month expiry, renewal by halving + committee ratification. No other power.
+            // Multisig-upgrade bridge (§3): FIVE seats — the 4 founders + a 5th CUSTODY-ONLY mask
+            // (option (c)): derived from the same founding phrase, it holds a keyhole and
+            // NOTHING else. HARD INVARIANT (asserted in iron): the 5th account is NOT in the reputation
+            // seed above, earns no issuance, and is not committee-eligible — genesis seeds 4 identities,
+            // the key keeps 5 locks, so disaster recovery stays 4-of-5 (tolerates losing one custodian
+            // once seats disperse) with the 3/4/5 thresholds untouched.
+            let custody_seat = "5HGjWAeFDfFCWPsjFQdVV2Msvz2XtMktvgocEZcCj68kUMaw"; // Eve (placeholder, custody-only)
             let seats = founders
+                .iter()
+                .chain(core::iter::once(&custody_seat))
+                .map(|f| alloc::format!("\"{f}\""))
+                .collect::<Vec<_>>()
+                .join(",");
+            // G2: the 4 founders are genesis-sealed into the tokens founder set — their emission share
+            // is never minted and their author fee share burns. Zero balances, zero income, by protocol.
+            let founder_set = founders
                 .iter()
                 .map(|f| alloc::format!("\"{f}\""))
                 .collect::<Vec<_>>()
                 .join(",");
             let json = alloc::format!(
                 "{{\"reputation\":{{\"evidence\":[{evidence}]}},\"manifesto\":{{\"text\":[{bytes}]}},\
-\"multisigUpgrade\":{{\"signers\":[{seats}]}}}}"
+\"tokens\":{{\"balances\":[],\"founders\":[{founder_set}]}},\
+\"multisigUpgrade\":{{\"signers\":[{seats}],\"custody\":\"{custody_seat}\"}}}}"
             );
             Some(json.into_bytes())
         } else {

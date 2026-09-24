@@ -11,10 +11,10 @@
 //! **No payment, no escrow** here (those are levels B/C). The trade is closed by the two masks
 //! themselves. Settlement in HLQ + jury-backed disputes come later if and when the society wants them.
 //!
-//! **Withdraw vs hide.** The offerer may `withdraw` their own offer (a flag — the entry is never erased,
-//! append-only, no memory-holing); a jury may `hide` an abusive/illegal one via `ModerationOrigin`
-//! (never a signed admin — moderation is by reputation, not authority). Either way the entry remains;
-//! both free the offerer's *active-offer* cap slot (the cap counts only live listings, not history).
+//! **Withdraw only — nothing is hidden.** The offerer may `withdraw` their own offer (a flag — the entry
+//! is never erased, append-only, no memory-holing; frees the *active-offer* cap slot, which counts only
+//! live listings). There is NO hide path (moderation-B doctrine): the chain keeps no moderation surface —
+//! jury verdicts label conduct in `pallet-justice`, and clients/readers decide what to render.
 //!
 //! **Anti-spam.** A free, unbounded index is DoS-able, so every `publish` passes through a pluggable
 //! [`PublishGate`] in `Config`: the default is a no-op, and production wires it to the B6 micro-fee
@@ -37,7 +37,7 @@ pub mod pallet {
     use frame::prelude::*;
 
     /// Pre-publish gate (anti-spam / anti-DoS). Production wires it to the B6 micro-fee or a reputation /
-    /// registered-mask check; the default `` impl is a no-op. The hook lives here so the policy can be
+    /// registered-mask check; the default `()` impl is a no-op. The hook lives here so the policy can be
     /// switched on in the runtime without changing this pallet.
     pub trait PublishGate<AccountId> {
         fn ensure_can_publish(who: &AccountId) -> DispatchResult;
@@ -74,8 +74,6 @@ pub mod pallet {
         pub at: BlockNumberFor<T>,
         /// The offerer withdrew it (flag; entry kept — append-only). Frees the active-offer cap slot.
         pub withdrawn: bool,
-        /// Hidden by a jury verdict (flag; entry kept — no memory-holing). Frees the active-offer cap slot.
-        pub hidden: bool,
     }
 
     #[pallet::config]
@@ -84,18 +82,14 @@ pub mod pallet {
         type RuntimeEvent: From<Event<Self>>
             + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
-        /// Origin allowed to hide an offer — the **jury verdict** path (`pallet-justice`), pluggable like
-        /// the other pallets' privileged origins. NOT a signed admin: moderation is by reputation.
-        type ModerationOrigin: EnsureOrigin<Self::RuntimeOrigin>;
-
-        /// Pre-publish gate (anti-spam). Default `` = no-op; production wires the B6 micro-fee here.
+        /// Pre-publish gate (anti-spam). Default `()` = no-op; production wires the B6 micro-fee here.
         type Postage: PublishGate<Self::AccountId>;
 
         /// Max length of the optional category tag.
         #[pallet::constant]
         type MaxCategoryLen: Get<u32>;
 
-        /// Max number of *active* (not withdrawn, not hidden) offers a single mask may hold at once.
+        /// Max number of *active* (not withdrawn) offers a single mask may hold at once.
         #[pallet::constant]
         type MaxPerMask: Get<u32>;
     }
@@ -108,11 +102,11 @@ pub mod pallet {
     pub type NextId<T> = StorageValue<_, u64, ValueQuery>;
 
     /// `id → offer`. The ordered index. Ids are dense and increasing, so iterating ids is chronological.
-    /// Append-only: entries are never removed (withdraw/hide set flags), so the record is non-repudiable.
+    /// Append-only: entries are never removed (withdraw sets a flag), so the record is non-repudiable.
     #[pallet::storage]
     pub type Offers<T: Config> = StorageMap<_, Blake2_128Concat, u64, Offer<T>, OptionQuery>;
 
-    /// `mask → its ACTIVE offer ids`. Bounded by `MaxPerMask`. `publish` adds; `withdraw`/`hide` remove —
+    /// `mask → its ACTIVE offer ids`. Bounded by `MaxPerMask`. `publish` adds; `withdraw` removes —
     /// so the cap counts only live listings (history stays in `Offers`), never blocking a mask forever.
     #[pallet::storage]
     pub type OffersOf<T: Config> =
@@ -125,8 +119,6 @@ pub mod pallet {
         Published { id: u64, offerer: T::AccountId, detail: DetailHash },
         /// An offer was withdrawn by its offerer (the entry remains; the active-offer slot is freed).
         Withdrawn { id: u64 },
-        /// An offer was hidden by a jury verdict (the entry remains; the active-offer slot is freed).
-        Hidden { id: u64 },
     }
 
     #[pallet::error]
@@ -137,8 +129,6 @@ pub mod pallet {
         NotYourOffer,
         /// The offer is already withdrawn.
         AlreadyWithdrawn,
-        /// The offer is already hidden.
-        AlreadyHidden,
         /// The mask already holds `MaxPerMask` active offers.
         TooManyActiveOffers,
     }
@@ -170,7 +160,6 @@ pub mod pallet {
                     category,
                     at: frame_system::Pallet::<T>::block_number(),
                     withdrawn: false,
-                    hidden: false,
                 },
             );
             NextId::<T>::put(id.saturating_add(1));
@@ -196,23 +185,6 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Hide an offer. Gated by `ModerationOrigin` — a jury verdict, never a signed admin. Sets the
-        /// `hidden` flag (entry kept — no memory-holing) and frees the offerer's active-offer cap slot.
-        #[pallet::call_index(2)]
-        #[pallet::weight(Weight::from_parts(15_000, 0))]
-        pub fn hide(origin: OriginFor<T>, id: u64) -> DispatchResult {
-            T::ModerationOrigin::ensure_origin(origin)?;
-            let offerer =
-                Offers::<T>::try_mutate(id, |maybe| -> Result<T::AccountId, DispatchError> {
-                    let o = maybe.as_mut().ok_or(Error::<T>::OfferNotFound)?;
-                    ensure!(!o.hidden, Error::<T>::AlreadyHidden);
-                    o.hidden = true;
-                    Ok(o.offerer.clone())
-                })?;
-            OffersOf::<T>::mutate(&offerer, |ids| ids.retain(|x| *x != id));
-            Self::deposit_event(Event::Hidden { id });
-            Ok(())
-        }
     }
 
     impl<T: Config> Pallet<T> {
@@ -254,7 +226,6 @@ mod tests {
     impl pallet_market::Config for Test {
         type RuntimeEvent = RuntimeEvent;
         // Mock: the jury-verdict origin stands in as root; the runtime wires it to pallet-justice.
-        type ModerationOrigin = EnsureRoot<Self::AccountId>;
         // Mock: no anti-spam gate (no-op); production wires the B6 micro-fee here.
         type Postage = ();
         type MaxCategoryLen = ConstU32<16>;
@@ -318,30 +289,9 @@ mod tests {
     }
 
     #[test]
-    fn hide_only_by_moderation_origin_keeps_entry_frees_slot() {
-        new_test_ext().execute_with(|| {
-            assert_ok!(Market::publish(RuntimeOrigin::signed(1), h(1), cat(b"")));
-            assert_noop!(Market::hide(RuntimeOrigin::signed(1), 0), DispatchError::BadOrigin);
-            assert_ok!(Market::hide(RuntimeOrigin::root(), 0));
-            let o = Offers::<Test>::get(0).unwrap();
-            assert!(o.hidden);
-            assert_eq!(o.offerer, 1); // entry kept
-            assert!(Market::active_of(&1).is_empty()); // slot freed
-            assert_noop!(Market::hide(RuntimeOrigin::root(), 0), Error::<Test>::AlreadyHidden);
-        });
-    }
-
-    #[test]
     fn withdraw_missing_offer_rejected() {
         new_test_ext().execute_with(|| {
             assert_noop!(Market::withdraw(RuntimeOrigin::signed(1), 0), Error::<Test>::OfferNotFound);
-        });
-    }
-
-    #[test]
-    fn hide_missing_offer_rejected() {
-        new_test_ext().execute_with(|| {
-            assert_noop!(Market::hide(RuntimeOrigin::root(), 0), Error::<Test>::OfferNotFound);
         });
     }
 
@@ -352,6 +302,94 @@ mod tests {
             let too_long: Result<BoundedVec<u8, ConstU32<16>>, _> =
                 b"seventeen_chars__".to_vec().try_into();
             assert!(too_long.is_err());
+        });
+    }
+
+    // ── Adversarial pass () ────────────────────────────────────────────────────────────
+    // The tests above cover ordering, ownership and the cap. These attack the market's claims:
+    // that there is no privileged seller, that ids are never reused, and that a rejected publish
+    // leaves nothing behind.
+
+    #[test]
+    fn no_privileged_origin_can_publish_or_withdraw() {
+        new_test_ext().execute_with(|| {
+            // A market with an admin is not a free market. Root/none must be as powerless as anyone.
+            assert!(Market::publish(RuntimeOrigin::root(), h(1), cat(b"tools")).is_err());
+            assert!(Market::publish(RuntimeOrigin::none(), h(1), cat(b"tools")).is_err());
+            assert_eq!(Market::count(), 0);
+
+            // And no privileged takedown of somebody else's offer.
+            assert_ok!(Market::publish(RuntimeOrigin::signed(1), h(1), cat(b"tools")));
+            assert!(Market::withdraw(RuntimeOrigin::root(), 0).is_err());
+            assert!(Market::withdraw(RuntimeOrigin::none(), 0).is_err());
+            let o = Market::get(0).expect("offer survives");
+            assert!(!o.withdrawn, "a privileged origin took down an offer");
+        });
+    }
+
+    #[test]
+    fn rejected_publish_burns_no_id_and_leaves_no_trace() {
+        new_test_ext().execute_with(|| {
+            // Fill the mask's cap (MaxPerMask = 2).
+            assert_ok!(Market::publish(RuntimeOrigin::signed(1), h(1), cat(b"a")));
+            assert_ok!(Market::publish(RuntimeOrigin::signed(1), h(2), cat(b"b")));
+            assert_eq!(Market::count(), 2);
+
+            // The third is refused. The id counter must NOT advance and no ghost entry may be stored:
+            // ids are the canonical order bound, so a burnt id would leave a permanent hole.
+            assert_noop!(
+                Market::publish(RuntimeOrigin::signed(1), h(3), cat(b"c")),
+                Error::<Test>::TooManyActiveOffers
+            );
+            assert_eq!(Market::count(), 2, "a rejected publish consumed an id");
+            assert!(Offers::<Test>::get(2).is_none(), "a rejected publish left a ghost offer");
+
+            // Freeing a slot lets the mask publish again, and the new offer takes the NEXT id (append-only).
+            assert_ok!(Market::withdraw(RuntimeOrigin::signed(1), 0));
+            assert_ok!(Market::publish(RuntimeOrigin::signed(1), h(3), cat(b"c")));
+            assert_eq!(Market::count(), 3);
+            assert_eq!(Market::get(2).expect("published").detail, h(3));
+        });
+    }
+
+    #[test]
+    fn withdraw_is_idempotent_and_cannot_be_replayed_to_free_extra_slots() {
+        new_test_ext().execute_with(|| {
+            assert_ok!(Market::publish(RuntimeOrigin::signed(1), h(1), cat(b"a")));
+            assert_ok!(Market::publish(RuntimeOrigin::signed(1), h(2), cat(b"b")));
+            assert_ok!(Market::withdraw(RuntimeOrigin::signed(1), 0));
+
+            // Replaying the same withdrawal must fail — otherwise it would keep shrinking the active
+            // list and could be used to slip past the per-mask cap.
+            assert_noop!(
+                Market::withdraw(RuntimeOrigin::signed(1), 0),
+                Error::<Test>::AlreadyWithdrawn
+            );
+            assert_eq!(Market::active_of(&1u64).len(), 1, "replay corrupted the active list");
+
+            // The cap still binds: one live offer + one new publish = 2, a third is still refused.
+            assert_ok!(Market::publish(RuntimeOrigin::signed(1), h(3), cat(b"c")));
+            assert_noop!(
+                Market::publish(RuntimeOrigin::signed(1), h(4), cat(b"d")),
+                Error::<Test>::TooManyActiveOffers
+            );
+        });
+    }
+
+    #[test]
+    fn a_strangers_failed_withdrawal_touches_nothing() {
+        new_test_ext().execute_with(|| {
+            assert_ok!(Market::publish(RuntimeOrigin::signed(1), h(1), cat(b"a")));
+            assert_ok!(Market::publish(RuntimeOrigin::signed(2), h(2), cat(b"b")));
+
+            assert_noop!(
+                Market::withdraw(RuntimeOrigin::signed(2), 0),
+                Error::<Test>::NotYourOffer
+            );
+            // Neither the victim's offer nor the attacker's own active list may move.
+            assert!(!Market::get(0).expect("offer 0").withdrawn);
+            assert_eq!(Market::active_of(&1u64).len(), 1);
+            assert_eq!(Market::active_of(&2u64).len(), 1);
         });
     }
 }

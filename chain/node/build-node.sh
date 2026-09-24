@@ -5,7 +5,7 @@
 #   - PROTOC: prost-build/litep2p (protobuf compiler).                  apt: protobuf-compiler
 # Paths below are Debian/LLVM-19 defaults; adjust for your distro.
 #
-# ⚠️  MAINNET vs TESTNET (root cause of the finality halt — DO NOT repeat):
+# ⚠️  MAINNET vs TESTNET (root cause of the 2026-06-30 finality halt — DO NOT repeat):
 #   The `mainnet` cargo feature selects PRODUCTION consensus/reputation cadence (epoch 600, decay
 #   half-life ~2y, beta=12, tau=60). WITHOUT it the build uses fast TESTNET values → on a real launch
 #   the founder committee decays to 0 in ~5 epochs → finality halts. PRODUCTION builds MUST pass
