@@ -18,6 +18,17 @@ quality over speed. Its public charter (the Manifesto) lives at **harlequinproje
 This repository holds the **open technical work**: the design of Harlequin's blockchain and, first of
 all, its heart — the **reputation engine**.
 
+### Status
+
+**The network is live** — launched on 2026-07-18, with the manifesto sealed in the genesis block
+(verify at <https://harlequinproject.org/genesis>). It is still small and still run by the people who
+built it; that is the honest state of a network in its first months. Anyone can join:
+
+- **Run a node** → [`node-dist/`](node-dist/) (one-line installer that pins and verifies what it runs).
+- **Forge your mask and enter the villa** → <https://harlequinproject.org/villa> (your key never leaves
+  your device).
+- **Watch it live** → <https://harlequinproject.org/network>.
+
 ### Why this is different
 
 Every blockchain rests on one question: *what scarce good keeps an attacker from seizing the network?*
@@ -78,6 +89,17 @@ sin prisa, calidad sobre velocidad. Su carta pública (el Manifiesto) vive en **
 Este repositorio guarda el **trabajo técnico abierto**: el diseño de la blockchain de Harlequin y, ante
 todo, su corazón — el **motor de reputación**.
 
+### Estado
+
+**La red está viva**: arrancó el 2026-07-18, con el manifiesto sellado en el bloque génesis
+(compruébalo en <https://proyectoharlequin.org/genesis>). Todavía es pequeña y la sostienen quienes la
+construyeron; es el estado honesto de una red en sus primeros meses. Cualquiera puede unirse:
+
+- **Correr un nodo** → [`node-dist/`](node-dist/) (instalador de una línea que fija y verifica lo que ejecuta).
+- **Forjar tu máscara y entrar a la villa** → <https://proyectoharlequin.org/villa> (tu llave nunca sale
+  de tu dispositivo).
+- **Verla en vivo** → <https://proyectoharlequin.org/red>.
+
 ### Por qué es diferente
 
 Toda blockchain descansa en una pregunta: *¿qué bien escaso impide que un atacante se adueñe de la red?*
@@ -95,6 +117,9 @@ tiempo** — un bien que *no se compra, no se computa y no se atesora*. Al conse
 | Ruta | Qué es |
 |---|---|
 | [`docs/consenso-confianza-tejida.md`](docs/consenso-confianza-tejida.md) | El paper del consenso (español). |
+| [`paper/harlequin-v1.1.pdf`](paper/harlequin-v1.1.pdf) | **El whitepaper (v1.1)** — el diseño completo: sociedad, reputación, Consenso de Confianza Tejida y la cadena. |
+| [`paper/harlequin-v2-es.pdf`](paper/harlequin-v2-es.pdf) · [`en`](paper/harlequin-v2-en.pdf) | **Whitepaper técnico v2.1** — modelo de amenazas, mecanismos, evaluación adversarial, limitaciones declaradas y un apéndice de evidencias que enlaza cada afirmación con una ejecución reproducible. Español e inglés (mismo contenido). |
+| [`paper/tesis/harlequin-tesis-es.pdf`](paper/tesis/harlequin-tesis-es.pdf) · [`en`](paper/tesis/harlequin-tesis-en.pdf) | **La tesis (Confianza Tejida)** — por qué y cómo funciona la sociedad, en llano y sin jerga. Español e inglés. |
 | [`VALIDATION-LEDGER.md`](VALIDATION-LEDGER.md) | **El libro de validación** — cada afirmación probada: qué se afirma, cómo se probó, el resultado y cómo reproducirlo (comandos + hashes). En inglés. |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | **Empieza aquí** — cómo encaja todo: manifiesto → reputación → consenso → cadena → capas. |
 | [`docs/woven-trust-consensus.md`](docs/woven-trust-consensus.md) | El paper del consenso (inglés). |
