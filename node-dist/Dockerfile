@@ -58,4 +58,6 @@ CMD ["--base-path", "/data", "--chain", "/etc/harlequin/mainnet-raw.json", \
        "/ip4/151.145.42.146/tcp/30333/p2p/12D3KooWLinJp4ZZnrcGsqXprk7snpdC64KnnTPenN2CP356z37X", \
      "--state-pruning", "archive", \
      "--blocks-pruning", "archive", \
-     "--pool-type", "single-state"]
+     "--pool-type", "single-state", \
+     "--trie-cache-size", "67108864", \
+     "--db-cache", "128"]

@@ -402,6 +402,10 @@ Wants=network-online.target
 [Service]
 User=harlequin
 Group=harlequin
+# --trie-cache-size 64 MiB / --db-cache 128 MiB (2026-09-25): the SDK defaults are 1 GiB + 1024 MiB of
+# cache, sized for large servers. They fill with uptime until they fight the node they serve — what this
+# page's memory floor was really measuring. The live validators have run on 1 GB machines with exactly
+# these caps since 2026-09-23.
 # --pool-type single-state: root fix for the intermittent "Essential task txpool-background failed"
 # (no backticks in this heredoc: it is unquoted, so the shell would try to RUN whatever they wrap —
 #  measured on a clean box as 'bash: line 252: Essential: command not found' right before start)
@@ -420,7 +424,8 @@ ExecStart=$PREFIX/harlequin-node \\
   --bootnodes "${BOOTNODE}" "${BOOTNODE2}" \\
   --state-pruning archive \\
   --blocks-pruning archive \\
-  --pool-type single-state
+  --pool-type single-state \\
+  --trie-cache-size 67108864 --db-cache 128
 Restart=on-failure
 RestartSec=5
 LimitNOFILE=65536
@@ -521,7 +526,8 @@ nohup ./harlequin-node \\
   --bootnodes "${BOOTNODE}" "${BOOTNODE2}" \\
   --state-pruning archive \\
   --blocks-pruning archive \\
-  --pool-type single-state > node.log 2>&1 &
+  --pool-type single-state \\
+  --trie-cache-size 67108864 --db-cache 128 > node.log 2>&1 &
 NODE_PID=\$!
 echo "\$NODE_PID" > node.pid
 # exit 1 = checkpoint MISMATCH → kill the node (fail-closed). exit 2 = local RPC unreachable
@@ -589,7 +595,8 @@ exec ./harlequin-node \\
   --bootnodes "${BOOTNODE}" "${BOOTNODE2}" \\
   --state-pruning archive \\
   --blocks-pruning archive \\
-  --pool-type single-state
+  --pool-type single-state \\
+  --trie-cache-size 67108864 --db-cache 128
 RUNFG
   chmod +x "$PREFIX/run-node-fg.sh"
 
