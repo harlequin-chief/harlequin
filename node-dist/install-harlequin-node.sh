@@ -48,7 +48,7 @@ MIRROR_BASE=""
 SPEC_SHA256="ba1b25f7179d24c89aabd0a5f924d06f15365e1040cff3be2811a771e42086a6"  # SEALED launch chainspec (genesis 2026-07-18)
 
 BIN_URL_x86_64="$DIST_BASE/dist/harlequin-node"
-BIN_SHA_x86_64="ad04a91715e8cac987978ed56d62b648812edda081aff65565c43e524194d5b4" # sync-fairness node (marca sync-fairness-2026-08-01), rebuilt 2026-09-17 with every build path remapped (same code the four nodes run as c3172c55; that build carried the build machine's paths)
+BIN_SHA_x86_64="d9f76f54c09dd3525fae369feed0594afde9a2349ae34faf53a7bec3ad6616b9" # batch tanda-backoff-guarda-2026-09-18 (isolated leader skips its slot, reserved backoff forgiveness, txguard, finality proof requests): the binary the network runs since 2026-09-26; reproducible build (stripped, no build-id)
 BIN_URL_aarch64="$DIST_BASE/dist/harlequin-node-arm64"
 # ── PHONES, TABLETS AND RASPBERRY PI: YOUR VERSION IS THE PREVIOUS ONE ────────────────────────────
 # Said plainly because you should not have to deduce it: the download for ARM machines (phone,
