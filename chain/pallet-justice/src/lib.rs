@@ -1226,6 +1226,26 @@ mod tests {
     }
 
     #[test]
+    fn a_case_must_name_a_real_suit() {
+        // Test contributed by the reviewer () for the #853 guard, which had shipped since 10-jul WITHOUT
+        // one: there are four suits (0..=3); any other index must be refused at the door, and the four real
+        // ones must still open a case (a guard that also broke valid cases would be worse than none).
+        new_test_ext().execute_with(|| {
+            for bad in [4u8, 200u8, 255u8] {
+                assert_noop!(
+                    Justice::open_case(RuntimeOrigin::signed(10), 11, [0u8; 32], bad, 250, vec![], vec![]),
+                    crate::Error::<Test>::BadDimension
+                );
+            }
+            for good in [0u8, 1u8, 2u8, 3u8] {
+                assert_ok!(Justice::open_case(
+                    RuntimeOrigin::signed(10), 11, [good; 32], good, 250, vec![], vec![]
+                ));
+            }
+        });
+    }
+
+    #[test]
     fn nobody_sues_themselves() {
         new_test_ext().execute_with(|| {
             assert_noop!(

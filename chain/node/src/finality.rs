@@ -1018,8 +1018,57 @@ impl WovenTrustJustificationImport {
 impl JustificationImport<Block> for WovenTrustJustificationImport {
     type Error = ConsensusError;
 
+    /// PUERTA 2 (). Devolver una lista vacía significaba «no me falta ninguna prueba de
+    /// finalidad», y era mentira siempre que el nodo iba por detrás. Este método es el ÚNICO sitio
+    /// donde un nodo declara qué justificaciones necesita para que el motor de sincronía se las pida
+    /// a sus pares; vacío = no las pide NUNCA, y nadie las manda sin pedirlas.
+    ///
+    /// Consecuencia medida el, con la cadena 112 horas sin finalizar: ningún nodo podía
+    /// ponerse al día, ni el nuestro de casa (316.000 bloques por detrás, `finalized #0`) ni un
+    /// recién llegado. Diagnosticado el en `DESIGN-FINALITY-CATCHUP.md` y no implementado.
+    ///
+    /// Qué se pide: los siguientes objetivos de finalidad por encima del último finalizado, en saltos
+    /// de `FINALITY_STEP` —las alturas donde el comité vota, no todos los bloques—, acotado a
+    /// `MAX_CATCHUP_TARGETS` para no inundar a los pares ni pedir lo que aún no existe.
+    ///
+    /// LO QUE ESTO **NO** ARREGLA, y hay que leerlo antes de creer que cierra el asunto: pide UNA VEZ,
+    /// al arrancar. El documento es explícito en que un nodo que sigue por detrás tiene que SEGUIR
+    /// pidiendo, y eso exige engancharlo al latido del gadget. Esa mitad no está aquí.
     async fn on_start(&mut self) -> Vec<(Hash, NumberFor<Block>)> {
-        Vec::new()
+        /// Cuántos objetivos pedir de una vez. Ocho saltos cubren un hueco razonable sin convertir el
+        /// arranque en una avalancha de peticiones contra los pares.
+        const MAX_CATCHUP_TARGETS: u32 = 8;
+
+        let info = self.client.info();
+        let finalized = info.finalized_number;
+        let best = info.best_number;
+        if best <= finalized {
+            return Vec::new(); // al día: no falta ninguna prueba
+        }
+
+        let mut wanted = Vec::new();
+        let mut height = finalized.saturating_add(FINALITY_STEP);
+        while height <= best && (wanted.len() as u32) < MAX_CATCHUP_TARGETS {
+            // Solo se pide lo que este nodo tiene en su propia cadena: pedir la prueba de un bloque
+            // que no conoce no tiene sentido y ensucia el diagnóstico del que la recibe.
+            if let Ok(Some(hash)) = self.client.block_hash(height) {
+                wanted.push((hash, height));
+            }
+            height = height.saturating_add(FINALITY_STEP);
+        }
+
+        if !wanted.is_empty() {
+            log::info!(
+                target: "woven-trust",
+                "finality catch-up: pidiendo {} pruebas de finalidad entre #{} y #{} (finalizado #{}, punta #{})",
+                wanted.len(),
+                wanted.first().map(|(_, n)| *n).unwrap_or_default(),
+                wanted.last().map(|(_, n)| *n).unwrap_or_default(),
+                finalized,
+                best,
+            );
+        }
+        wanted
     }
 
     async fn import_justification(

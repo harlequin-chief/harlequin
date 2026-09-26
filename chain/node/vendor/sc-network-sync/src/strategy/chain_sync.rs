@@ -457,6 +457,11 @@ where
 		}
 	}
 
+	/// HARLEQUIN PATCH (, #931). Ver `disconnected_peers::forget`.
+	fn clear_disconnect_backoff(&mut self, peer_id: &PeerId) {
+		self.disconnected_peers.forget(peer_id);
+	}
+
 	fn remove_peer(&mut self, peer_id: &PeerId) {
 		self.blocks.clear_peer_download(peer_id);
 		if let Some(gap_sync) = &mut self.gap_sync {
