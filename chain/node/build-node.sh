@@ -78,3 +78,21 @@ if [ "$GUARD_RC" -ne 0 ]; then
   exit 4
 fi
 sha256sum "$BIN"
+
+# REPRODUCIBLE BUILD. Measured on two independent Debian 13 environments with the same
+# toolchain: with the tree at /hlq-build/harlequin every code and data section is byte-identical; only
+# the symbol table order and the build-id (a hash that covers it) differ between runs. The published
+# artifact is therefore the binary WITHOUT symbols and WITHOUT build-id, and anyone can check our sha:
+#   1. put this repository's chain/ tree at /hlq-build/harlequin (and ops/ at /hlq-build/ops);
+#   2. ./build-node.sh --mainnet with rustc from rust-toolchain.toml on Debian 13;
+#   3. compare the sha printed below with the published one.
+# The tree must live at that path: local crates are identified by their absolute path, which enters the
+# symbol hashes and changes the code layout (measured: same mark elsewhere gives different .text).
+DIST="${BIN}.dist"
+if objcopy --strip-all --remove-section=.note.gnu.build-id "$BIN" "$DIST"; then
+  echo ">>> reproducible artifact (stripped, no build-id):"; sha256sum "$DIST"
+  [ "$(cd .. && pwd)" = "/hlq-build/harlequin" ] || \
+    echo ">>> ⚠️  tree is at $(cd .. && pwd), not /hlq-build/harlequin: this sha will NOT match a canonical build" >&2
+else
+  echo ">>> ❌ objcopy failed: no reproducible artifact" >&2; exit 5
+fi

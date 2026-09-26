@@ -149,6 +149,7 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
     config: Configuration,
     consensus: Consensus,
     vote_as: Option<String>,
+    seal_without_peers: bool,
 ) -> Result<TaskManager, ServiceError> {
     let sc_service::PartialComponents {
         client,
@@ -207,12 +208,18 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
         None
     };
 
+    // #30 (): the two doors a stranger can knock on — the p2p transaction protocol here and the
+    // `author_*` RPC built by `spawn_tasks` below — see the pool through `GuardedPool`, which refuses bytes
+    // that cannot be an extrinsic before the runtime traps on them. Everything internal (block authoring,
+    // offchain workers) keeps the plain pool: it only ever holds what already came through a door.
+    let guarded_pool = crate::txguard::GuardedPool::new(transaction_pool.clone());
+
     let (network, system_rpc_tx, tx_handler_controller, sync_service) =
         sc_service::build_network(sc_service::BuildNetworkParams {
             config: &config,
             net_config,
             client: client.clone(),
-            transaction_pool: transaction_pool.clone(),
+            transaction_pool: guarded_pool.clone(),
             spawn_handle: task_manager.spawn_handle(),
             spawn_essential_handle: task_manager.spawn_essential_handle(),
             import_queue,
@@ -261,12 +268,16 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
 
     let prometheus_registry = config.prometheus_registry().cloned();
 
+    // Isolation guard inputs (#5cb94f66), taken before `spawn_tasks` consumes `sync_service` and `config`.
+    let author_sync = sync_service.clone();
+    let lone_chain_ok = seal_without_peers;
+
     let _rpc_handlers = sc_service::spawn_tasks(sc_service::SpawnTasksParams {
         network,
         client: client.clone(),
         keystore: keystore_container.keystore(),
         task_manager: &mut task_manager,
-        transaction_pool: transaction_pool.clone(),
+        transaction_pool: guarded_pool.clone(),
         rpc_builder: rpc_extensions_builder,
         backend,
         system_rpc_tx,
@@ -458,6 +469,8 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
                 // so exactly ONE node authors per slot. A node with no vote key never leads (and so
                 // never authors on a live chain) — it only follows.
                 let mut last_slot: u64 = 0;
+                // One WARN per isolation episode, not one per skipped slot (a flood is its own outage).
+                let mut skipping_isolated = false;
                 loop {
                     futures_timer::Delay::new(std::time::Duration::from_millis(block_time)).await;
                     // WALL-CLOCK slot (Aura-style): every node derives the SAME slot number from real
@@ -556,6 +569,35 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
                     };
                     if !elected {
                         continue; // not elected this slot -> do not author
+                    }
+                    // ISOLATION GUARD (, #5cb94f66). Election is a pure function of THIS node's
+                    // copy of the state, so a node cut off from everyone still elects itself in its slots
+                    // and seals — onto its own tip. ct103, 17-sep: 0 peers, 467 consensus sessions in ~6 h,
+                    // 478 blocks of private branch, finality stuck (`finalise #383730 failed:
+                    // UnknownBlock`); the same shape on 27-ago with 2.357 blocks. Seen from the network an
+                    // isolated leader IS a down leader — the comment above already says a down leader just
+                    // skips its slots. This makes the node agree: no peers, or still catching up → skip.
+                    // Exempt only with `--seal-without-peers` (a deliberate one-node chain). NOT by chain type:
+                    // the multi-node devnet lab runs a Development spec, and exempting it would mean the lab
+                    // could never exercise this guard.
+                    if !lone_chain_ok {
+                        use sp_consensus::SyncOracle;
+                        let peers = author_sync.num_connected_peers();
+                        let syncing = author_sync.is_major_syncing();
+                        if peers == 0 || syncing {
+                            if !skipping_isolated {
+                                log::warn!(
+                                    target: "woven-trust",
+                                    "⏸ elected for slot {slot} but NOT sealing: peers={peers}, major_syncing={syncing} — an isolated leader skips its slot instead of building a private branch (logged once per episode)"
+                                );
+                                skipping_isolated = true;
+                            }
+                            continue;
+                        }
+                        if skipping_isolated {
+                            log::info!(target: "woven-trust", "▶ sealing again: peers={peers}, synced — isolation episode over");
+                            skipping_isolated = false;
+                        }
                     }
                     if let Err(e) =
                         sink.try_send(sc_consensus_manual_seal::EngineCommand::SealNewBlock {

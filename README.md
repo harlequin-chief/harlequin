@@ -29,6 +29,22 @@ built it; that is the honest state of a network in its first months. Anyone can 
   your device).
 - **Watch it live** → <https://harlequinproject.org/network>.
 
+### Check the binary yourself
+
+The build is **reproducible**: two clean Debian 13 machines building the same tree produce the same file,
+bit for bit (measured). **Honest caveat:** the binaries running today were built from our working tree,
+whose comments differ from this public copy; documentation comments end up inside the runtime metadata,
+so this tree yields a different sha for them. Starting with the relaunch release, the published tree IS
+the build tree, and the sha below must match. To check a build:
+
+1. Clone this repository and place `chain/` at `/hlq-build/harlequin` and `ops/` at `/hlq-build/ops`
+   (local crates are identified by their absolute path, so the path is part of the recipe).
+2. Install the toolchain pinned in `chain/node/rust-toolchain.toml` and the packages listed at the top of
+   `chain/node/build-node.sh`.
+3. Run `cd /hlq-build/harlequin/node && ./build-node.sh --mainnet`. The last line prints the sha256 of
+   `target/release/harlequin-node.dist` (the binary without symbols and without build-id). From the
+   relaunch release on, it must match the published one.
+
 ### Why this is different
 
 Every blockchain rests on one question: *what scarce good keeps an attacker from seizing the network?*
@@ -99,6 +115,23 @@ construyeron; es el estado honesto de una red en sus primeros meses. Cualquiera 
 - **Forjar tu máscara y entrar a la villa** → <https://proyectoharlequin.org/villa> (tu llave nunca sale
   de tu dispositivo).
 - **Verla en vivo** → <https://proyectoharlequin.org/red>.
+
+### Comprueba el binario tú mismo
+
+La compilación es **reproducible**: dos máquinas Debian 13 limpias que compilan el mismo árbol sacan el
+mismo fichero, bit a bit (medido). **Salvedad honesta:** los binarios que corren hoy se compilaron desde
+nuestro árbol de trabajo, cuyos comentarios difieren de esta copia pública; los comentarios de
+documentación acaban dentro de los metadatos del runtime, así que este árbol da otro sha para ellos. A
+partir de la versión del relanzamiento, el árbol publicado ES el árbol de compilación y el sha tiene que
+coincidir. Para comprobar una compilación:
+
+1. Clona este repositorio y pon `chain/` en `/hlq-build/harlequin` y `ops/` en `/hlq-build/ops` (los
+   crates locales se identifican por su ruta absoluta, así que la ruta es parte de la receta).
+2. Instala la toolchain fijada en `chain/node/rust-toolchain.toml` y los paquetes que lista la cabecera de
+   `chain/node/build-node.sh`.
+3. Ejecuta `cd /hlq-build/harlequin/node && ./build-node.sh --mainnet`. La última línea imprime el sha256
+   de `target/release/harlequin-node.dist` (el binario sin símbolos y sin build-id). Desde la versión del
+   relanzamiento, tiene que coincidir con el publicado.
 
 ### Por qué es diferente
 

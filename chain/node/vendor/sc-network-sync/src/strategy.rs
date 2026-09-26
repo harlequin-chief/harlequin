@@ -57,6 +57,12 @@ where
 	/// Notify that a sync peer has disconnected.
 	fn remove_peer(&mut self, peer_id: &PeerId);
 
+	/// HARLEQUIN PATCH (, #931): olvidar el castigo por desconexion de este peer.
+	///
+	/// Lo llama `SyncingEngine` cuando el peer que se acaba de caer es RESERVED. Por defecto no hace
+	/// nada, para que ninguna estrategia que no tenga backoff se vea obligada a implementarlo.
+	fn clear_disconnect_backoff(&mut self, _peer_id: &PeerId) {}
+
 	/// Submit a validated block announcement.
 	///
 	/// Returns new best hash & best number of the peer if they are updated.

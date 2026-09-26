@@ -47,7 +47,7 @@ GUARD_PY="${HLQ_BUILD_PATHS_GUARD:-$(cd .. && cd .. && pwd)/ops/hlq-build-paths.
 [ -f "$GUARD_PY" ] || { echo ">>> ❌ falta $GUARD_PY: cannot check paths, the binary is NOT valid" >&2; exit 3; }
 # The exit code is kept BEFORE filtering the output: in a pipeline without pipefail the last command
 # wins, and a `| sed` would always give 0 — a lock that never closes.
-GUARD_OUT=$(python3 "$GUARD_PY" "$BIN"); GUARD_RC=$?
+GUARD_RC=0; GUARD_OUT=$(python3 "$GUARD_PY" "$BIN") || GUARD_RC=$?   # `||` keeps set -e from exiting before the message
 printf '%s\n' "$GUARD_OUT" | sed -E 's/accounts=.*/accounts=<redacted>/'
 if [ "$GUARD_RC" -ne 0 ]; then
   echo ">>> ❌ the binary carries paths of this machine (or could not be inspected, rc=$GUARD_RC): NOT publishable" >&2
@@ -55,3 +55,8 @@ if [ "$GUARD_RC" -ne 0 ]; then
 fi
 sha256sum "$BIN"
 file "$BIN"
+# Reproducible artifact, same rule as build-node.sh (tree at /hlq-build/harlequin; strip symbols + build-id).
+DIST="${BIN}.dist"
+aarch64-linux-gnu-objcopy --strip-all --remove-section=.note.gnu.build-id "$BIN" "$DIST" || { echo ">>> ❌ objcopy failed" >&2; exit 5; }
+echo ">>> reproducible artifact (stripped, no build-id):"; sha256sum "$DIST"
+[ "$(cd .. && pwd)" = "/hlq-build/harlequin" ] || echo ">>> ⚠️  tree is not at /hlq-build/harlequin: this sha will NOT match a canonical build" >&2

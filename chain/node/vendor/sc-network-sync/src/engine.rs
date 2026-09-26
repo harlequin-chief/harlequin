@@ -837,6 +837,20 @@ where
 		}
 
 		self.strategy.remove_peer(&peer_id);
+
+		// HARLEQUIN PATCH (, ticket #931). `remove_peer` acaba de meter a este peer en el
+		// backoff de `disconnected_peers` si se cayo con una peticion en vuelo. Para un DESCONOCIDO
+		// eso esta bien. Para un RESERVED no: dejar de pedirle bloques hasta diez minutos porque se
+		// ha caido es apagar la red para protegerla, y con sesiones de segundos el castigo se
+		// refresca antes de caducar y no caduca nunca. El eso convirtio un tropiezo en
+		// 111 horas sin finalidad. `disconnected_peers` no sabe quien es reserved —ni debe—, asi que
+		// la decision se toma aqui, que es donde esa lista vive.
+		if self.important_peers.contains(&peer_id) ||
+			self.default_peers_set_no_slot_peers.contains(&peer_id)
+		{
+			self.strategy.clear_disconnect_backoff(&peer_id);
+		}
+
 		self.pending_responses.remove_all(&peer_id);
 		self.event_streams
 			.retain(|stream| stream.unbounded_send(SyncEvent::PeerDisconnected(peer_id)).is_ok());

@@ -42,15 +42,28 @@ impl std::str::FromStr for Consensus {
     }
 }
 
+/// Default `--consensus`. A production (`mainnet`) binary defaults to the engine every published door
+/// passes explicitly — installer unit, foreground script, Dockerfile CMD — so a stranger who runs
+/// `harlequin-node --chain mainnet-raw.json` with no flags follows the real chain. It used to default to
+/// `instant-seal` in every build (): that stranger got a node sealing on its own, and the
+/// published docker-compose, which forgot the flag, shipped exactly that. `woven-trust-<ms>` only
+/// authors when sortition elects the node, which a node without reputation never is.
+/// Test/dev builds keep `instant-seal` for quick local chains.
+#[cfg(feature = "mainnet")]
+pub const DEFAULT_CONSENSUS: &str = "woven-trust-12000";
+#[cfg(not(feature = "mainnet"))]
+pub const DEFAULT_CONSENSUS: &str = "instant-seal";
+
 #[derive(Debug, clap::Parser)]
 pub struct Cli {
     #[command(subcommand)]
     pub subcommand: Option<Subcommand>,
 
-    /// The consensus (block authoring) to use: `instant-seal` (default), `manual-seal-<ms>`,
+    /// The consensus (block authoring) to use: `instant-seal`, `manual-seal-<ms>`,
     /// `woven-trust-<ms>` (reputation-weighted sortition gates authoring — the real engine), or
     /// `woven-trust-voteonly-<ms>` (no authoring; only follows the chain and runs the finality vote).
-    #[clap(long, default_value = "instant-seal")]
+    /// Default: `woven-trust-12000` in a mainnet build, `instant-seal` otherwise (see `DEFAULT_CONSENSUS`).
+    #[clap(long, default_value = DEFAULT_CONSENSUS)]
     pub consensus: Consensus,
 
     /// Sign Woven-Trust finality votes as this account (sr25519 secret URI, e.g. `//Alice`). The signer
@@ -64,6 +77,12 @@ pub struct Cli {
     /// contents are trimmed and used as the secret URI.
     #[clap(long)]
     pub vote_as_file: Option<String>,
+
+    /// Keep sealing when this node sees NO peers or is still major-syncing. Off by default: an isolated
+    /// woven-trust leader skips its slot instead of building a private branch (ct103, 27-ago and 17-sep).
+    /// Only for a deliberate one-node chain, where "no peers" is the whole network by design.
+    #[clap(long)]
+    pub seal_without_peers: bool,
 
     #[clap(flatten)]
     pub run: RunCmd,
@@ -98,4 +117,25 @@ pub enum Subcommand {
 
     /// Db meta columns information.
     ChainInfo(sc_cli::ChainInfoCmd),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[test]
+    fn default_consensus_matches_build() {
+        let cli = Cli::try_parse_from(["harlequin-node"]).expect("no-flag parse");
+        #[cfg(feature = "mainnet")]
+        assert!(matches!(cli.consensus, Consensus::WovenTrust(12000)), "mainnet default must follow the real chain");
+        #[cfg(not(feature = "mainnet"))]
+        assert!(matches!(cli.consensus, Consensus::InstantSeal));
+    }
+
+    #[test]
+    fn explicit_consensus_still_wins() {
+        let cli = Cli::try_parse_from(["harlequin-node", "--consensus", "follower"]).expect("parse");
+        assert!(matches!(cli.consensus, Consensus::Follower));
+    }
 }
