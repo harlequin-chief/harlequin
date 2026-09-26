@@ -140,35 +140,24 @@ if [ -r /proc/meminfo ]; then
   SWAP_MB="$(awk '/^SwapTotal:/{printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo 0)"
 fi
 if [ "${MEM_MB:-0}" -gt 0 ]; then
-  if [ "$MEM_MB" -lt 1800 ]; then
+  # 2026-09-26: with the cache caps below (64 MiB trie + 128 MiB db), a node installed from scratch on a
+  # machine capped at 1 GB synced the whole chain in ~55 min, verified the anchor and kept up with finality,
+  # 0 OOM kills. The old 4 GB floor measured the SDK's default caches (1 GiB + 1024 MiB), not the node.
+  if [ "$MEM_MB" -lt 900 ]; then
     echo
-    echo "  ⚠ THIS MACHINE HAS ${MEM_MB} MB OF MEMORY. The node needs 4 GB."
-    echo "    With 1 GB it does not merely go slow: it stalls part-way and NEVER finishes, printing"
-    echo "    no error at all (measured: stuck at block 47,152, ~10 days remaining)."
-    echo "    Add memory or swap and run this again. Continuing anyway in 15s — Ctrl+C to stop."
-    echo
-    sleep 15
-  elif [ "$MEM_MB" -lt 3800 ]; then
-    # Overnight watch, 2026-07-30: a 2 GB box with 512 MB of swap DID sync and kept up with the tip —
-    # and then quietly ate 509 of its 512 MB of swap in ninety minutes, with ~1,000 failed page-outs
-    # and ~1,800 allocation stalls. It had not died yet; it was next in line. A node that behaves all
-    # afternoon and starts failing at 3 a.m. is the worst failure there is: nobody can reproduce it.
-    echo
-    echo "  ⚠ ${MEM_MB} MB of memory (swap: ${SWAP_MB:-0} MB). This node wants 4 GB."
-    echo "    Measured: 2 GB syncs the whole chain and verifies — but at the ceiling, with the kernel"
-    echo "    trimming its cache thousands of times to make room. It does NOT get killed, with or"
-    echo "    without swap. 1 GB never finishes. Swap makes 2 GB less painful, not necessary:"
-    echo "        fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile"
+    echo "  ⚠ THIS MACHINE HAS ${MEM_MB} MB OF MEMORY. The measured floor is 1 GB: below it, nobody has"
+    echo "    tested a full sync. It may work slowly or stall. Adding swap is the cheap way to be safe:"
+    echo "        fallocate -l 1G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile"
     echo "    Continuing anyway in 15s — Ctrl+C to stop."
     echo
     sleep 15
   else
-    ok "memory: ${MEM_MB} MB (first sync peaks at ~2,031 MB; steady state settles near 230 MB)"
+    ok "memory: ${MEM_MB} MB (measured: 1 GB syncs the whole chain in about an hour; steady state near 230 MB)"
   fi
 fi
 DISK_MB="$(df -Pm "${HOME:-/}" 2>/dev/null | awk 'NR==2{print $4}' || echo 0)"
-if [ "${DISK_MB:-0}" -gt 0 ] && [ "$DISK_MB" -lt 3000 ]; then
-  echo "  ⚠ only ${DISK_MB} MB free on this filesystem. The chain is ~600 MB today and grows every day."
+if [ "${DISK_MB:-0}" -gt 0 ] && [ "$DISK_MB" -lt 4000 ]; then
+  echo "  ⚠ only ${DISK_MB} MB free on this filesystem. The chain is about 2 GB today (measured 2026-09-26) and grows every day."
 fi
 
 # 2. install mode: systemd service vs portable foreground
