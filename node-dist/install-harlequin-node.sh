@@ -70,9 +70,8 @@ BIN_SHA_aarch64="1b65c660043a9d9efded6314f77f46a3c4f6cec501cb6c2dd310058fe65fa54
 # WireGuard and its residential address is never published. Listing it here would print someone's home
 # IP in a script that anyone can download — the project's second golden rule. If you are tempted to
 # "complete the list" some day: that is the reason it is incomplete on purpose.
-BOOTNODE="/ip4/95.133.166.93/tcp/30333/p2p/12D3KooWBLjMD2oEZvNVZXFSHdRRS62gbZsgfYcR6rkkjygJ2emR"
-BOOTNODE2="/ip4/148.116.86.24/tcp/30333/p2p/12D3KooWBiZXWDXuXKzKw8f6Wpmo3Mx81oAgFu2VG1fsZihs3BHC"
-BOOTNODE3="/ip4/151.145.42.146/tcp/30333/p2p/12D3KooWLinJp4ZZnrcGsqXprk7snpdC64KnnTPenN2CP356z37X"
+BOOTNODE="/ip4/148.116.86.24/tcp/30333/p2p/12D3KooWBiZXWDXuXKzKw8f6Wpmo3Mx81oAgFu2VG1fsZihs3BHC"
+BOOTNODE2="/ip4/151.145.42.146/tcp/30333/p2p/12D3KooWLinJp4ZZnrcGsqXprk7snpdC64KnnTPenN2CP356z37X"
 SVC="harlequin-node"
 
 # Weak-subjectivity checkpoint (M1) — re-pinned on EVERY release, next to the sha256 pins above.
@@ -418,7 +417,7 @@ ExecStart=$PREFIX/harlequin-node \\
   --consensus woven-trust-12000 \\
   --network-backend libp2p \\
   --no-mdns \\
-  --bootnodes "${BOOTNODE}" "${BOOTNODE2}" "${BOOTNODE3}" \\
+  --bootnodes "${BOOTNODE}" "${BOOTNODE2}" \\
   --state-pruning archive \\
   --blocks-pruning archive \\
   --pool-type single-state
@@ -519,7 +518,7 @@ nohup ./harlequin-node \\
   --network-backend libp2p \\
   --no-mdns \\
   --wasmtime-instantiation-strategy recreate-instance-copy-on-write \\
-  --bootnodes "${BOOTNODE}" "${BOOTNODE2}" "${BOOTNODE3}" \\
+  --bootnodes "${BOOTNODE}" "${BOOTNODE2}" \\
   --state-pruning archive \\
   --blocks-pruning archive \\
   --pool-type single-state > node.log 2>&1 &
@@ -587,7 +586,7 @@ exec ./harlequin-node \\
   --network-backend libp2p \\
   --no-mdns \\
   --wasmtime-instantiation-strategy recreate-instance-copy-on-write \\
-  --bootnodes "${BOOTNODE}" "${BOOTNODE2}" "${BOOTNODE3}" \\
+  --bootnodes "${BOOTNODE}" "${BOOTNODE2}" \\
   --state-pruning archive \\
   --blocks-pruning archive \\
   --pool-type single-state

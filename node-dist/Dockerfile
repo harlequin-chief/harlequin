@@ -54,7 +54,6 @@ CMD ["--base-path", "/data", "--chain", "/etc/harlequin/mainnet-raw.json", \
      "--network-backend", "libp2p", \
      "--no-mdns", \
      "--bootnodes", \
-       "/ip4/95.133.166.93/tcp/30333/p2p/12D3KooWBLjMD2oEZvNVZXFSHdRRS62gbZsgfYcR6rkkjygJ2emR", \
        "/ip4/148.116.86.24/tcp/30333/p2p/12D3KooWBiZXWDXuXKzKw8f6Wpmo3Mx81oAgFu2VG1fsZihs3BHC", \
        "/ip4/151.145.42.146/tcp/30333/p2p/12D3KooWLinJp4ZZnrcGsqXprk7snpdC64KnnTPenN2CP356z37X", \
      "--state-pruning", "archive", \
