@@ -28,6 +28,11 @@
 # Idempotent: safe to re-run. Re-running re-verifies and restarts; it never overwrites an existing node-key.
 set -euo pipefail
 
+# The WHOLE script is one brace group (27-sep-2026). With `curl … | bash`, bash runs what it has read so far:
+# a download cut halfway would have executed half an installer as root. A group must be read to its closing
+# brace before any of it runs, so a truncated copy is a syntax error and does NOTHING.
+{
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Pinned distribution (re-pinned on every release; sha256 is the security boundary of this script).
 DIST_BASE="https://harlequinproject.org"
@@ -414,6 +419,7 @@ ExecStart=$PREFIX/harlequin-node \\
   --state-pruning archive \\
   --blocks-pruning archive \\
   --pool-type single-state \\
+  --no-telemetry \\
   --trie-cache-size 67108864 --db-cache 128
 Restart=on-failure
 RestartSec=5
@@ -516,6 +522,7 @@ nohup ./harlequin-node \\
   --state-pruning archive \\
   --blocks-pruning archive \\
   --pool-type single-state \\
+  --no-telemetry \\
   --trie-cache-size 67108864 --db-cache 128 > node.log 2>&1 &
 NODE_PID=\$!
 echo "\$NODE_PID" > node.pid
@@ -585,6 +592,7 @@ exec ./harlequin-node \\
   --state-pruning archive \\
   --blocks-pruning archive \\
   --pool-type single-state \\
+  --no-telemetry \\
   --trie-cache-size 67108864 --db-cache 128
 RUNFG
   chmod +x "$PREFIX/run-node-fg.sh"
@@ -603,3 +611,5 @@ RUNFG
   echo
   exec "$PREFIX/run-node.sh"
 fi
+
+}  # end of the brace group — nothing above runs unless the file arrived whole
