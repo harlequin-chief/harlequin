@@ -65,7 +65,7 @@ it **Woven Trust Consensus**, and the unit of attack cost **reputation-time**.
 |---|---|
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | **Start here** — how the pieces fit: manifesto → reputation → consensus → chain → layers. |
 | [`paper/harlequin-v1.1.pdf`](paper/harlequin-v1.1.pdf) | **The whitepaper (v1.1)** — the full design: society, reputation, Woven Trust Consensus, and the chain. |
-| [`paper/harlequin-v2-en.pdf`](paper/harlequin-v2-en.pdf) · [`es`](paper/harlequin-v2-es.pdf) | **Technical whitepaper v2.1** — threat model, mechanisms, adversarial evaluation, declared limitations, and an evidence appendix tracing every claim to a reproducible run. English & Spanish (identical content). |
+| [`paper/harlequin-v2-en.pdf`](paper/harlequin-v2-en.pdf) · [`es`](paper/harlequin-v2-es.pdf) | **Technical whitepaper v3.1** — threat model, mechanisms, adversarial evaluation, declared limitations, and an evidence appendix tracing every claim to a reproducible run. English & Spanish (identical content). |
 | [`VALIDATION-LEDGER.md`](VALIDATION-LEDGER.md) | **The validation ledger** — every tested claim: what was claimed, how it was tested, the result, and how to reproduce it (commands + artifact hashes). |
 | [`paper/tesis/harlequin-tesis-en.pdf`](paper/tesis/harlequin-tesis-en.pdf) · [`es`](paper/tesis/harlequin-tesis-es.pdf) | **The thesis (Woven Trust)** — a plain-language read on why and how the society works, no jargon. English & Spanish. |
 | [`docs/woven-trust-consensus.md`](docs/woven-trust-consensus.md) | The consensus paper (English). |
@@ -156,7 +156,7 @@ tiempo** — un bien que *no se compra, no se computa y no se atesora*. Al conse
 |---|---|
 | [`docs/consenso-confianza-tejida.md`](docs/consenso-confianza-tejida.md) | El paper del consenso (español). |
 | [`paper/harlequin-v1.1.pdf`](paper/harlequin-v1.1.pdf) | **El whitepaper (v1.1)** — el diseño completo: sociedad, reputación, Consenso de Confianza Tejida y la cadena. |
-| [`paper/harlequin-v2-es.pdf`](paper/harlequin-v2-es.pdf) · [`en`](paper/harlequin-v2-en.pdf) | **Whitepaper técnico v2.1** — modelo de amenazas, mecanismos, evaluación adversarial, limitaciones declaradas y un apéndice de evidencias que enlaza cada afirmación con una ejecución reproducible. Español e inglés (mismo contenido). |
+| [`paper/harlequin-v2-es.pdf`](paper/harlequin-v2-es.pdf) · [`en`](paper/harlequin-v2-en.pdf) | **Whitepaper técnico v3.1** — modelo de amenazas, mecanismos, evaluación adversarial, limitaciones declaradas y un apéndice de evidencias que enlaza cada afirmación con una ejecución reproducible. Español e inglés (mismo contenido). |
 | [`paper/tesis/harlequin-tesis-es.pdf`](paper/tesis/harlequin-tesis-es.pdf) · [`en`](paper/tesis/harlequin-tesis-en.pdf) | **La tesis (Confianza Tejida)** — por qué y cómo funciona la sociedad, en llano y sin jerga. Español e inglés. |
 | [`VALIDATION-LEDGER.md`](VALIDATION-LEDGER.md) | **El libro de validación** — cada afirmación probada: qué se afirma, cómo se probó, el resultado y cómo reproducirlo (comandos + hashes). En inglés. |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | **Empieza aquí** — cómo encaja todo: manifiesto → reputación → consenso → cadena → capas. |
