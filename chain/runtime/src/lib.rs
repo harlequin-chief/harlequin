@@ -552,6 +552,9 @@ impl pallet_tokens::Config for Runtime {
     type FeeBurnBps = ConstU16<5000>;
     /// FEELESS lane (SPEC-RELAUNCH §2): ≤15% of a block's weight may go to feeless extrinsics.
     type FeelessBlockBps = ConstU16<1500>;
+    // 28-sep-2026: a COUNT ceiling that binds whatever the weights say (see pallet-tokens). 32 per 12 s block
+    // = ~230k feeless writes/day worst case (~25 MB/day), far above honest early traffic; tunable by upgrade.
+    type MaxFeelessPerBlock = ConstU32<32>;
     /// FEELESS budget epoch ≈ 1 day of blocks (MAINNET; matches the reputation epoch). TESTNET = 10.
     #[cfg(feature = "mainnet")]
     type FeelessEpochBlocks = ConstU32<7200>;
@@ -707,6 +710,29 @@ impl pallet_justice::InterestInspect<<Runtime as frame_system::Config>::AccountI
         parties.iter().any(|p| pallet_reputation::Pallet::<Runtime>::is_related(who, p))
     }
 
+    /// After the draw only the JUROR's own ties count (a defendant's unilateral, feeless `vouch` must not
+    /// erase a guilty vote — adversarial review 28-sep-2026). Being a party still disqualifies.
+    fn juror_disqualified(
+        who: &<Runtime as frame_system::Config>::AccountId,
+        parties: &[<Runtime as frame_system::Config>::AccountId],
+    ) -> bool {
+        parties.iter().any(|p| who == p || pallet_reputation::Pallet::<Runtime>::vouches_for(who, p))
+    }
+
+    /// At the draw (28-sep-2026, anti pool-poisoning): the candidate's own ties toward a party always
+    /// exclude; a PARTY's tie toward the candidate only if it was first made at or before `cutoff`.
+    fn excludes_at_draw(
+        who: &<Runtime as frame_system::Config>::AccountId,
+        parties: &[<Runtime as frame_system::Config>::AccountId],
+        cutoff: u64,
+    ) -> bool {
+        parties.iter().any(|p| {
+            who == p
+                || pallet_reputation::Pallet::<Runtime>::vouches_for(who, p)
+                || pallet_reputation::Pallet::<Runtime>::vouched_at_or_before(p, who, cutoff)
+        })
+    }
+
     /// Depth (1 or 2) to the nearest party in the vouch graph, bounded by `DEPTH2_MAX_VISIT` accounts
     /// scanned (anti-DoS): justice down-weights a depth-2 ring juror by `Depth2WeightPermille`
     /// (SPEC §4i-(8)) instead of cutting them. Wired to the reputation pallet's bounded BFS.
@@ -796,6 +822,19 @@ impl pallet_justice::Config for Runtime {
     type VotingWindow = ConstU32<5>;
     /// 2/3 of the drawn jury must have voted for a close to carry a verdict.
     type VoteQuorum = VoteQuorum;
+    /// Deferred draw (28-sep-2026, design JUSTICIA-SORTEO-DIFERIDO): the jury is drawn this many blocks after
+    /// filing, from a block hash that did not exist when the case was filed. MAINNET 10 (~2 min).
+    #[cfg(feature = "mainnet")]
+    type JuryDrawDelay = ConstU32<10>;
+    #[cfg(not(feature = "mainnet"))]
+    type JuryDrawDelay = ConstU32<3>;
+    /// A party's tie toward a candidate excludes them from the draw only if it is at least this old:
+    /// one reputation epoch (MAINNET 7200 ≈ 1 day; TESTNET 10).
+    #[cfg(feature = "mainnet")]
+    type InterestCooling = ConstU32<7200>;
+    #[cfg(not(feature = "mainnet"))]
+    type InterestCooling = ConstU32<10>;
+    type MaxDrawsPerBlock = ConstU32<4>;
 }
 
 // ═══ Multisig-upgrade (SPEC-RELAUNCH §3, 🔴#3): the bridge governance the v1 lacked ═══
@@ -839,6 +878,12 @@ impl pallet_multisig_upgrade::CommitteeInspect<<Runtime as frame_system::Config>
     for RenewalCommittee
 {
     fn committee() -> alloc::vec::Vec<<Runtime as frame_system::Config>::AccountId> {
+        Self::committee_weighted().into_iter().map(|(acc, _)| acc).collect()
+    }
+
+    /// R2 (28-sep-2026): the same electorate, each member weighted by its conservative reputation, so the
+    /// renewal needs a majority of REPUTATION (a crowd of barely-reputable keys cannot outvote standing).
+    fn committee_weighted() -> alloc::vec::Vec<(<Runtime as frame_system::Config>::AccountId, u128)> {
         if pallet_reputation::Pallet::<Runtime>::entrenchment_halted() {
             // Under an entrenchment halt the chain seats no committee — renewals cannot be ratified
             // (and the committee-less epochs count toward the disaster path, which needs no committee).
@@ -848,13 +893,17 @@ impl pallet_multisig_upgrade::CommitteeInspect<<Runtime as frame_system::Config>
             pallet_reputation::Pallet::<Runtime>::consensus_reputation()
                 .into_iter()
                 .filter(|(acc, rep)| {
-                    *rep > 0 && pallet_beacon::Pallet::<Runtime>::committed_key(acc).is_some()
+                    // DECIDED 28-sep-2026 (A4, design/DECISION-E-GENESIS): a VALIDATOR is who can co-sign — reputation AND a bound
+                    // finality vote key. The v1 rule asked for an active beacon key, and nobody commits
+                    // to the beacon: on the live chain that electorate is EMPTY, so a normal renewal can
+                    // never be ratified and only the 5-of-5 disaster path remains.
+                    *rep > 0 && pallet_reputation::pallet::VoteKeys::<Runtime>::contains_key(acc)
                 })
                 .collect();
         // Highest standing first; ties broken by account id (deterministic across nodes).
         eligible.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
         eligible.truncate(RENEWAL_ELECTORATE_TAU);
-        eligible.into_iter().map(|(acc, _)| acc).collect()
+        eligible.into_iter().map(|(acc, rep)| (acc, rep.max(0) as u128)).collect()
     }
 }
 

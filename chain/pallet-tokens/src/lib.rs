@@ -184,6 +184,14 @@ pub mod pallet {
         /// cumulative — SPEC-RELAUNCH §2 R1(iii)). ~1 day of blocks.
         #[pallet::constant]
         type FeelessEpochBlocks: Get<BlockNumberFor<Self>>;
+
+        /// At most this many FEELESS extrinsics per block, whatever their declared weight (28-sep-2026).
+        /// `FeelessBlockBps` is measured in ref-time, and the feeless calls still carry hand-set placeholder
+        /// weights (10-25k): that ceiling never binds, so a swarm of fresh masks (creating one costs
+        /// nothing, and each gets 4 free writes per budget epoch) could write state without limit. A COUNT
+        /// does not depend on how good the weights are. Tunable by runtime upgrade.
+        #[pallet::constant]
+        type MaxFeelessPerBlock: Get<u32>;
     }
 
     #[pallet::pallet]
@@ -228,6 +236,11 @@ pub mod pallet {
     /// Enforces the global per-block ceiling (`FeelessBlockBps`).
     #[pallet::storage]
     pub type FeelessWeightThisBlock<T> = StorageValue<_, u64, ValueQuery>;
+
+    /// Number of FEELESS extrinsics granted in the CURRENT block (killed each `on_initialize`). Enforces
+    /// `MaxFeelessPerBlock`, the ceiling that does not depend on weights.
+    #[pallet::storage]
+    pub type FeelessCountThisBlock<T> = StorageValue<_, u32, ValueQuery>;
 
     /// Genesis: a modest, declared founder allocation (SPEC §5, fair launch — no premine/ICO). The bulk of
     /// SOV is earned post-genesis by running the network. Reputation is NOT seeded here (money ≠ power).
@@ -315,6 +328,7 @@ pub mod pallet {
         fn on_initialize(_n: BlockNumberFor<T>) -> Weight {
             // fresh block → fresh feeless ceiling (the global per-block cap is per-block state).
             FeelessWeightThisBlock::<T>::kill();
+            FeelessCountThisBlock::<T>::kill();
             Weight::from_parts(1_000_000_000, 0) // placeholder; benchmark + offchain-worker pre-mainnet
         }
 
@@ -535,6 +549,11 @@ pub mod pallet {
             if used_block.saturating_add(ref_time) > ceiling {
                 return false;
             }
+            // (i-b) global COUNT ceiling, independent of the (still placeholder) weights.
+            let count = FeelessCountThisBlock::<T>::get();
+            if count >= T::MaxFeelessPerBlock::get() {
+                return false;
+            }
             // (ii) per-mask budget in the current budget epoch (non-cumulative).
             let idx: u32 =
                 (frame_system::Pallet::<T>::block_number() / len).saturated_into::<u32>();
@@ -549,6 +568,7 @@ pub mod pallet {
                 FeelessFirstSeen::<T>::insert(who, idx);
             }
             FeelessWeightThisBlock::<T>::put(used_block.saturating_add(ref_time));
+            FeelessCountThisBlock::<T>::put(count.saturating_add(1));
             true
         }
 
@@ -563,6 +583,9 @@ pub mod pallet {
             let bps = core::cmp::min(T::FeelessBlockBps::get(), 10_000) as u64;
             let ceiling = max_block / 10_000 * bps;
             if FeelessWeightThisBlock::<T>::get().saturating_add(ref_time) > ceiling {
+                return false;
+            }
+            if FeelessCountThisBlock::<T>::get() >= T::MaxFeelessPerBlock::get() {
                 return false;
             }
             let idx: u32 =
@@ -747,6 +770,7 @@ mod tests {
         type ServiceSource = MockServiceSource; // P-2: tests seed service via `seed_service`
         type FeelessBlockBps = ConstU16<1500>; // 15% of block weight for feeless
         type FeelessEpochBlocks = ConstU64<10>; // short budget epoch for tests
+        type MaxFeelessPerBlock = ConstU32<3>; // small so the count ceiling is testable
     }
 
     // Mock service source (P-2/#838): tests seed verified `(account, weight)` here; `run_epoch` reads it as
@@ -1243,6 +1267,26 @@ mod tests {
             // fresh block → ceiling resets
             Tokens::on_initialize(2);
             assert!(Tokens::try_feeless(&2, 1, 10));
+        });
+    }
+
+    /// 28-sep: the COUNT ceiling binds even when every call is weightless — the weight ceiling alone never
+    /// stopped a swarm of fresh masks because the feeless calls carry placeholder weights.
+    #[test]
+    fn feeless_count_ceiling_binds_regardless_of_weight() {
+        new_test_ext().execute_with(|| {
+            frame_system::Pallet::<Test>::set_block_number(1);
+            Tokens::on_initialize(1);
+            // three different fresh masks, each with budget, each a 1-unit-weight call → all granted
+            for who in [1u64, 2, 3] {
+                assert!(Tokens::try_feeless(&who, 1, 4));
+            }
+            // the fourth mask has budget and the weight ceiling is nowhere near — the COUNT refuses it
+            assert!(!Tokens::can_feeless(&4, 1, 4), "read-only twin must agree");
+            assert!(!Tokens::try_feeless(&4, 1, 4), "count ceiling must bind");
+            // fresh block → count resets
+            Tokens::on_initialize(2);
+            assert!(Tokens::try_feeless(&4, 1, 4));
         });
     }
 

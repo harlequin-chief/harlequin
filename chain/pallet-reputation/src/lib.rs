@@ -1280,6 +1280,24 @@ pub mod pallet {
         /// justice pallet's interest test (Art. IX) uses this: a direct truster or trustee of a party must
         /// not sit on its jury. Conservative depth-1 relation (reads only the two accounts' edges, cheap);
         /// deeper ties (vouch-of-vouch, shared cluster) are a documented future tightening.
+        /// Whether `a` vouches for `b` (a DIRECTED edge `a→b`, any suit). Justice uses it after the jury draw:
+        /// only a tie the juror made disqualifies them — a party cannot unilaterally make a juror "related".
+        pub fn vouches_for(a: &T::AccountId, b: &T::AccountId) -> bool {
+            Vouches::<T>::get(a).iter().any(|(t, _, _)| t == b)
+        }
+
+        /// Whether `a` vouches for `b` (any suit) with an edge FIRST made at or before block `cutoff`
+        /// (`VouchedAt` never regresses, so a revoked-and-renewed old tie still counts as old). An edge with
+        /// no timestamp (e.g. seeded at genesis) counts as old — the conservative side for exclusion.
+        pub fn vouched_at_or_before(a: &T::AccountId, b: &T::AccountId, cutoff: u64) -> bool {
+            Vouches::<T>::get(a).iter().any(|(t, suit, _)| {
+                t == b
+                    && VouchedAt::<T>::get((a, b, *suit))
+                        .map(|at| at.saturated_into::<u64>() <= cutoff)
+                        .unwrap_or(true)
+            })
+        }
+
         pub fn is_related(a: &T::AccountId, b: &T::AccountId) -> bool {
             if a == b {
                 return true;

@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 harlequin-runtime = { path = "../../../runtime", features = ["std"] }
 pallet-reputation = { path = "../../../pallet-reputation", features = ["std"] }
+pallet-justice = { path = "../../../pallet-justice", features = ["std"] }
 pallet-beacon = { path = "../../../pallet-beacon", features = ["std"] }
 pallet-multisig-upgrade = { path = "../../../pallet-multisig-upgrade", features = ["std"] }
 pallet-directory = { path = "../../../pallet-directory", features = ["std"] }

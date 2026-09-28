@@ -89,6 +89,14 @@ pub trait SealedInvariants {
 /// epoch" and feeds the disaster-mode metric.
 pub trait CommitteeInspect<AccountId> {
     fn committee() -> alloc::vec::Vec<AccountId>;
+
+    /// The ratifying set WITH each member's weight (R2 of the adversarial review, 28-sep-2026): the
+    /// renewal needs a majority of the set's REPUTATION, not of its heads, so a crowd of barely-reputable
+    /// accounts with a bound key cannot inflate (or capture) the denominator. Default = weight 1 each
+    /// (the old head count), so wirings that do not override it behave exactly as before.
+    fn committee_weighted() -> alloc::vec::Vec<(AccountId, u128)> {
+        Self::committee().into_iter().map(|a| (a, 1u128)).collect()
+    }
 }
 
 /// Standing source for seat cession ("miembros de alta reputación"): the runtime wires it to the
@@ -210,7 +218,8 @@ pub mod pallet {
             BlockNumberFor<T>,
             BoundedVec<T::AccountId, ConstU32<SEATS>>,
             BoundedVec<T::AccountId, ConstU32<MAX_COSIGNS>>,
-            BoundedVec<T::AccountId, ConstU32<MAX_COSIGNS>>,
+            // snapshot of the ratifying set WITH weights, fixed at open (R2): no mid-vote reshaping.
+            BoundedVec<(T::AccountId, u128), ConstU32<MAX_COSIGNS>>,
         ),
         OptionQuery,
     >;
@@ -542,7 +551,7 @@ pub mod pallet {
             let now = frame_system::Pallet::<T>::block_number();
             if disaster {
                 ensure!(
-                    EpochsWithoutCommittee::<T>::get() >= T::DisasterEpochs::get(),
+                    Self::disaster_holds(),
                     Error::<T>::NoDisaster
                 );
             } else {
@@ -554,8 +563,8 @@ pub mod pallet {
             // SNAPSHOT the ratifying set at open (anti-grinding): a fixed electorate for this renewal.
             // For a NORMAL renewal an empty snapshot means no committee exists → unratifiable now
             // (that is what the disaster path is for), so refuse early rather than mint a dead proposal.
-            let snapshot: BoundedVec<T::AccountId, ConstU32<MAX_COSIGNS>> = {
-                let mut set = T::Committee::committee();
+            let snapshot: BoundedVec<(T::AccountId, u128), ConstU32<MAX_COSIGNS>> = {
+                let mut set = T::Committee::committee_weighted();
                 set.truncate(MAX_COSIGNS as usize);
                 set.try_into().expect("truncated to bound; qed")
             };
@@ -595,7 +604,7 @@ pub mod pallet {
                 let (disaster, _, _, cosigns, snapshot) =
                     maybe.as_mut().ok_or(Error::<T>::NothingPending)?;
                 ensure!(!*disaster, Error::<T>::NoDisaster);
-                ensure!(snapshot.contains(&who), Error::<T>::NotCommittee);
+                ensure!(snapshot.iter().any(|(a, _)| a == &who), Error::<T>::NotCommittee);
                 ensure!(!cosigns.contains(&who), Error::<T>::AlreadyApproved);
                 cosigns.try_push(who).map_err(|_| Error::<T>::TooManyCosigns)?;
                 Self::deposit_event(Event::RenewalCosigned { cosigns: cosigns.len() as u32 });
@@ -621,7 +630,7 @@ pub mod pallet {
                     Error::<T>::NotEnoughApprovals
                 );
                 ensure!(
-                    EpochsWithoutCommittee::<T>::get() >= T::DisasterEpochs::get(),
+                    Self::disaster_holds(),
                     Error::<T>::NoDisaster
                 );
                 // No objection window here — the premise is a broken chain and there is no committee
@@ -643,8 +652,15 @@ pub mod pallet {
                 // deterministic electorate, no mid-vote reshaping). Every cosign was already checked
                 // against the snapshot at signing.
                 ensure!(
-                    !snapshot.is_empty()
-                        && (cosigns.len() as u32) * 2 > snapshot.len() as u32,
+                    {
+                        // R2: strict majority of the snapshot's WEIGHT (reputation), not of its heads.
+                        let total: u128 = snapshot.iter().fold(0u128, |t, (_, w)| t.saturating_add(*w));
+                        let signed: u128 = snapshot
+                            .iter()
+                            .filter(|(a, _)| cosigns.contains(a))
+                            .fold(0u128, |t, (_, w)| t.saturating_add(*w));
+                        !snapshot.is_empty() && total > 0 && signed.saturating_mul(2) > total
+                    },
                     Error::<T>::NotEnoughCosigns
                 );
             }
@@ -778,6 +794,20 @@ pub mod pallet {
             T::ObjectionWindow::get().saturating_mul(4u32.into())
         }
 
+        /// The DISASTER condition (R2), objective and self-evaluated. Two ways it holds:
+        /// (a) no committee could be sampled for `DisasterEpochs` consecutive epochs (the original metric);
+        /// (b) PROPOSAL (not ratified): the key has been EXPIRED for `DisasterEpochs` epochs without a
+        ///     renewal. A committee that exists but cannot or will not ratify (lost masks, absent members)
+        ///     must not leave the chain with neither a normal nor a disaster path: silence may kill the key's
+        ///     power to upgrade, but not its only bridge back. Unanimity (5-of-5) still guards the verb.
+        pub(crate) fn disaster_holds() -> bool {
+            if EpochsWithoutCommittee::<T>::get() >= T::DisasterEpochs::get() {
+                return true;
+            }
+            let grace = T::EpochLength::get().saturating_mul(T::DisasterEpochs::get().into());
+            frame_system::Pallet::<T>::block_number() >= LifeEnd::<T>::get().saturating_add(grace)
+        }
+
         fn is_stale(proposed_at: BlockNumberFor<T>) -> bool {
             frame_system::Pallet::<T>::block_number()
                 > proposed_at.saturating_add(Self::pending_ttl())
@@ -837,6 +867,8 @@ mod tests {
     // Mutable mock committee (storage-backed parameter) so tests can empty it (disaster metric).
     parameter_types! {
         pub storage MockCommittee: Vec<u64> = vec![100, 101, 102];
+        /// Optional weights for R2 tests; an account not listed weighs 1 (the head-count default).
+        pub storage MockWeights: Vec<(u64, u128)> = Vec::new();
         pub storage SetCodeLog: Vec<Vec<u8>> = Vec::new();
         pub storage MockStanding: Vec<(u64, i128)> = Vec::new();
     }
@@ -844,6 +876,13 @@ mod tests {
     impl CommitteeInspect<u64> for Committee {
         fn committee() -> Vec<u64> {
             MockCommittee::get()
+        }
+        fn committee_weighted() -> Vec<(u64, u128)> {
+            let w = MockWeights::get();
+            MockCommittee::get()
+                .into_iter()
+                .map(|a| (a, w.iter().find(|(x, _)| *x == a).map(|(_, v)| *v).unwrap_or(1)))
+                .collect()
         }
     }
     pub struct Standing;
@@ -1177,6 +1216,32 @@ mod tests {
         });
     }
 
+    /// R2 (adversarial review 28-sep): the co-signing majority is by REPUTATION, not heads. Sense 1: one
+    /// heavy member (10 of 12 weight) carries it alone although it is 1 of 3 heads. Sense 2: two light
+    /// members (2 of 12 weight) do NOT, although they are 2 of 3 heads (the old rule would have passed).
+    #[test]
+    fn renewal_majority_is_weighted_by_reputation_r2() {
+        for (cosigners, ok) in [(vec![100u64], true), (vec![101u64, 102], false)] {
+            new_test_ext().execute_with(|| {
+                MockWeights::set(&vec![(100, 10), (101, 1), (102, 1)]);
+                System::set_block_number(995);
+                assert_ok!(Multisig::propose_renewal(RuntimeOrigin::signed(1), false));
+                for s in [2u64, 3, 4] {
+                    assert_ok!(Multisig::approve_renewal(RuntimeOrigin::signed(s)));
+                }
+                for c in &cosigners {
+                    assert_ok!(Multisig::cosign_renewal(RuntimeOrigin::signed(*c)));
+                }
+                System::set_block_number(1005);
+                if ok {
+                    assert_ok!(Multisig::apply_renewal(RuntimeOrigin::signed(9)));
+                } else {
+                    assert_noop!(Multisig::apply_renewal(RuntimeOrigin::signed(9)), Error::<Test>::NotEnoughCosigns);
+                }
+            });
+        }
+    }
+
     #[test]
     fn disaster_renewal_needs_metric_unanimity_and_quarters() {
         new_test_ext().execute_with(|| {
@@ -1227,6 +1292,35 @@ mod tests {
                 Multisig::propose_renewal(RuntimeOrigin::signed(1), true),
                 Error::<Test>::NoDisaster
             );
+        });
+    }
+
+    #[test]
+    fn an_inert_committee_cannot_trap_an_expired_key() {
+        // R1 (adversarial review 27-sep): a committee EXISTS (so the empty-committee metric never climbs)
+        // but nobody co-signs. Once the key has been expired for DisasterEpochs epochs, the unanimous
+        // disaster path must open anyway — and not a block earlier.
+        new_test_ext().execute_with(|| {
+            MockCommittee::set(&vec![100, 101, 102]);
+            let end = LifeEnd::<Test>::get(); // 1000; grace = 3 epochs x 10 blocks = 30
+            for b in [end, end + 10, end + 20] {
+                System::set_block_number(b);
+                Multisig::on_initialize(b);
+            }
+            assert_eq!(EpochsWithoutCommittee::<Test>::get(), 0, "the committee exists: metric (a) stays at 0");
+            System::set_block_number(end + 29);
+            assert_noop!(
+                Multisig::propose_renewal(RuntimeOrigin::signed(1), true),
+                Error::<Test>::NoDisaster
+            );
+            System::set_block_number(end + 30);
+            assert_ok!(Multisig::propose_renewal(RuntimeOrigin::signed(1), true));
+            for s in [2u64, 3, 4, 5] {
+                assert_ok!(Multisig::approve_renewal(RuntimeOrigin::signed(s)));
+            }
+            assert_ok!(Multisig::apply_renewal(RuntimeOrigin::signed(9)));
+            // a quarter window from NOW (the key was expired)
+            assert_eq!(LifeEnd::<Test>::get(), end + 30 + 250);
         });
     }
 

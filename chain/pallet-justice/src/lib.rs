@@ -63,6 +63,26 @@ pub trait InterestInspect<AccountId> {
     fn relation_depth(_who: &AccountId, _parties: &[AccountId]) -> Option<u32> {
         None
     }
+
+    /// Interest AFTER the draw (voting and tally). The draw already excluded every account tied to a party
+    /// in EITHER direction; from then on only a tie the JUROR creates toward a party may disqualify them.
+    /// A tie created BY a party toward a juror must not: `vouch` is unilateral and feeless, so with the
+    /// bidirectional test a defendant could vouch for each juror who voted guilty (the jury is public) and
+    /// have those votes dropped at tally — self-acquittal, or a lapse loop by vouching the whole jury before
+    /// anyone votes (adversarial review 28-sep-2026, verified against the code). Default = the old test, so
+    /// wirings that do not override it behave exactly as before.
+    fn juror_disqualified(who: &AccountId, parties: &[AccountId]) -> bool {
+        Self::has_interest(who, parties)
+    }
+
+    /// Exclusion AT THE DRAW (28-sep-2026, anti pool-poisoning). Like `has_interest`, except that a tie a
+    /// PARTY created toward the candidate only counts if it was made at or before `cutoff` (the case's
+    /// filing block minus `InterestCooling`): a plaintiff cannot vouch for the jurors they dislike, file,
+    /// and revoke. Ties the CANDIDATE made toward a party always count. Block numbers as u64.
+    /// Default = `has_interest` (no cooling), so wirings that do not override it behave as before.
+    fn excludes_at_draw(who: &AccountId, parties: &[AccountId], _cutoff: u64) -> bool {
+        Self::has_interest(who, parties)
+    }
 }
 
 /// What happens to a culprit found guilty: **rectification of the record** (Acta J2, Art. IX —
@@ -123,6 +143,10 @@ pub mod pallet {
         /// Not a free NotGuilty — the fact was never judged and the dispute may be opened again. Lapsing
         /// exists so an unvoted case cannot hang over the defendant forever, without letting silence acquit.
         Lapsed,
+        /// Filed, jury not drawn yet (28-sep-2026, deferred draw): the jury is drawn `JuryDrawDelay` blocks
+        /// later, from a block hash that did not exist when the case was filed, so the opener cannot pick
+        /// the moment that gives a favourable jury. Nobody can vote or close before the draw.
+        AwaitingJury,
     }
 
     /// A dispute. The contested fact lives off-chain; the chain holds only its hash (Art. X: the light is
@@ -212,10 +236,46 @@ pub mod pallet {
         /// only down-weights the softer 2-hop tie. `from_percent(100)` disables the penalty.
         #[pallet::constant]
         type Depth2WeightPermille: Get<Permill>;
+
+        /// Blocks between filing a case and drawing its jury (deferred draw, design
+        /// JUSTICIA-SORTEO-DIFERIDO-2026-09-28). Must be >= 2 so the draw block's parent did not exist yet.
+        #[pallet::constant]
+        type JuryDrawDelay: Get<BlockNumberFor<Self>>;
+        /// A tie a PARTY created toward a candidate excludes that candidate from the draw only if it is at
+        /// least this many blocks older than the case (anti pool-poisoning: vouch, file, revoke).
+        #[pallet::constant]
+        type InterestCooling: Get<BlockNumberFor<Self>>;
+        /// Most juries drawn in one block (bounds `on_initialize`); a full block pushes to the next free one.
+        #[pallet::constant]
+        type MaxDrawsPerBlock: Get<u32>;
     }
 
     #[pallet::pallet]
     pub struct Pallet<T>(_);
+
+    #[pallet::hooks]
+    impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
+        /// Deferred draw: seat the juries of the cases queued for this block (at most `MaxDrawsPerBlock`).
+        fn on_initialize(n: BlockNumberFor<T>) -> Weight {
+            let due = DrawQueue::<T>::take(n);
+            let k = due.len() as u64;
+            for case_id in due {
+                Self::seat_jury(case_id);
+            }
+            // Placeholder weight (like the rest of the pallet): one population walk per draw.
+            Weight::from_parts(1_000_000u64.saturating_add(k.saturating_mul(3_750_000_000)), 0)
+        }
+    }
+
+    /// Deferred-draw queue: cases whose jury is drawn at the start of this block.
+    #[pallet::storage]
+    pub type DrawQueue<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        BlockNumberFor<T>,
+        BoundedVec<u64, T::MaxDrawsPerBlock>,
+        ValueQuery,
+    >;
 
     /// Next case id.
     #[pallet::storage]
@@ -309,12 +369,20 @@ pub mod pallet {
         /// deterministic devnet — where the seated set alone cannot reveal the down-weight — reads the
         /// applied factor straight from the event (`penalised_weight == base_rep · Depth2WeightPermille`).
         Depth2JurorsSeated { case: u64, relations: Vec<(T::AccountId, T::AccountId, u32, i128)> },
+        /// A case was filed; its jury is drawn at block `draw_at` (deferred draw).
+        CaseFiled { case: u64, plaintiff: T::AccountId, defendant: T::AccountId, draw_at: BlockNumberFor<T> },
+        /// No reputable, non-interested juror existed at the draw: the case lapses (may be filed again).
+        JuryUnavailable { case: u64 },
     }
 
     #[pallet::error]
     pub enum Error<T> {
         /// Nobody sues themselves.
         SelfCase,
+        /// The jury of this case has not been drawn yet (deferred draw).
+        JuryNotDrawn,
+        /// No free draw slot in the next blocks (too many cases filed at once); try again shortly.
+        DrawQueueFull,
         /// No reputable, non-interested accounts were available to form a jury.
         EmptyJury,
         /// Too many explicitly-flagged interested accounts.
@@ -412,10 +480,11 @@ pub mod pallet {
         pub fn cast_vote(origin: OriginFor<T>, case: u64, guilty: bool) -> DispatchResult {
             let juror = ensure_signed(origin)?;
             let c = Cases::<T>::get(case).ok_or(Error::<T>::UnknownCase)?;
+            ensure!(c.status != CaseStatus::AwaitingJury, Error::<T>::JuryNotDrawn);
             ensure!(c.status == CaseStatus::Open, Error::<T>::NotOpen);
             ensure!(Jury::<T>::get(case).contains(&juror), Error::<T>::NotAJuror);
             let parties = Parties::<T>::get(case);
-            ensure!(!T::Interest::has_interest(&juror, &parties), Error::<T>::Interested);
+            ensure!(!T::Interest::juror_disqualified(&juror, &parties), Error::<T>::Interested);
             Votes::<T>::insert(case, &juror, guilty);
             Self::deposit_event(Event::VoteCast { case, juror, guilty });
             Ok(())
@@ -439,6 +508,7 @@ pub mod pallet {
         pub fn close_case(origin: OriginFor<T>, case: u64) -> DispatchResult {
             let closer = ensure_signed(origin)?;
             let mut c = Cases::<T>::get(case).ok_or(Error::<T>::UnknownCase)?;
+            ensure!(c.status != CaseStatus::AwaitingJury, Error::<T>::JuryNotDrawn);
             ensure!(c.status == CaseStatus::Open, Error::<T>::NotOpen);
 
             let now = frame_system::Pallet::<T>::block_number();
@@ -459,7 +529,8 @@ pub mod pallet {
             let mut votes_cast: u32 = 0;
             for juror in jury.iter() {
                 // Third guard: an interested account's vote never counts, even if it slipped through.
-                if T::Interest::has_interest(juror, &parties) {
+                // Only ties the JUROR made count here (see `juror_disqualified`): a party cannot erase a vote.
+                if T::Interest::juror_disqualified(juror, &parties) {
                     continue;
                 }
                 match Votes::<T>::get(case, juror) {
@@ -605,11 +676,22 @@ pub mod pallet {
                 parties.clone().try_into().map_err(|_| Error::<T>::TooManyInterested)?;
 
             let case_id = NextCaseId::<T>::get();
-            let jurors = Self::draw_jury(case_id, &parties);
-            ensure!(!jurors.is_empty(), Error::<T>::EmptyJury);
-            let jury_bv: BoundedVec<T::AccountId, T::MaxJury> =
-                jurors.try_into().unwrap_or_default();
-            ensure!(!jury_bv.is_empty(), Error::<T>::EmptyJury);
+            let now = frame_system::Pallet::<T>::block_number();
+            // DEFERRED DRAW (28-sep-2026): the jury is NOT drawn here. The parent hash of the block that
+            // includes this call is the CURRENT head, which the opener already knows — drawing now let them
+            // compute the jury and file only when it suited them. Queue the draw `JuryDrawDelay` blocks ahead
+            // (first block with a free slot, bounded search).
+            let mut draw_at = now.saturating_add(T::JuryDrawDelay::get());
+            let mut queued = false;
+            for _ in 0..64u32 {
+                let pushed = DrawQueue::<T>::mutate(draw_at, |q| q.try_push(case_id).is_ok());
+                if pushed {
+                    queued = true;
+                    break;
+                }
+                draw_at = draw_at.saturating_add(One::one());
+            }
+            ensure!(queued, Error::<T>::DrawQueueFull);
 
             Cases::<T>::insert(
                 case_id,
@@ -619,8 +701,10 @@ pub mod pallet {
                     fact_hash,
                     dimension,
                     loss,
-                    status: CaseStatus::Open,
-                    opened_at: frame_system::Pallet::<T>::block_number(),
+                    status: CaseStatus::AwaitingJury,
+                    // the filing block; replaced by the DRAW block when the jury is seated (the voting
+                    // window runs from the draw), and used as the anchor of the interest cooling.
+                    opened_at: now,
                 },
             );
             CaseEvidence::<T>::insert(case_id, evidence_bv);
@@ -629,12 +713,35 @@ pub mod pallet {
             if incapacity {
                 IncapacityCase::<T>::insert(case_id, ());
             }
+            Parties::<T>::insert(case_id, parties_bv);
+            NextCaseId::<T>::put(case_id.saturating_add(1));
+            Self::deposit_event(Event::CaseFiled { case: case_id, plaintiff, defendant, draw_at });
+            Ok(())
+        }
+
+        /// Seat the jury of a filed case (deferred draw, run from `on_initialize`). Draws with the CURRENT
+        /// block's parent hash — a block that did not exist when the case was filed. On success the case opens
+        /// and the voting window starts now; with no possible juror the case lapses (it may be filed again).
+        pub(crate) fn seat_jury(case_id: u64) {
+            let Some(mut c) = Cases::<T>::get(case_id) else { return };
+            if c.status != CaseStatus::AwaitingJury {
+                return;
+            }
+            let parties: Vec<T::AccountId> = Parties::<T>::get(case_id).into_inner();
+            let filed: u64 = c.opened_at.saturated_into::<u64>();
+            let cutoff = filed.saturating_sub(T::InterestCooling::get().saturated_into::<u64>());
+            let jurors = Self::draw_jury(case_id, &parties, cutoff);
+            let jury_bv: BoundedVec<T::AccountId, T::MaxJury> = jurors.try_into().unwrap_or_default();
+            if jury_bv.is_empty() {
+                c.status = CaseStatus::Lapsed;
+                Cases::<T>::insert(case_id, c);
+                Self::deposit_event(Event::JuryUnavailable { case: case_id });
+                return;
+            }
             let jurors_n = jury_bv.len() as u32;
             // Accountability trail (SPEC §4i-(8)(c)): for each SEATED juror, record (juror, the party it is
-            // depth-2-related to, the distance, the post-penalty sortition weight) — captured here at the
-            // draw so the cross-case pattern AND the applied down-weight are recomputable from events alone
-            // (no vouch-graph replay). depth-1 jurors are already excluded, so a relation here is
-            // depth ≥ 2. One tuple per juror (the first related party).
+            // depth-2-related to, the distance, the post-penalty sortition weight) — captured at the draw so
+            // the cross-case pattern AND the applied down-weight are recomputable from events alone.
             let permille = T::Depth2WeightPermille::get();
             let reps = T::Reputation::consensus_reputation();
             let depth2: Vec<(T::AccountId, T::AccountId, u32, i128)> = jury_bv
@@ -657,26 +764,21 @@ pub mod pallet {
                 })
                 .collect();
             Jury::<T>::insert(case_id, jury_bv);
-            Parties::<T>::insert(case_id, parties_bv);
-            NextCaseId::<T>::put(case_id.saturating_add(1));
-
-            Self::deposit_event(Event::CaseOpened {
-                case: case_id,
-                plaintiff,
-                defendant,
-                jurors: jurors_n,
-            });
+            let (plaintiff, defendant) = (c.plaintiff.clone(), c.defendant.clone());
+            c.status = CaseStatus::Open;
+            c.opened_at = frame_system::Pallet::<T>::block_number(); // the window runs from the draw
+            Cases::<T>::insert(case_id, c);
+            Self::deposit_event(Event::CaseOpened { case: case_id, plaintiff, defendant, jurors: jurors_n });
             if !depth2.is_empty() {
                 Self::deposit_event(Event::Depth2JurorsSeated { case: case_id, relations: depth2 });
             }
-            Ok(())
         }
 
         /// Draw the jury for `case_id`: reputation-weighted VRF sortition (cross-validated `consensus-core`)
         /// over every reputable account **minus the interested ones** (Art. IX). Deterministic and
         /// verify-by-recompute: the seed binds the case id and the parent block hash. Returns the drawn
         /// accounts (those that won ≥1 seat), capped to `MaxJury`, ordered deterministically.
-        fn draw_jury(case_id: u64, parties: &[T::AccountId]) -> Vec<T::AccountId> {
+        fn draw_jury(case_id: u64, parties: &[T::AccountId], cutoff: u64) -> Vec<T::AccountId> {
             use alloc::collections::BTreeMap;
             // 1. eligible pool: reputable AND not interested. The exclusion is by CONSTRUCTION — an
             //    interested account is never even a candidate.
@@ -686,7 +788,7 @@ pub mod pallet {
             let depth2_weight = T::Depth2WeightPermille::get();
             let pool: Vec<(T::AccountId, i128)> = T::Reputation::consensus_reputation()
                 .into_iter()
-                .filter(|(acc, rep)| *rep > 0 && !T::Interest::has_interest(acc, parties))
+                .filter(|(acc, rep)| *rep > 0 && !T::Interest::excludes_at_draw(acc, parties, cutoff))
                 .map(|(acc, rep)| {
                     let w = if T::Interest::relation_depth(&acc, parties) == Some(2) {
                         depth2_weight.mul_floor(rep as u128) as i128
@@ -704,16 +806,38 @@ pub mod pallet {
             //    sortition key is each candidate's COMMITTED beacon key (macroaudit §2.1) — NOT a
             //    freely-chosen id — so the draw cannot be ground. A candidate that did not commit+reveal
             //    this epoch has no key and is not eligible.
+            //    BEACON-EMPTY FALLBACK (28-sep-2026, found by the justice iron in devnet): nobody commits to
+            //    the beacon on the live chain, so requiring a committed key made EVERY case fail with
+            //    EmptyJury — justice was dead. Mirror the finality committee's guard
+            //    (`consensus_core::sortition_fp::elect_finality_committee`): the beacon path engages only
+            //    once at least min(4, pool) candidates have committed; below that EVERY reputable,
+            //    non-interested candidate is eligible, keyed by its account id. The opener still cannot
+            //    steer the draw: the seed folds in the parent hash (step 3), unknown when submitting.
+            let want = core::cmp::min(4, pool.len());
+            let committed = pool.iter().filter(|(a, _)| T::Beacon::committed_key(a).is_some()).count();
+            let use_beacon = want > 0 && committed >= want;
             let mut reputation: BTreeMap<String, i128> = BTreeMap::new();
             let mut secret_keys: BTreeMap<String, String> = BTreeMap::new();
             let mut eligible: Vec<T::AccountId> = Vec::new();
             for (acc, rep) in pool.into_iter() {
-                if let Some(key) = T::Beacon::committed_key(&acc) {
-                    let id = eligible.len().to_string();
-                    reputation.insert(id.clone(), rep);
-                    secret_keys.insert(id, key);
-                    eligible.push(acc);
-                }
+                let key = if use_beacon {
+                    match T::Beacon::committed_key(&acc) {
+                        Some(k) => k,
+                        None => continue,
+                    }
+                } else {
+                    let raw = codec::Encode::encode(&acc);
+                    let mut hex = alloc::string::String::with_capacity(3 + raw.len() * 2);
+                    hex.push_str("sk-");
+                    for b in raw {
+                        hex.push_str(&alloc::format!("{b:02x}"));
+                    }
+                    hex
+                };
+                let id = eligible.len().to_string();
+                reputation.insert(id.clone(), rep);
+                secret_keys.insert(id, key);
+                eligible.push(acc);
             }
             if eligible.is_empty() {
                 return Vec::new();
@@ -794,6 +918,10 @@ mod tests {
     pub struct MockRep;
     impl ReputationInspect<u64> for MockRep {
         fn consensus_reputation() -> Vec<(u64, i128)> {
+            let o = RepOverride::get();
+            if !o.is_empty() {
+                return o;
+            }
             (10u64..=25u64).map(|a| (a, 1_000i128)).collect()
         }
     }
@@ -806,11 +934,39 @@ mod tests {
     // back-compat path (no penalty, no accountability event).
     parameter_types! {
         pub storage Depth2Set: Vec<u64> = Vec::new();
+        /// Directed trust ties `(from, to)` created during a test (stands in for `vouch`).
+        pub storage Ties: Vec<(u64, u64)> = Vec::new();
+        /// Dated directed ties `(from, to, block)` for the draw-time cooling tests.
+        pub storage TiesAt: Vec<(u64, u64, u64)> = Vec::new();
+        /// When non-empty, replaces the reputable population (to make the draw deterministic).
+        pub storage RepOverride: Vec<(u64, i128)> = Vec::new();
     }
     pub struct MockInterest;
     impl InterestInspect<u64> for MockInterest {
         fn has_interest(who: &u64, parties: &[u64]) -> bool {
-            parties.iter().any(|p| p == who || p.abs_diff(*who) == 100)
+            let ties = Ties::get();
+            let at = TiesAt::get();
+            parties.iter().any(|p| {
+                p == who || p.abs_diff(*who) == 100 || ties.contains(&(*who, *p)) || ties.contains(&(*p, *who))
+                    || at.iter().any(|(f, t, _)| (f == who && t == p) || (f == p && t == who))
+            })
+        }
+        fn juror_disqualified(who: &u64, parties: &[u64]) -> bool {
+            let ties = Ties::get();
+            let at = TiesAt::get();
+            parties.iter().any(|p| {
+                p == who || p.abs_diff(*who) == 100 || ties.contains(&(*who, *p))
+                    || at.iter().any(|(f, t, _)| f == who && t == p)
+            })
+        }
+        fn excludes_at_draw(who: &u64, parties: &[u64], cutoff: u64) -> bool {
+            let ties = Ties::get();
+            let at = TiesAt::get();
+            parties.iter().any(|p| {
+                p == who || p.abs_diff(*who) == 100 || ties.contains(&(*who, *p)) || ties.contains(&(*p, *who))
+                    // candidate -> party: always; party -> candidate: only if old enough (cooling)
+                    || at.iter().any(|(f, t, b)| (f == who && t == p) || (f == p && t == who && *b <= cutoff))
+            })
         }
         fn relation_depth(who: &u64, parties: &[u64]) -> Option<u32> {
             if Self::has_interest(who, parties) {
@@ -857,12 +1013,19 @@ mod tests {
     // Beacon stub: every account has a deterministic committed key (so the pool is unchanged from the
     // pre-beacon draw) and the seed is fixed. The grinding-resistance itself is proven in
     // `consensus-core::beacon`; here we only check the draw consumes the beacon seam correctly.
+    parameter_types! {
+        /// When true, NO account has a committed beacon key (as on the live chain, 28-sep).
+        pub storage NoBeaconKeys: bool = false;
+    }
     pub struct MockBeacon;
     impl BeaconInspect<u64> for MockBeacon {
         fn seed() -> String {
             "mock-beacon-seed".to_string()
         }
         fn committed_key(who: &u64) -> Option<String> {
+            if NoBeaconKeys::get() {
+                return None; // the live-chain reality: nobody has committed
+            }
             Some(alloc::format!("sk-{who}"))
         }
     }
@@ -895,6 +1058,16 @@ mod tests {
         type Depth2WeightPermille = Depth2WeightPermille;
         type VotingWindow = VotingWindow;
         type VoteQuorum = VoteQuorum;
+        type JuryDrawDelay = ConstU64<3>;
+        type InterestCooling = ConstU64<10>;
+        type MaxDrawsPerBlock = ConstU32<4>;
+    }
+
+    /// Deferred draw: advance to the draw block of the case(s) just filed and run the hook.
+    fn draw_pending() {
+        let n = System::block_number() + <<Test as crate::Config>::JuryDrawDelay as Get<u64>>::get();
+        System::set_block_number(n);
+        <Justice as Hooks<u64>>::on_initialize(n);
     }
 
     /// Fast-forward past the voting window so a legacy-style close is allowed (quorum still applies).
@@ -922,6 +1095,7 @@ mod tests {
         new_test_ext().execute_with(|| {
             // plaintiff 10 vs defendant 11; both are in the reputable pool but must be excluded.
             assert_ok!(Justice::open_case(RuntimeOrigin::signed(10), 11, [0u8; 32], 0, 100, vec![], vec![]));
+            draw_pending();
             let jury = jury_of(0);
             assert!(!jury.is_empty());
             assert!(!jury.contains(&10), "plaintiff judged its own case");
@@ -947,6 +1121,7 @@ mod tests {
             // down-weighted at the draw, NOT excluded — the penalty keeps them eligible, just lighter).
             Depth2Set::set(&(10u64..=25).collect::<Vec<_>>());
             assert_ok!(Justice::open_case(RuntimeOrigin::signed(10), 11, [0u8; 32], 0, 100, vec![], vec![]));
+            draw_pending();
             let mut jury = jury_of(0);
             assert!(!jury.is_empty(), "penalty must not empty the jury — it down-weights, not cuts");
             let relations = depth2_event_relations(0).expect("accountability event not emitted");
@@ -968,6 +1143,7 @@ mod tests {
         new_test_ext().execute_with(|| {
             // Depth2Set empty (default) → relation_depth returns None → back-compat path, no penalty.
             assert_ok!(Justice::open_case(RuntimeOrigin::signed(10), 11, [0u8; 32], 0, 100, vec![], vec![]));
+            draw_pending();
             assert!(!jury_of(0).is_empty());
             assert!(depth2_event_relations(0).is_none(), "no 2-hop relation → no accountability event");
         });
@@ -1008,6 +1184,7 @@ mod tests {
                 vec![],
                 vec![110]
             ));
+            draw_pending();
             let jury = jury_of(0);
             assert!(!jury.contains(&110), "flagged interested account was drawn");
         });
@@ -1017,11 +1194,104 @@ mod tests {
     fn interested_account_cannot_vote() {
         new_test_ext().execute_with(|| {
             assert_ok!(Justice::open_case(RuntimeOrigin::signed(10), 11, [0u8; 32], 0, 100, vec![], vec![]));
+            draw_pending();
             // a party (defendant) tries to vote — rejected (not a juror, and interested).
             assert_noop!(
                 Justice::cast_vote(RuntimeOrigin::signed(11), 0, false),
                 crate::Error::<Test>::NotAJuror
             );
+        });
+    }
+
+    /// Deferred draw (review 28-sep, H2): the opener must not know the jury when filing. Sense 1: right after
+    /// filing there is NO jury and nobody can vote (JuryNotDrawn). Sense 2: after `JuryDrawDelay` blocks the
+    /// hook seats it and the case is Open, with the voting window starting at the draw.
+    #[test]
+    fn jury_is_drawn_later_not_at_filing() {
+        new_test_ext().execute_with(|| {
+            assert_ok!(Justice::open_case(RuntimeOrigin::signed(10), 11, [0u8; 32], 0, 100, vec![], vec![]));
+            assert!(jury_of(0).is_empty(), "no jury at filing");
+            assert_eq!(Cases::<Test>::get(0).unwrap().status, CaseStatus::AwaitingJury);
+            assert_noop!(Justice::cast_vote(RuntimeOrigin::signed(20), 0, true), crate::Error::<Test>::JuryNotDrawn);
+            assert_noop!(Justice::close_case(RuntimeOrigin::signed(20), 0), crate::Error::<Test>::JuryNotDrawn);
+            draw_pending();
+            assert!(jury_of(0).len() >= 4, "jury seated at the draw block");
+            let c = Cases::<Test>::get(0).unwrap();
+            assert_eq!(c.status, CaseStatus::Open);
+            assert_eq!(c.opened_at, System::block_number(), "voting window runs from the draw");
+        });
+    }
+
+    /// Anti pool-poisoning (review 28-sep, H1): a tie the PLAINTIFF made toward a candidate shortly before
+    /// filing must NOT exclude that candidate; an OLD tie (older than InterestCooling) still does. Pool of
+    /// exactly 4 candidates (20..23) so the jury is the whole eligible pool — membership is deterministic.
+    #[test]
+    fn party_vouch_just_before_filing_does_not_exclude_but_an_old_one_does() {
+        for (tie_block, excluded) in [(15u64, false), (2u64, true)] {
+            new_test_ext().execute_with(|| {
+                RepOverride::set(&vec![(10, 1000), (11, 1000), (20, 1000), (21, 1000), (22, 1000), (23, 1000)]);
+                System::set_block_number(20); // filed at 20 → cutoff = 20 - 10 = 10
+                TiesAt::set(&vec![(10u64, 20u64, tie_block)]); // plaintiff 10 vouched candidate 20
+                assert_ok!(Justice::open_case(RuntimeOrigin::signed(10), 11, [0u8; 32], 0, 100, vec![], vec![]));
+                draw_pending();
+                let jury = jury_of(0);
+                assert_eq!(!jury.contains(&20), excluded,
+                    "tie at block {tie_block}: excluded={excluded}, jury={jury:?}");
+            });
+        }
+    }
+
+    /// 28-sep (justice iron in devnet): with NOBODY committed to the beacon — the live-chain reality —
+    /// a case must still seat a jury (fallback, like the finality committee), and the verdict must work.
+    #[test]
+    fn jury_is_drawn_without_beacon_commitments() {
+        new_test_ext().execute_with(|| {
+            NoBeaconKeys::set(&true);
+            MockEvidence::set(&vec![(7u64, 11u64, 0u8, 250u128)]);
+            assert_ok!(Justice::open_case(RuntimeOrigin::signed(10), 11, [0u8; 32], 0, 250, vec![7], vec![]));
+            draw_pending();
+            let jury = jury_of(0);
+            assert!(jury.len() >= 4, "fallback must seat at least min(4, pool): got {}", jury.len());
+            for j in &jury {
+                assert_ok!(Justice::cast_vote(RuntimeOrigin::signed(*j), 0, true));
+            }
+            past_window();
+            assert_ok!(Justice::close_case(RuntimeOrigin::signed(jury[0]), 0));
+            assert_eq!(Cases::<Test>::get(0).unwrap().status, CaseStatus::ResolvedGuilty);
+        });
+    }
+
+    /// Adversarial review 28-sep: a defendant must not be able to erase guilty votes (or block the jury
+    /// from voting) by vouching for jurors after the draw. Sense 1: the defendant ties itself to EVERY
+    /// juror after they voted guilty → the verdict is still guilty. Sense 2: a juror who ties HIMSELF to
+    /// the defendant is disqualified (cannot vote) — the guard still works for the juror's own act.
+    #[test]
+    fn defendant_cannot_erase_guilty_votes_by_vouching_jurors() {
+        new_test_ext().execute_with(|| {
+            MockEvidence::set(&vec![(7u64, 11u64, 0u8, 250u128)]);
+            assert_ok!(Justice::open_case(RuntimeOrigin::signed(10), 11, [0u8; 32], 0, 250, vec![7], vec![]));
+            draw_pending();
+            let jury = jury_of(0);
+            for j in &jury {
+                assert_ok!(Justice::cast_vote(RuntimeOrigin::signed(*j), 0, true));
+            }
+            // the defendant (11) vouches for every juror after the votes are cast
+            Ties::set(&jury.iter().map(|j| (11u64, *j)).collect::<Vec<_>>());
+            past_window();
+            assert_ok!(Justice::close_case(RuntimeOrigin::signed(jury[0]), 0));
+            assert_eq!(Cases::<Test>::get(0).unwrap().status, CaseStatus::ResolvedGuilty,
+                "a party-made tie after the draw must not drop the jurors' votes");
+        });
+        new_test_ext().execute_with(|| {
+            assert_ok!(Justice::open_case(RuntimeOrigin::signed(10), 11, [0u8; 32], 0, 100, vec![], vec![]));
+            draw_pending();
+            let jury = jury_of(0);
+            // the defendant vouching BEFORE anyone votes must not block the jury either
+            Ties::set(&jury.iter().map(|j| (11u64, *j)).collect::<Vec<_>>());
+            assert_ok!(Justice::cast_vote(RuntimeOrigin::signed(jury[0]), 0, true));
+            // but a juror who ties HIMSELF to the defendant is out
+            let mut t = Ties::get(); t.push((jury[1], 11u64)); Ties::set(&t);
+            assert_noop!(Justice::cast_vote(RuntimeOrigin::signed(jury[1]), 0, true), crate::Error::<Test>::Interested);
         });
     }
 
@@ -1039,6 +1309,7 @@ mod tests {
                 vec![7],
                 vec![]
             ));
+            draw_pending();
             let jury = jury_of(0);
             // all jurors vote guilty → well above 2/3.
             for j in &jury {
@@ -1070,6 +1341,7 @@ mod tests {
                 vec![7],
                 vec![]
             ));
+            draw_pending();
             let jury = jury_of(0);
             for j in &jury {
                 assert_ok!(Justice::cast_vote(RuntimeOrigin::signed(*j), 0, true));
@@ -1089,6 +1361,7 @@ mod tests {
         new_test_ext().execute_with(|| {
             // a case naming NO evidence records: guilty certifies + marks, but rectifies NOTHING.
             assert_ok!(Justice::open_case(RuntimeOrigin::signed(10), 11, [0u8; 32], 0, 250, vec![], vec![]));
+            draw_pending();
             let jury = jury_of(0);
             for j in &jury {
                 assert_ok!(Justice::cast_vote(RuntimeOrigin::signed(*j), 0, true));
@@ -1135,6 +1408,7 @@ mod tests {
         // sortitioned jury (adjudicated, never decreed by an authority).
         new_test_ext().execute_with(|| {
             assert_ok!(Justice::open_incapacity_case(RuntimeOrigin::signed(10), 11, [0u8; 32], vec![]));
+            draw_pending();
             assert!(crate::IncapacityCase::<Test>::contains_key(0));
             let jury = jury_of(0);
             for j in &jury {
@@ -1153,6 +1427,7 @@ mod tests {
     fn no_supermajority_means_not_guilty_and_no_slash() {
         new_test_ext().execute_with(|| {
             assert_ok!(Justice::open_case(RuntimeOrigin::signed(10), 11, [0u8; 32], 0, 250, vec![], vec![]));
+            draw_pending();
             let jury = jury_of(0);
             // the whole jury votes (quorum met) but only ONE guilty → far below 2/3 → name intact,
             // no slash (Art. IX).
@@ -1173,6 +1448,7 @@ mod tests {
     fn cannot_close_before_the_window() {
         new_test_ext().execute_with(|| {
             assert_ok!(Justice::open_case(RuntimeOrigin::signed(10), 11, [0u8; 32], 0, 250, vec![], vec![]));
+            draw_pending();
             let jury = jury_of(0);
             for j in &jury {
                 assert_ok!(Justice::cast_vote(RuntimeOrigin::signed(*j), 0, true));
@@ -1189,6 +1465,7 @@ mod tests {
     fn party_cannot_close_before_extended_window() {
         new_test_ext().execute_with(|| {
             assert_ok!(Justice::open_case(RuntimeOrigin::signed(10), 11, [0u8; 32], 0, 250, vec![], vec![]));
+            draw_pending();
             let jury = jury_of(0);
             for j in &jury {
                 assert_ok!(Justice::cast_vote(RuntimeOrigin::signed(*j), 0, true));
@@ -1207,6 +1484,7 @@ mod tests {
     fn no_quorum_waits_then_lapses_without_verdict() {
         new_test_ext().execute_with(|| {
             assert_ok!(Justice::open_case(RuntimeOrigin::signed(10), 11, [0u8; 32], 0, 250, vec![], vec![]));
+            draw_pending();
             let jury = jury_of(0);
             // only one juror ever votes → quorum (2/3 of the jury) never reached.
             assert_ok!(Justice::cast_vote(RuntimeOrigin::signed(jury[0]), 0, true));
@@ -1222,6 +1500,7 @@ mod tests {
             assert!(SlashLog::get().is_empty());
             // and the dispute is reopenable — lapsing never acquits.
             assert_ok!(Justice::open_case(RuntimeOrigin::signed(10), 11, [0u8; 32], 0, 250, vec![], vec![]));
+            draw_pending();
         });
     }
 
@@ -1241,6 +1520,7 @@ mod tests {
                 assert_ok!(Justice::open_case(
                     RuntimeOrigin::signed(10), 11, [good; 32], good, 250, vec![], vec![]
                 ));
+                draw_pending();
             }
         });
     }
@@ -1281,6 +1561,7 @@ mod tests {
             assert_ok!(Justice::open_case(
                 RuntimeOrigin::signed(1), 10, [1u8; 32], 0, 100, vec![], vec![]
             ));
+            draw_pending();
             past_extended_window();
             for origin in [RuntimeOrigin::root(), RuntimeOrigin::none()] {
                 assert!(Justice::cast_vote(origin.clone(), 0, true).is_err());
@@ -1300,6 +1581,7 @@ mod tests {
             assert_ok!(Justice::open_case(
                 RuntimeOrigin::signed(1), 10, [1u8; 32], 0, 100, vec![], vec![]
             ));
+            draw_pending();
             let jury = jury_of(0);
             past_extended_window();
             assert_ok!(Justice::close_case(RuntimeOrigin::signed(1), 0));
@@ -1325,6 +1607,7 @@ mod tests {
             assert_ok!(Justice::open_case(
                 RuntimeOrigin::signed(1), 10, [1u8; 32], 0, 100, vec![], vec![]
             ));
+            draw_pending();
             let jury = jury_of(0);
             let juror = *jury.first().expect("a jury was drawn");
 

@@ -388,6 +388,34 @@ impl Chain {
 }
 
 impl Chain {
+    /// Every `System::ExtrinsicFailed` in the last `depth` blocks, as Debug text of the dispatch error
+    /// (the pool accepted the extrinsic; this is why it did nothing once in a block).
+    async fn recent_failures(&self, depth: u64) -> Vec<String> {
+        let mut key = twox_128("System".as_bytes()).to_vec();
+        key.extend(twox_128("Events".as_bytes()));
+        let key_hex = format!("0x{}", hex_str(&key));
+        let best = self.best_number().await;
+        let mut out = Vec::new();
+        for n in best.saturating_sub(depth)..=best {
+            let hash: Option<H256> = rpc(&self.c, "chain_getBlockHash", rpc_params![n]).await;
+            let Some(hash) = hash else { continue };
+            let raw: Option<String> =
+                rpc(&self.c, "state_getStorage", rpc_params![key_hex.clone(), hash]).await;
+            let Some(raw) = raw else { continue };
+            type Records = Vec<frame_system::EventRecord<harlequin_runtime::RuntimeEvent, H256>>;
+            let Ok(records) = Records::decode(&mut &hex_bytes(&raw)[..]) else { continue };
+            for rec in records {
+                if let harlequin_runtime::RuntimeEvent::System(
+                    frame_system::Event::ExtrinsicFailed { dispatch_error, .. },
+                ) = rec.event
+                {
+                    out.push(format!("block {n}: {dispatch_error:?}"));
+                }
+            }
+        }
+        out
+    }
+
     /// Read a `Blake2_128Concat` StorageMap entry: `twox128(pallet)‖twox128(item)‖blake2_128(k)‖k`.
     async fn map_raw(&self, pallet: &str, item: &str, key_enc: &[u8]) -> Option<Vec<u8>> {
         let mut k = twox_128(pallet.as_bytes()).to_vec();
@@ -541,6 +569,35 @@ async fn main() {
     let mut r = Report { pass: 0, fail: 0 };
 
     if args.mode == "encode-propose" {
+        // `--which` is validated BEFORE anything else: an unknown value used to fall through to
+        // `propose` — a typo would have produced a valid payload for the WRONG act. Refuse instead.
+        let renewal_call: Option<RuntimeCall> = match args.which.as_str() {
+            "propose" | "approve" => None,
+            "propose-renewal" => Some(RuntimeCall::MultisigUpgrade(
+                pallet_multisig_upgrade::Call::propose_renewal { disaster: false })),
+            "propose-renewal-disaster" => Some(RuntimeCall::MultisigUpgrade(
+                pallet_multisig_upgrade::Call::propose_renewal { disaster: true })),
+            "approve-renewal" => Some(RuntimeCall::MultisigUpgrade(
+                pallet_multisig_upgrade::Call::approve_renewal {})),
+            "cosign-renewal" => Some(RuntimeCall::MultisigUpgrade(
+                pallet_multisig_upgrade::Call::cosign_renewal {})),
+            "apply-renewal" => Some(RuntimeCall::MultisigUpgrade(
+                pallet_multisig_upgrade::Call::apply_renewal {})),
+            other => {
+                eprintln!("--which '{other}': unknown (propose | approve | propose-renewal | propose-renewal-disaster | approve-renewal | cosign-renewal | apply-renewal)");
+                std::process::exit(2);
+            }
+        };
+        if let Some(call) = renewal_call {
+            // KEY RENEWAL (normal path). No wasm, no declaration: the call carries no arguments, so
+            // the payload only binds the act, the signer's nonce and the chain (spec, tx, genesis).
+            println!("live spec_version = {} tx_version = {}", chain.spec_version, chain.tx_version);
+            println!("genesis = 0x{}", hex_str(chain.genesis.as_ref()));
+            println!("RENEWAL_CALL_HEX ({}) = 0x{}", args.which, hex_str(&call.encode()));
+            if args.nonce < 0 { return; }
+            emit_signing_payload(&chain, call, &args);
+            return;
+        }
         // LIVE CEREMONY (): emit ONLY the unsigned `propose_upgrade{code_hash, declared}`
         // call hex, built against the LIVE chain's sealed truth. Does NOT sign and does NOT submit —
         // the founder mask signs it in an offline signer, the reviewer assembles + submits. Same declaration
@@ -584,70 +641,8 @@ async fn main() {
         println!("APPROVE_CALL_HEX = 0x{}", hex_str(&approve.encode()));
 
         if args.nonce >= 0 {
-            // The exact signing payload the live chain verifies: `(call, ext, implicit).encode()`.
-            // Same construction as `sign_xt`, but we print it instead of signing — the founder's
-            // offline signer signs these bytes verbatim (blake2_256 first iff len > 256).
             let call = if args.which == "approve" { approve } else { propose };
-            let nonce = args.nonce as u32;
-            let ext: TxExtension = (
-                frame_system::AuthorizeCall::<Runtime>::new(),
-                frame_system::CheckNonZeroSender::<Runtime>::new(),
-                frame_system::CheckSpecVersion::<Runtime>::new(),
-                frame_system::CheckTxVersion::<Runtime>::new(),
-                frame_system::CheckGenesis::<Runtime>::new(),
-                frame_system::CheckEra::<Runtime>::from(Era::immortal()),
-                frame_system::CheckNonce::<Runtime>::from(nonce),
-                frame_system::CheckWeight::<Runtime>::new(),
-                pallet_transaction_payment::ChargeTransactionPayment::<Runtime>::from(0),
-                frame_system::WeightReclaim::<Runtime>::new(),
-            );
-            let implicit: ((), (), u32, u32, H256, H256, (), (), (), ()) = (
-                (),
-                (),
-                chain.spec_version,
-                chain.tx_version,
-                chain.genesis,
-                chain.genesis,
-                (),
-                (),
-                (),
-                (),
-            );
-            let raw = (&call, &ext, &implicit).encode();
-            println!("PAYLOAD which={} nonce={} len={}", args.which, nonce, raw.len());
-            println!("SIGN_OVER = {}", if raw.len() > 256 { "blake2_256(payload)" } else { "payload verbatim" });
-            println!("PAYLOAD_HEX = 0x{}", hex_str(&raw));
-
-            if !args.sig.is_empty() && !args.pubkey.is_empty() {
-                // Verify the offline signature BEFORE the reviewer submits — a bad sig caught here costs
-                // nothing; caught on chain wastes a submit and confuses the signer. sr25519 signs the
-                // payload verbatim iff len <= 256, else blake2_256(payload) (sp_core convention).
-                let sig_bytes = hex_bytes(&args.sig);
-                let pk_bytes = hex_bytes(&args.pubkey);
-                let mut sb = [0u8; 64];
-                sb.copy_from_slice(&sig_bytes);
-                let sig = sr25519::Signature::from(sb);
-                let pk = sr25519::Public::from(<[u8; 32]>::try_from(&pk_bytes[..]).expect("32-byte pubkey"));
-                let ok = if raw.len() > 256 {
-                    sr25519::Pair::verify(&sig, sp_core::blake2_256(&raw), &pk)
-                } else {
-                    sr25519::Pair::verify(&sig, &raw[..], &pk)
-                };
-                println!("SIG_VALID = {}", ok);
-                if ok {
-                    // Assemble the signed extrinsic (external signature) ready for author_submitExtrinsic.
-                    let xt = UncheckedXt::new_signed(
-                        call,
-                        MultiAddress::Id(AccountId32::from(
-                            <[u8; 32]>::try_from(&pk_bytes[..]).unwrap(),
-                        )),
-                        MultiSignature::Sr25519(sig),
-                        ext,
-                    );
-                    println!("EXTRINSIC_HEX = 0x{}", hex_str(&xt.encode()));
-                }
-                std::process::exit(if ok { 0 } else { 2 });
-            }
+            emit_signing_payload(&chain, call, &args);
         }
         return;
     }
@@ -675,12 +670,12 @@ async fn main() {
                     let _ = chain.submit_as(pair, call).await;
                 }
                 // commit a fresh secret for this round
-                let secret = format!("{name}-beacon-{round}").into_bytes();
-                let commitment = consensus_core::beacon::commit(&secret);
+                let preimage = format!("{name}-beacon-{round}").into_bytes();
+                let commitment = consensus_core::beacon::commit(&preimage);
                 let call =
                     RuntimeCall::BeaconPallet(pallet_beacon::Call::commit { commitment });
                 chain.submit_as(pair, call).await;
-                prev[i] = Some(secret);
+                prev[i] = Some(preimage);
             }
             let active = chain.map_count("BeaconPallet", "Active").await;
             let fin = chain.finalized_number().await;
@@ -897,6 +892,110 @@ async fn main() {
         std::process::exit(if r.fail == 0 { 0 } else { 1 });
     }
 
+    if args.mode == "renewal-disaster" {
+        // DISASTER RENEWAL REHEARSAL (2026-09-26). Measured on the live chain: the renewal committee
+        // (reputation AND an active beacon key) is EMPTY — nobody commits/reveals to the beacon — so
+        // the normal path is refused (NotEnoughCosigns). What remains is the disaster path: 5-of-5
+        // seats (custody included) once EpochsWithoutCommittee >= DisasterEpochs, a QUARTER life.
+        let u32s = |b: Option<Vec<u8>>| b.map(|v| u32::decode(&mut &v[..]).expect("u32")).unwrap_or(0);
+        let before = u32s(chain.storage("MultisigUpgrade", "LifeEnd").await);
+        println!("== DISASTER RENEWAL rehearsal == LifeEnd={} head={}", before, head_number_of(&chain).await);
+        let seed = |s: &str| sr25519::Pair::from_string(s, None).unwrap();
+        let mu = |c| RuntimeCall::MultisigUpgrade(c);
+        loop {
+            let e = u32s(chain.storage("MultisigUpgrade", "EpochsWithoutCommittee").await);
+            if e >= 14 { println!("EpochsWithoutCommittee = {e} (>= 14)"); break; }
+            wait_blocks(&chain, 5).await;
+        }
+        match chain.submit_as_try(&seed("//Alice"), mu(pallet_multisig_upgrade::Call::propose_renewal { disaster: true })).await {
+            Ok(_) => println!("propose(disaster) submitted"), Err(e) => println!("propose(disaster) REFUSED: {e}"),
+        }
+        wait_blocks(&chain, 3).await;
+        r.check("disaster.pending", chain.storage("MultisigUpgrade", "PendingRenewal").await.is_some(), "PendingRenewal".into());
+        for who in ["//Bob", "//Charlie", "//Dave", "//Eve"] {
+            match chain.submit_as_try(&seed(who), mu(pallet_multisig_upgrade::Call::approve_renewal {})).await {
+                Ok(_) => println!("approve {who}: submitted"), Err(e) => println!("approve {who}: REFUSED {e}"),
+            }
+            wait_blocks(&chain, 2).await;
+        }
+        match chain.submit_as_try(&seed("//Ferdie"), mu(pallet_multisig_upgrade::Call::apply_renewal {})).await {
+            Ok(_) => println!("apply submitted"), Err(e) => println!("apply REFUSED: {e}"),
+        }
+        wait_blocks(&chain, 4).await;
+        let after = u32s(chain.storage("MultisigUpgrade", "LifeEnd").await);
+        let head = head_number_of(&chain).await as u32;
+        println!("LifeEnd {before} -> {after} (head {head}; quarter life of 200 = 50)");
+        r.check("disaster.life-extended", after > before, format!("{before} -> {after}"));
+        println!("\n== RESULT: {} PASS / {} FAIL ==", r.pass, r.fail);
+        std::process::exit(if r.fail == 0 { 0 } else { 1 });
+    }
+
+    if args.mode == "renewal" {
+        // KEY RENEWAL REHEARSAL (2026-09-26). The live key expires at the end of October; this runs the
+        // whole normal path on a TESTNET devnet (InitialLife 200, objection window 5) with the same
+        // extrinsics the live ceremony will use: Alice proposes, Bob/Charlie/Dave approve (4 of 5,
+        // Eve is custody), every dev account tries to co-sign (only the frozen committee snapshot
+        // counts; the rest must be REFUSED, which is part of what is tested), the window elapses,
+        // Ferdie applies. PASS = LifeEnd moved forward by a full life.
+        let life_end = |b: Option<Vec<u8>>| b.map(|v| u32::decode(&mut &v[..]).expect("LifeEnd u32"));
+        let before = life_end(chain.storage("MultisigUpgrade", "LifeEnd").await).expect("no LifeEnd on this chain");
+        if std::env::var("HLQ_BIND_FIRST").as_deref() == Ok("1") {
+            // Like the live chain (4 validators with a bound vote key): bind a node hot key to each of
+            // four founder masks with the same set_vote_key + PoP a citizen node uses.
+            const BIND_LABEL: &[u8] = b"hlq-node-bind-v1";
+            for (i, who) in ["//Alice", "//Bob", "//Charlie", "//Dave"].iter().enumerate() {
+                let mask = sr25519::Pair::from_string(who, None).unwrap();
+                let acc: AccountId32 = mask.public().into();
+                let hot = sr25519::Pair::from_seed(&[0x60 + i as u8; 32]);
+                let mut msg = BIND_LABEL.to_vec();
+                msg.extend_from_slice(acc.as_ref());
+                let call = RuntimeCall::Reputation(pallet_reputation::Call::set_vote_key {
+                    sk_pub: hot.public().0, pop_sig: hot.sign(&msg).0 });
+                match chain.submit_as_try(&mask, call).await {
+                    Ok(_) => println!("bind {who}: submitted"), Err(e) => println!("bind {who}: REFUSED {e}"),
+                }
+            }
+            wait_blocks(&chain, 6).await;
+            for f in chain.recent_failures(8).await { println!("  ExtrinsicFailed {f}"); }
+        }
+        println!("== RENEWAL rehearsal == rpc={} LifeEnd={} head={}", args.rpc, before, head_number_of(&chain).await);
+        let seed = |s: &str| sr25519::Pair::from_string(s, None).unwrap();
+        let mu = |c| RuntimeCall::MultisigUpgrade(c);
+        // wait until the renewal is due (LifeEnd - ObjectionWindow); the testnet window is 5 blocks
+        while head_number_of(&chain).await + 5 < before as u64 { wait_blocks(&chain, 1).await; }
+        match chain.submit_as_try(&seed("//Alice"), mu(pallet_multisig_upgrade::Call::propose_renewal { disaster: false })).await {
+            Ok(_) => println!("propose(normal) submitted"), Err(e) => println!("propose(normal) REFUSED: {e}"),
+        }
+        wait_blocks(&chain, 2).await;
+        for f in chain.recent_failures(4).await { println!("  ExtrinsicFailed {f}"); }
+        let committee_keys = chain.storage("BeaconPallet", "Beacon").await.is_some(); // pallet prefix is the RUNTIME name (BeaconPallet); "Beacon" read an absent prefix and always printed false
+        println!("(beacon value present: {committee_keys}; the renewal committee needs reputation AND an active beacon key)");
+        wait_blocks(&chain, 3).await;
+        r.check("renewal.pending-after-propose",
+                chain.storage("MultisigUpgrade", "PendingRenewal").await.is_some(), "PendingRenewal".into());
+        for who in ["//Bob", "//Charlie", "//Dave"] {
+            chain.submit_as(&seed(who), mu(pallet_multisig_upgrade::Call::approve_renewal {})).await;
+            wait_blocks(&chain, 2).await;
+        }
+        for who in ["//Alice", "//Bob", "//Charlie", "//Dave", "//Eve", "//Ferdie"] {
+            match chain.submit_as_try(&seed(who), mu(pallet_multisig_upgrade::Call::cosign_renewal {})).await {
+                Ok(_) => println!("cosign {who}: submitted"),
+                Err(e) => println!("cosign {who}: refused at the pool ({e})"),
+            }
+            wait_blocks(&chain, 2).await;
+        }
+        wait_blocks(&chain, 7).await;   // objection window (5) + margin
+        chain.submit_as(&seed("//Ferdie"), mu(pallet_multisig_upgrade::Call::apply_renewal {})).await;
+        wait_blocks(&chain, 4).await;
+        let after = life_end(chain.storage("MultisigUpgrade", "LifeEnd").await).unwrap_or(0);
+        println!("LifeEnd {} -> {}", before, after);
+        r.check("renewal.life-extended", after > before, format!("{before} -> {after}"));
+        r.check("renewal.pending-cleared",
+                chain.storage("MultisigUpgrade", "PendingRenewal").await.is_none(), "PendingRenewal gone".into());
+        println!("\n== RESULT: {} PASS / {} FAIL ==", r.pass, r.fail);
+        std::process::exit(if r.fail == 0 { 0 } else { 1 });
+    }
+
     if args.mode == "ceremony" || args.mode == "apply" {
         // UPGRADE BOUNDARY for the gate v2 scenarios (the author). G1, G3 and G4 test how a node
         // behaves ACROSS a runtime upgrade; without a real boundary in the lab they are theatre. This
@@ -1075,6 +1174,131 @@ async fn main() {
             after == before + amount,
             format!("expected +{amount}, got {}", after as i128 - before as i128),
         );
+        println!("\n== RESULT: {} PASS / {} FAIL ==", r.pass, r.fail);
+        std::process::exit(if r.fail == 0 { 0 } else { 1 });
+    }
+
+    if args.mode == "fill" {
+        // A2 bench (28-sep-2026): make the chain HEAVY so a fresh node has real volume to sync — the
+        // deadly embrace was only ever seen syncing ~2 GB from the live network. `--amount` = total MiB to
+        // write, in 256 KiB remarks spread over the dev accounts (one in flight per account per block).
+        let signers: Vec<sr25519::Pair> = ["//Alice", "//Bob", "//Charlie", "//Dave", "//Eve", "//Ferdie"]
+            .iter().map(|s| sr25519::Pair::from_string(s, None).unwrap()).collect();
+        let chunk = 256 * 1024usize;
+        let total = (args.amount as usize).min(4096) * 1024 * 1024;
+        let mut written = 0usize;
+        let mut refused = 0u32;
+        while written < total {
+            for p in &signers {
+                let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![0x48u8; chunk] });
+                match chain.submit_as_try(p, call).await {
+                    Ok(_) => written += chunk,
+                    Err(e) => {
+                        refused += 1;
+                        if refused <= 3 { println!("  refused: {e}"); }
+                        if refused >= 60 && written == 0 {
+                            println!("FILL ABORTED: every submission refused (last: {e})");
+                            std::process::exit(2);
+                        }
+                    }
+                }
+            }
+            wait_blocks(&chain, 1).await;
+            if written % (64 * 1024 * 1024) < signers.len() * chunk {
+                println!("written ~{} MiB, head #{} (refused {refused})", written / (1024 * 1024), head_number_of(&chain).await);
+            }
+        }
+        println!("FILL done: ~{} MiB submitted, refused {refused}", written / (1024 * 1024));
+        return;
+    }
+
+    if args.mode == "justice-vouch" {
+        // #1474 (adversarial review 28-sep-2026): can a DEFENDANT erase the guilty votes of a jury by
+        // vouching for the jurors after they voted? `vouch` is unilateral and feeless and the jury is public.
+        // Old runtime: the tally drops a vote of any juror tied to a party in EITHER direction → the
+        // verdict flips. Fixed runtime: only ties the juror made count after the draw. The verdict is read
+        // from chain STATE (Justice::Cases[case].status), never from logs.
+        println!("== justice-vouch: jury votes guilty, defendant vouches every juror, then close ==");
+        println!("rpc={} spec={}", args.rpc, chain.spec_version);
+        let plaintiff = sr25519::Pair::from_string("//Alice", None).unwrap();
+        let defendant = sr25519::Pair::from_string("//Bob", None).unwrap();
+        let dev: Vec<sr25519::Pair> = ["//Alice", "//Bob", "//Charlie", "//Dave", "//Eve", "//Ferdie"]
+            .iter().map(|s| sr25519::Pair::from_string(s, None).unwrap()).collect();
+        let case = chain.u64_storage("Justice", "NextCaseId").await;
+        let map_key = |item: &str, id: u64| {
+            let mut k = twox_128(b"Justice").to_vec();
+            k.extend(twox_128(item.as_bytes()));
+            let enc = id.encode();
+            k.extend(sp_core::blake2_128(&enc));
+            k.extend(enc);
+            format!("0x{}", hex_str(&k))
+        };
+        let open = RuntimeCall::Justice(pallet_justice::Call::open_case {
+            defendant: defendant.public().into(),
+            fact_hash: sp_core::blake2_256(b"iron 1474: the defendant lied about a delivery"),
+            dimension: 0,
+            loss: 1,
+            evidence_ids: vec![],
+            extra_interested: vec![],
+        });
+        let opened = chain.submit_as_try(&plaintiff, open).await;
+        println!("open_case #{case}: {:?}", opened.as_ref().map(|_| "submitted"));
+        // Deferred draw (28-sep-2026): the jury is seated JuryDrawDelay (testnet 3) blocks after filing.
+        wait_blocks(&chain, 6).await;
+        for f in chain.recent_failures(4).await { println!("  ExtrinsicFailed {f}"); }
+        println!("NextCaseId now {}", chain.u64_storage("Justice", "NextCaseId").await);
+        let jury_raw: Option<String> = rpc(&chain.c, "state_getStorage", rpc_params![map_key("Jury", case)]).await;
+        let jury: Vec<[u8; 32]> = jury_raw.map(|h| Vec::<[u8; 32]>::decode(&mut &hex_bytes(&h)[..]).expect("jury")).unwrap_or_default();
+        println!("jury drawn: {}", jury.len());
+        r.check("justice.jury-drawn", jury.len() >= 4, format!("{} jurors", jury.len()));
+        let mut voted = 0;
+        for j in &jury {
+            if let Some(p) = dev.iter().find(|p| &p.public().0 == j) {
+                if chain.submit_as_try(p, RuntimeCall::Justice(pallet_justice::Call::cast_vote { case, guilty: true })).await.is_ok() {
+                    voted += 1;
+                }
+            } else {
+                println!("  juror {} is not a dev key: cannot vote from here", hex_str(j));
+            }
+        }
+        wait_blocks(&chain, 2).await;
+        println!("guilty votes submitted: {voted}/{}", jury.len());
+        // The attack: the defendant vouches for every juror AFTER the votes are in.
+        let mut vouched = 0;
+        for j in &jury {
+            let call = RuntimeCall::Reputation(pallet_reputation::Call::vouch {
+                target: AccountId32::from(*j), suit: Suit::Commerce, weight: 1,
+            });
+            if chain.submit_as_try(&defendant, call).await.is_ok() { vouched += 1; }
+            wait_blocks(&chain, 1).await;
+        }
+        println!("defendant vouches submitted: {vouched}/{}", jury.len());
+        // Submitted is not executed: read the defendant's vouch edges FROM STATE, or the PASS below proves
+        // nothing (a quota refusal inside the block would leave the attack untried).
+        let mut vk = twox_128(b"Reputation").to_vec();
+        vk.extend(twox_128(b"Vouches"));
+        let bob = defendant.public().0;
+        vk.extend(sp_core::blake2_128(&bob));
+        vk.extend_from_slice(&bob);
+        let raw: Option<String> = rpc(&chain.c, "state_getStorage", rpc_params![format!("0x{}", hex_str(&vk))]).await;
+        let edges: Vec<([u8; 32], u8, u32)> =
+            raw.map(|h| Vec::<([u8; 32], u8, u32)>::decode(&mut &hex_bytes(&h)[..]).expect("vouches")).unwrap_or_default();
+        let landed = jury.iter().filter(|j| edges.iter().any(|(t, _, _)| t == *j)).count();
+        println!("defendant vouches ON CHAIN toward jurors: {landed}/{}", jury.len());
+        r.check("justice.attack-actually-landed", landed == jury.len() && !jury.is_empty(),
+            format!("{landed} of {} jurors vouched by the defendant in state", jury.len()));
+        wait_blocks(&chain, 8).await; // past the (testnet) 5-block voting window
+        if let Some(p) = jury.first().and_then(|j| dev.iter().find(|p| &p.public().0 == j)) {
+            let _ = chain.submit_as_try(p, RuntimeCall::Justice(pallet_justice::Call::close_case { case })).await;
+        }
+        wait_blocks(&chain, 3).await;
+        let raw: Option<String> = rpc(&chain.c, "state_getStorage", rpc_params![map_key("Cases", case)]).await;
+        // Case = plaintiff 32 | defendant 32 | fact_hash 32 | dimension 1 | loss 16 | status (enum) …
+        let status = raw.map(|h| hex_bytes(&h)).and_then(|b| b.get(113).copied());
+        let name = match status { Some(0) => "Open", Some(1) => "ResolvedGuilty", Some(2) => "ResolvedNotGuilty", Some(3) => "Lapsed", _ => "?" };
+        println!("case #{case} status: {name}");
+        r.check("justice.vouch-cannot-erase-guilty-votes", status == Some(1),
+            format!("status={name}, votes={voted}, defendant vouches={vouched}"));
         println!("\n== RESULT: {} PASS / {} FAIL ==", r.pass, r.fail);
         std::process::exit(if r.fail == 0 { 0 } else { 1 });
     }
@@ -1728,3 +1952,69 @@ async fn main() {
     println!("\n== RESULT: {} PASS / {} FAIL ==", r.pass, r.fail);
     std::process::exit(if r.fail == 0 { 0 } else { 1 });
 }
+
+/// The exact signing payload the live chain verifies for `call` from the signer at `--nonce`:
+/// `(call, ext, implicit).encode()`. Printed for the offline signer; with `--sig` + `--pubkey` the
+/// signature is verified and the signed extrinsic assembled. Exits the process when it verifies.
+fn emit_signing_payload(chain: &Chain, call: RuntimeCall, args: &Args) {
+            let nonce = args.nonce as u32;
+            let ext: TxExtension = (
+                frame_system::AuthorizeCall::<Runtime>::new(),
+                frame_system::CheckNonZeroSender::<Runtime>::new(),
+                frame_system::CheckSpecVersion::<Runtime>::new(),
+                frame_system::CheckTxVersion::<Runtime>::new(),
+                frame_system::CheckGenesis::<Runtime>::new(),
+                frame_system::CheckEra::<Runtime>::from(Era::immortal()),
+                frame_system::CheckNonce::<Runtime>::from(nonce),
+                frame_system::CheckWeight::<Runtime>::new(),
+                pallet_transaction_payment::ChargeTransactionPayment::<Runtime>::from(0),
+                frame_system::WeightReclaim::<Runtime>::new(),
+            );
+            let implicit: ((), (), u32, u32, H256, H256, (), (), (), ()) = (
+                (),
+                (),
+                chain.spec_version,
+                chain.tx_version,
+                chain.genesis,
+                chain.genesis,
+                (),
+                (),
+                (),
+                (),
+            );
+            let raw = (&call, &ext, &implicit).encode();
+            println!("PAYLOAD which={} nonce={} len={}", args.which, nonce, raw.len());
+            println!("SIGN_OVER = {}", if raw.len() > 256 { "blake2_256(payload)" } else { "payload verbatim" });
+            println!("PAYLOAD_HEX = 0x{}", hex_str(&raw));
+
+            if !args.sig.is_empty() && !args.pubkey.is_empty() {
+                // Verify the offline signature BEFORE the reviewer submits — a bad sig caught here costs
+                // nothing; caught on chain wastes a submit and confuses the signer. sr25519 signs the
+                // payload verbatim iff len <= 256, else blake2_256(payload) (sp_core convention).
+                let sig_bytes = hex_bytes(&args.sig);
+                let pk_bytes = hex_bytes(&args.pubkey);
+                let mut sb = [0u8; 64];
+                sb.copy_from_slice(&sig_bytes);
+                let sig = sr25519::Signature::from(sb);
+                let pk = sr25519::Public::from(<[u8; 32]>::try_from(&pk_bytes[..]).expect("32-byte pubkey"));
+                let ok = if raw.len() > 256 {
+                    sr25519::Pair::verify(&sig, sp_core::blake2_256(&raw), &pk)
+                } else {
+                    sr25519::Pair::verify(&sig, &raw[..], &pk)
+                };
+                println!("SIG_VALID = {}", ok);
+                if ok {
+                    // Assemble the signed extrinsic (external signature) ready for author_submitExtrinsic.
+                    let xt = UncheckedXt::new_signed(
+                        call,
+                        MultiAddress::Id(AccountId32::from(
+                            <[u8; 32]>::try_from(&pk_bytes[..]).unwrap(),
+                        )),
+                        MultiSignature::Sr25519(sig),
+                        ext,
+                    );
+                    println!("EXTRINSIC_HEX = 0x{}", hex_str(&xt.encode()));
+                }
+                std::process::exit(if ok { 0 } else { 2 });
+            }
+        }

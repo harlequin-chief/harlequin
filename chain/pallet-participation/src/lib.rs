@@ -46,6 +46,15 @@ use scale_info::TypeInfo;
 /// node-side provider.
 pub const INHERENT_IDENTIFIER: [u8; 8] = *b"hlqpartp";
 
+/// #851 (audit 2026-07-07; design `DESIGN-PARTICIPATION-VOTE-CAP.md`): at most this many finality votes of
+/// ONE record reach the sr25519 check. `finality_votes` is bounded only by block length (~38k votes), and a
+/// malicious author padding it with junk signatures of REAL committee keys would make every importing node
+/// verify them all (~2 s of CPU per block). It is a SOFT cap: past it the rest is ignored and the block stays
+/// valid — never an `ensure!`, because this is a MANDATORY inherent and a hard reject would halt the chain.
+/// An honest record carries the few heights finalised since the last block × at most τ=60 seats, orders of
+/// magnitude below this.
+pub const MAX_VOTES_CHECKED_PER_RECORD: u32 = 4096;
+
 /// A committee finality vote, re-verifiable on-chain. Mirrors the node's `finality.rs` `Vote`: an sr25519
 /// signature by `signer` over the canonical payload `height ‖ block_hash`. Carried inside the inherent so
 /// the pallet VERIFIES rather than trusts the author (contract (c), STRONG anti-gaming — this feeds money).
@@ -278,6 +287,9 @@ pub mod pallet {
         /// A block's participation was folded in: `author` credited one authored block, `voters` finality
         /// votes credited, for `epoch`.
         ParticipationNoted { epoch: u64, author: Option<T::AccountId>, voters: u32 },
+        /// #851: the record carried more committee votes than `MAX_VOTES_CHECKED_PER_RECORD`; `ignored`
+        /// were not examined. Visible on purpose: a silent truncation would hide a misbehaving author.
+        VoteCapReached { ignored: u32 },
     }
 
     #[pallet::error]
@@ -400,6 +412,8 @@ pub mod pallet {
             let cursor = LastCreditedHeight::<T>::get();
             let mut max_h = cursor;
             let mut counted: u32 = 0;
+            let mut sig_checks: u32 = 0;
+            let mut ignored: u32 = 0;
             // REPLAY GUARD (audit C3): the cursor only advances AFTER this loop, so within a
             // SINGLE record the same (height, voter) vote could be listed many times and each occurrence
             // credited — inflating reputation and P-1 reward with no real work. Credit each (height,
@@ -421,6 +435,11 @@ pub mod pallet {
                 if !Self::is_member(v.height, &cold) {
                     continue; // not in that height's committee → drop BEFORE verifying the signature
                 }
+                if sig_checks >= super::MAX_VOTES_CHECKED_PER_RECORD {
+                    ignored = ignored.saturating_add(1); // #851 soft cap: counted, never verified
+                    continue;
+                }
+                sig_checks = sig_checks.saturating_add(1);
                 let msg = super::signed_message(v.height, &v.block_hash);
                 if !Self::verify_vote(&v.signer, &v.sig, &msg) {
                     continue; // forged / invalid signature
@@ -439,6 +458,9 @@ pub mod pallet {
             }
             if max_h > cursor {
                 LastCreditedHeight::<T>::put(max_h);
+            }
+            if ignored > 0 {
+                Self::deposit_event(Event::VoteCapReached { ignored });
             }
             Self::deposit_event(Event::ParticipationNoted {
                 epoch,
@@ -748,6 +770,34 @@ mod tests {
     fn record_with_votes(votes: alloc::vec::Vec<SignedVote>, at: u64) -> ParticipationRecord {
         // Junk author (soft-dropped): these tests target the VOTE path only.
         ParticipationRecord { author_key: [7u8; 32], author_sig: [0u8; 64], finality_votes: votes, at_block: at }
+    }
+
+    /// #851: a record padded with junk-signed votes of a REAL committee key stops being verified at
+    /// `MAX_VOTES_CHECKED_PER_RECORD`. Two senses: a genuine vote INSIDE the cap is credited; the same kind of
+    /// genuine vote PAST the cap is not (proves the loop stopped), and the inherent still succeeds (no halt).
+    #[test]
+    fn vote_cap_851_stops_verifying_but_block_stays_valid() {
+        new_test_ext().execute_with(|| {
+            System::set_block_number(1);
+            let member = sr25519::Pair::from_seed(&[12u8; 32]);
+            let other = sr25519::Pair::from_seed(&[13u8; 32]);
+            let cepoch = 1 / crate::COMMITTEE_EPOCH_LENGTH;
+            let bv: BoundedVec<[u8; 32], ConstU32<64>> =
+                alloc::vec![member.public().0, other.public().0].try_into().unwrap();
+            CommitteeForEpoch::<Test>::insert(cepoch, bv);
+            let junk = SignedVote { signer: member.public().0, sig: [0u8; 64], height: 1, block_hash: [9u8; 32] };
+            let cap = crate::MAX_VOTES_CHECKED_PER_RECORD as usize;
+            // inside the cap: member's genuine vote first, then junk up to exactly the cap
+            let mut votes = alloc::vec![vote(&member, 1)];
+            votes.extend(core::iter::repeat(junk.clone()).take(cap - 1));
+            // past the cap: `other`'s genuine vote, plus 5 more junk
+            votes.push(vote(&other, 1));
+            votes.extend(core::iter::repeat(junk).take(5));
+            assert_ok!(Participation::note_participation(RuntimeOrigin::none(), record_with_votes(votes, 1)));
+            assert_eq!(FinalityVotesInEpoch::<Test>::get(0, acct_of(&member.public().0)), 1, "vote inside the cap is credited");
+            assert_eq!(FinalityVotesInEpoch::<Test>::get(0, acct_of(&other.public().0)), 0, "vote past the cap is NOT examined");
+            System::assert_has_event(crate::Event::VoteCapReached { ignored: 6 }.into());
+        });
     }
 
     #[test]
