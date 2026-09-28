@@ -233,6 +233,9 @@ pub fn topic(height: u64) -> Hash {
 /// finalised watermark so old rounds are garbage-collected.
 struct GossipValidator {
     watermark: Arc<AtomicU64>,
+    /// Highest height whose votes we KEEP and RELAY (our best block + 2 steps). Votes above it are handed
+    /// to the local worker but neither stored nor re-gossiped. See [`follow_local_finality`].
+    horizon: Arc<AtomicU64>,
     /// This chain's genesis hash — bound into every v2 vote signature (C-MED3 domain separation).
     genesis: [u8; 32],
 }
@@ -253,7 +256,11 @@ impl Validator<Block> for GossipValidator {
                 if v.height > self.watermark.load(Ordering::Relaxed)
                     && v.verify_sig(&self.genesis) =>
             {
-                ValidationResult::ProcessAndKeep(topic(v.height))
+                if v.height > self.horizon.load(Ordering::Relaxed) {
+                    ValidationResult::ProcessAndDiscard(topic(v.height))
+                } else {
+                    ValidationResult::ProcessAndKeep(topic(v.height))
+                }
             }
             _ => ValidationResult::Discard,
         }
@@ -268,10 +275,33 @@ impl Validator<Block> for GossipValidator {
         &'a self,
     ) -> Box<dyn FnMut(&PeerId, MessageIntent, &Hash, &[u8]) -> bool + 'a> {
         let watermark = self.watermark.clone();
+        let horizon = self.horizon.clone();
         Box::new(move |_who, _intent, topic, _data| {
-            topic.to_low_u64_be() > watermark.load(Ordering::Relaxed)
+            let h = topic.to_low_u64_be();
+            h > watermark.load(Ordering::Relaxed) && h <= horizon.load(Ordering::Relaxed)
         })
     }
+}
+
+/// How far above our best block we still KEEP and RELAY votes: two finality steps.
+fn vote_horizon(client: &Arc<FullClient>) -> u64 {
+    client.info().best_number as u64 + 2 * FINALITY_STEP as u64
+}
+
+/// Keep both gossip validators in step with THIS node's finality, whoever finalised it.
+///
+/// 2026-09-28, found in the dress rehearsal on the real network: the watermark only moved when this node
+/// finalised BY VOTING (and the proof one only when it applied a proof). A node that follows finality by
+/// importing proofs — every newcomer, every follower, a validator back from downtime — kept its watermark
+/// at the height it started with (0 on a new chain), so it stored every vote and proof it ever heard and
+/// sc-network-gossip re-sent ALL of them to ALL peers every 750 ms. Measured on a 1 GB newcomer after
+/// 10 minutes: 203,178 proofs and 25,004 votes in, 135,370 votes out, 51 block requests answered, sync
+/// frozen at #448 of #854. The horizon adds the second half: what is far ahead of the blocks we have
+/// is processed locally but not stored nor relayed, so a node that is still syncing is not a relay.
+/// Monotonic: the watermark never goes down.
+fn follow_local_finality(client: &Arc<FullClient>, watermark: &Arc<AtomicU64>, horizon: &Arc<AtomicU64>, h: u64) {
+    watermark.fetch_max(client.info().finalized_number as u64, Ordering::Relaxed);
+    horizon.store(h, Ordering::Relaxed);
 }
 
 /// Build the notification-protocol config + service for the finality gadget. Add the config to the
@@ -314,8 +344,10 @@ where
     S: sc_network_gossip::Syncing<Block> + Clone + Send + 'static,
 {
     let watermark = Arc::new(AtomicU64::new(client.info().finalized_number as u64));
+    let horizon = Arc::new(AtomicU64::new(vote_horizon(&client)));
     let validator = Arc::new(GossipValidator {
         watermark: watermark.clone(),
+        horizon: horizon.clone(),
         genesis: client.info().genesis_hash.0,
     });
     let gossip = GossipEngine::new(
@@ -356,7 +388,7 @@ where
         client.info().finalized_number,
         vote_pair.is_some(),
     );
-    let worker = run_worker(client, gossip, watermark, vote_pair, round_ms);
+    let worker = run_worker(client, gossip, watermark, horizon, vote_pair, round_ms);
     (worker, driver)
 }
 
@@ -365,6 +397,7 @@ async fn run_worker(
     client: Arc<FullClient>,
     gossip: Arc<Mutex<GossipEngine<Block>>>,
     watermark: Arc<AtomicU64>,
+    horizon: Arc<AtomicU64>,
     vote_pair: Option<sr25519::Pair>,
     round_ms: u64,
 ) {
@@ -423,6 +456,7 @@ async fn run_worker(
                 // Re-aiming at the TOP of every tick, before any guard can `continue`, is what makes the
                 // guard recoverable instead of terminal.
                 let local_final = client.info().finalized_number;
+                follow_local_finality(&client, &watermark, &horizon, vote_horizon(&client));
                 if height <= local_final {
                     height = local_final + FINALITY_STEP;
                     at = epoch_pinned_at(&client, height);
@@ -1175,6 +1209,9 @@ fn proof_header(proof: &[u8]) -> Option<(u64, [u8; 32])> {
 /// Gossip validator for proofs: keep proofs above the local finalised watermark, expire the rest.
 struct ProofGossipValidator {
     watermark: Arc<AtomicU64>,
+    /// Our best block: a proof for a block we do not have yet is handed to the worker (which caches the
+    /// highest one) but neither stored nor re-gossiped.
+    horizon: Arc<AtomicU64>,
 }
 
 impl Validator<Block> for ProofGossipValidator {
@@ -1186,7 +1223,11 @@ impl Validator<Block> for ProofGossipValidator {
     ) -> ValidationResult<Hash> {
         match proof_header(data) {
             Some((height, _)) if height > self.watermark.load(Ordering::Relaxed) => {
-                ValidationResult::ProcessAndKeep(proof_topic())
+                if height > self.horizon.load(Ordering::Relaxed) {
+                    ValidationResult::ProcessAndDiscard(proof_topic())
+                } else {
+                    ValidationResult::ProcessAndKeep(proof_topic())
+                }
             }
             _ => ValidationResult::Discard,
         }
@@ -1194,8 +1235,11 @@ impl Validator<Block> for ProofGossipValidator {
 
     fn message_expired<'a>(&'a self) -> Box<dyn FnMut(Hash, &[u8]) -> bool + 'a> {
         let watermark = self.watermark.clone();
+        // `<`, not `<=`: the proof AT our finalised height is the one we publish every round for whoever
+        // is behind; with the watermark following local finality (`follow_local_finality`), `<=` would
+        // expire it the moment it is registered and proofs would never leave this node.
         Box::new(move |_topic, data| match proof_header(data) {
-            Some((height, _)) => height <= watermark.load(Ordering::Relaxed),
+            Some((height, _)) => height < watermark.load(Ordering::Relaxed),
             None => true,
         })
     }
@@ -1204,8 +1248,11 @@ impl Validator<Block> for ProofGossipValidator {
         &'a self,
     ) -> Box<dyn FnMut(&PeerId, MessageIntent, &Hash, &[u8]) -> bool + 'a> {
         let watermark = self.watermark.clone();
+        let horizon = self.horizon.clone();
         Box::new(move |_who, _intent, _topic, data| match proof_header(data) {
-            Some((height, _)) => height > watermark.load(Ordering::Relaxed),
+            Some((height, _)) => {
+                height >= watermark.load(Ordering::Relaxed) && height <= horizon.load(Ordering::Relaxed)
+            }
             None => false,
         })
     }
@@ -1248,7 +1295,8 @@ where
     S: sc_network_gossip::Syncing<Block> + Clone + Send + 'static,
 {
     let watermark = Arc::new(AtomicU64::new(client.info().finalized_number as u64));
-    let validator = Arc::new(ProofGossipValidator { watermark: watermark.clone() });
+    let horizon = Arc::new(AtomicU64::new(client.info().best_number as u64));
+    let validator = Arc::new(ProofGossipValidator { watermark: watermark.clone(), horizon: horizon.clone() });
     let gossip = GossipEngine::new(
         network,
         sync,
@@ -1274,7 +1322,7 @@ where
         "finality-proof distributor online: protocol {PROOF_PROTOCOL_NAME}, base finalized #{}",
         client.info().finalized_number,
     );
-    let worker = run_proof_worker(client, gossip, watermark, round_ms);
+    let worker = run_proof_worker(client, gossip, watermark, horizon, round_ms);
     (worker, driver)
 }
 
@@ -1285,6 +1333,7 @@ async fn run_proof_worker(
     client: Arc<FullClient>,
     gossip: Arc<Mutex<GossipEngine<Block>>>,
     watermark: Arc<AtomicU64>,
+    horizon: Arc<AtomicU64>,
     round_ms: u64,
 ) {
     let mut proofs_rx = gossip.lock().expect("proof gossip mutex").messages_for(proof_topic());
@@ -1296,6 +1345,7 @@ async fn run_proof_worker(
         futures::select! {
             _ = timer => {
                 timer = futures_timer::Delay::new(std::time::Duration::from_millis(round_ms)).fuse();
+                follow_local_finality(&client, &watermark, &horizon, client.info().best_number as u64);
 
                 // PUBLISH: re-broadcast the proof of our own latest finalised block (if any) so peers /
                 // newly-synced followers can catch up. Read it back from the client's stored justification.

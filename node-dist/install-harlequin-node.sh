@@ -53,11 +53,11 @@ MIRROR_BASE=""
 SPEC_SHA256="0b83ded5619e3fda0a872fd9acce78aac0d38b67f881e81630aa58ff0a3fa69a"  # REHEARSAL chainspec (genesis 0x95cff149, 2026-09-28): the dress rehearsal of the 27-Nov launch, same recipe; the launch chain replaces it that day
 
 BIN_URL_x86_64="$DIST_BASE/dist/harlequin-node"
-BIN_SHA_x86_64="3a4a34e95bfff99479d169d4c4ea85dab9958c9cd52e18de593d98eda1d7e24c" # launch candidate 4 (tag candidato-4-20260928): the binary the rehearsal network runs since 2026-09-28; reproducible build (stripped, no build-id)
+BIN_SHA_x86_64="6a38ef47251352606122e2f047dc82b98107d69044c39cbb7f869fbf88049317" # launch candidate 5 (tag candidato-5-20260928: finality gossip no longer floods peers): the binary the rehearsal network runs; reproducible build (stripped, no build-id)
 BIN_URL_aarch64="$DIST_BASE/dist/harlequin-node-arm64"
 # Phones, tablets and Raspberry Pi get the SAME release as ordinary PCs: built from the same tag,
 # checked the same way.
-BIN_SHA_aarch64="6abbbda24558ceac0ebd9940e2a24b76a6d2977afaf704327d8e94b9c7c453d8" # launch candidate 4 aarch64, cross-built from the same tag as the x86 one (reproducible, path-scrubbed)
+BIN_SHA_aarch64="b4059793cca139e1f9757a63501f7d9ac91f1d8dcf9e4c96d15fbbcb1d2dcea0" # launch candidate 5 aarch64, cross-built from the same tag as the x86 one (reproducible, path-scrubbed)
 
 # Baked into the spec too; passed explicitly in portable mode for first-dial robustness.
 # THREE DOORS, NOT ONE (2026-07-26). Until today the installer handed out a single address, so every

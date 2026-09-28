@@ -13,8 +13,8 @@ ARG BIN_URL=https://harlequinproject.org/dist/harlequin-node
 # c3172c55. A pin that is only a comment away from the installer's is not a pin, it is a second
 # truth — and this one was two runtime generations behind the chain it claims to join.
 # Re-pinned 2026-08-27 to the build running on all four nodes since 2026-08-03.
-# Re-pinned 2026-09-28 to launch candidate 4, the build of the rehearsal chain (genesis 0x95cff149).
-ARG BIN_SHA256=3a4a34e95bfff99479d169d4c4ea85dab9958c9cd52e18de593d98eda1d7e24c
+# Re-pinned 2026-09-28 to launch candidate 5, the build of the rehearsal chain (genesis 0x95cff149).
+ARG BIN_SHA256=6a38ef47251352606122e2f047dc82b98107d69044c39cbb7f869fbf88049317
 
 # The chain spec is verified here too, not just mounted on trust. `docker build` alone must be enough
 # to prove BOTH halves of what the node runs; asking the operator to check the spec by hand elsewhere
