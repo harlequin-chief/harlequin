@@ -572,7 +572,7 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
                     }
                     // ISOLATION GUARD (, #5cb94f66). Election is a pure function of THIS node's
                     // copy of the state, so a node cut off from everyone still elects itself in its slots
-                    // and seals — onto its own tip. ct103, 17-sep: 0 peers, 467 consensus sessions in ~6 h,
+                    // and seals — onto its own tip. A home validator, 17-sep: 0 peers, 467 consensus sessions in ~6 h,
                     // 478 blocks of private branch, finality stuck (`finalise #383730 failed:
                     // UnknownBlock`); the same shape on 27-ago with 2.357 blocks. Seen from the network an
                     // isolated leader IS a down leader — the comment above already says a down leader just

@@ -151,7 +151,7 @@ fn founders_world() -> World {
 fn main() {
     println!("== SIM #599: cluster-guard trajectories (real reputation-core pipeline) ==");
     println!(
-        "seeded from a live premeasure: 4 founders, equal, ringed; THRESHOLD=1/3 REQUIRED={REQUIRED}\n"
+        "seeded from live premeasure 2026-07-20: 4 founders, equal, ringed; THRESHOLD=1/3 REQUIRED={REQUIRED}\n"
     );
 
     // ── S1: organic growth — externals join every E epochs, grow g%/epoch from 50.

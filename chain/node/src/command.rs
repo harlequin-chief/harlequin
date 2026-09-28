@@ -48,7 +48,20 @@ impl SubstrateCli for Cli {
 }
 
 pub fn run() -> sc_cli::Result<()> {
-    let cli = Cli::from_args();
+    let mut cli = Cli::from_args();
+    // Upstream defaults `--pool-type` to fork-aware, and that pool's background task takes the whole node down
+    // ("Essential task `txpool-background` failed. Shutting down service.") — reproduced 27-sep-2026 with a
+    // hand-started node receiving a newcomer's first transactions. The installer and the Dockerfile pass
+    // `--pool-type single-state`; a node started by hand must not depend on remembering it. An explicit
+    // `--pool-type` still wins.
+    if !std::env::args().any(|a| a == "--pool-type" || a.starts_with("--pool-type=")) {
+        cli.run.pool_config.pool_type = sc_cli::TransactionPoolType::SingleState;
+    }
+    // Harlequin's registered SS58 prefix. Without this the node's RPC only understands the generic 42 and
+    // REJECTS every Harlequin address ("Unknown SS58 address format `1728`", measured on the live node
+    //): `system_accountNextIndex` had never answered for a real mask, and the mediator had to
+    // translate addresses to prefix 42 to ask for a nonce. Set once, before anything parses an address.
+    sp_core::crypto::set_default_ss58_version(sp_core::crypto::Ss58AddressFormat::custom(1728));
 
     match &cli.subcommand {
         Some(Subcommand::Key(cmd)) => cmd.run(&cli),

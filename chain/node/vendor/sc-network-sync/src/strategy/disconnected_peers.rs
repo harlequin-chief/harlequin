@@ -125,7 +125,7 @@ impl DisconnectedPeers {
 			// BAN. Upstream reports `REPUTATION_REPORT` (fatal) after MAX_NUM_DISCONNECTS, which
 			// disconnects and bans the peer — including RESERVED peers (the reserved set only
 			// guarantees redial after expiry, not scoring immunity). On our small mesh this turned
-			// every flapping home link into a ban loop in BOTH directions (bootnode↔ct103, tablet).
+			// every flapping home link into a ban loop in BOTH directions (bootnode↔home validator).
 			// The sync-availability backoff in `is_peer_available` (escalating, capped) already
 			// protects this node from wasting requests on a flapping peer; the CONNECTION should
 			// survive. Strangers remain covered by every other scoring path (keep-alive, bad

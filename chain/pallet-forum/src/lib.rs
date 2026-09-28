@@ -11,9 +11,12 @@
 //! render, informed by those verdicts. The base layer stays neutral and blind (32-byte hashes only, body
 //! off-chain in IPFS) — no operator, jury, or majority holds a button that suppresses speech.
 //!
-//! **Anti-spam (pre-mainnet note).** This crate gates posting at `ensure_signed` only. Production should
-//! additionally require a registered mask (`pallet-directory`) and either a small HLQ fee (`pallet-tokens`)
-//! or a reputation floor; those couplings are deliberately left to the runtime wiring, not hard-coded here.
+//! **Anti-spam — what the runtime ACTUALLY does (28-sep-2026, no longer a promise).** This crate gates
+//! posting at `ensure_signed` only, and the runtime does NOT require a registered mask. Posting rides the
+//! feeless lane: per-mask budget (4 + age + reputation, per budget epoch), a per-block weight ceiling, and a
+//! per-block COUNT ceiling (`MaxFeelessPerBlock`) that binds whatever the weights say; past the budget a
+//! normal HLQ fee applies. A mask gate was weighed and rejected for now: registering is one more free write,
+//! so it would not slow a swarm (design/DECISION-E-GENESIS-2026-09-28.md).
 
 #![cfg_attr(not(feature = "std"), no_std)]
 

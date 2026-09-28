@@ -79,7 +79,7 @@ pub struct Cli {
     pub vote_as_file: Option<String>,
 
     /// Keep sealing when this node sees NO peers or is still major-syncing. Off by default: an isolated
-    /// woven-trust leader skips its slot instead of building a private branch (ct103, 27-ago and 17-sep).
+    /// woven-trust leader skips its slot instead of building a private branch (a home validator, 27-ago and 17-sep).
     /// Only for a deliberate one-node chain, where "no peers" is the whole network by design.
     #[clap(long)]
     pub seal_without_peers: bool,

@@ -17,9 +17,10 @@
 //! jury verdicts label conduct in `pallet-justice`, and clients/readers decide what to render.
 //!
 //! **Anti-spam.** A free, unbounded index is DoS-able, so every `publish` passes through a pluggable
-//! [`PublishGate`] in `Config`: the default is a no-op, and production wires it to the B6 micro-fee
-//! (`pallet-tokens`) / a registered-mask or reputation check — the *hook* is here so it activates
-//! without a rewrite; the *policy* is the runtime's, not hard-coded.
+//! [`PublishGate`] in `Config`. What the runtime ACTUALLY wires (28-sep-2026): the gate is still the no-op
+//! `()` — no registered-mask check — and the real limits are the feeless lane's (per-mask budget per epoch,
+//! per-block weight ceiling, per-block COUNT ceiling `MaxFeelessPerBlock`) plus the normal fee beyond them.
+//! The hook stays so a stricter policy can activate without a rewrite (design/DECISION-E-GENESIS-2026-09-28.md).
 
 #![cfg_attr(not(feature = "std"), no_std)]
 

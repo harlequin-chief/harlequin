@@ -32,18 +32,21 @@ built it; that is the honest state of a network in its first months. Anyone can 
 ### Check the binary yourself
 
 The build is **reproducible**: two clean Debian 13 machines building the same tree produce the same file,
-bit for bit (measured). **Honest caveat:** the binaries running today were built from our working tree,
-whose comments differ from this public copy; documentation comments end up inside the runtime metadata,
-so this tree yields a different sha for them. Starting with the relaunch release, the published tree IS
-the build tree, and the sha below must match. To check a build:
+bit for bit (measured). Since the 2026-09-28 dress rehearsal of the relaunch, **this tree IS the build
+tree of the binary the network runs**: launch candidate 4, `.dist` sha256
+`3a4a34e95bfff99479d169d4c4ea85dab9958c9cd52e18de593d98eda1d7e24c` (x86_64) and
+`6abbbda24558ceac0ebd9940e2a24b76a6d2977afaf704327d8e94b9c7c453d8` (aarch64). We rebuilt it from this exact tree
+on a clean machine and got the same sha. To check a build:
 
 1. Clone this repository and place `chain/` at `/hlq-build/harlequin` and `ops/` at `/hlq-build/ops`
    (local crates are identified by their absolute path, so the path is part of the recipe).
 2. Install the toolchain pinned in `chain/node/rust-toolchain.toml` and the packages listed at the top of
    `chain/node/build-node.sh`.
 3. Run `cd /hlq-build/harlequin/node && ./build-node.sh --mainnet`. The last line prints the sha256 of
-   `target/release/harlequin-node.dist` (the binary without symbols and without build-id). From the
-   relaunch release on, it must match the published one.
+   `target/release/harlequin-node.dist` (the binary without symbols and without build-id). It must match
+   the one above and the one served at <https://harlequinproject.org/dist/>.
+4. `./build-bindtool.sh` builds `bind-tool`, the piece that links your node to your mask
+   (x86_64 `320d2f36…`, aarch64 `c93d0759…`).
 
 ### Why this is different
 
@@ -119,19 +122,21 @@ construyeron; es el estado honesto de una red en sus primeros meses. Cualquiera 
 ### Comprueba el binario tú mismo
 
 La compilación es **reproducible**: dos máquinas Debian 13 limpias que compilan el mismo árbol sacan el
-mismo fichero, bit a bit (medido). **Salvedad honesta:** los binarios que corren hoy se compilaron desde
-nuestro árbol de trabajo, cuyos comentarios difieren de esta copia pública; los comentarios de
-documentación acaban dentro de los metadatos del runtime, así que este árbol da otro sha para ellos. A
-partir de la versión del relanzamiento, el árbol publicado ES el árbol de compilación y el sha tiene que
-coincidir. Para comprobar una compilación:
+mismo fichero, bit a bit (medido). Desde el ensayo general del relanzamiento (28-sep-2026), **este árbol ES
+el árbol de compilación del binario que corre la red**: candidato de lanzamiento 4, sha256 del `.dist`
+`3a4a34e95bfff99479d169d4c4ea85dab9958c9cd52e18de593d98eda1d7e24c` (x86_64) y
+`6abbbda24558ceac0ebd9940e2a24b76a6d2977afaf704327d8e94b9c7c453d8` (aarch64). Lo recompilamos desde este mismo
+árbol en una máquina limpia y salió el mismo sha. Para comprobar una compilación:
 
 1. Clona este repositorio y pon `chain/` en `/hlq-build/harlequin` y `ops/` en `/hlq-build/ops` (los
    crates locales se identifican por su ruta absoluta, así que la ruta es parte de la receta).
 2. Instala la toolchain fijada en `chain/node/rust-toolchain.toml` y los paquetes que lista la cabecera de
    `chain/node/build-node.sh`.
 3. Ejecuta `cd /hlq-build/harlequin/node && ./build-node.sh --mainnet`. La última línea imprime el sha256
-   de `target/release/harlequin-node.dist` (el binario sin símbolos y sin build-id). Desde la versión del
-   relanzamiento, tiene que coincidir con el publicado.
+   de `target/release/harlequin-node.dist` (el binario sin símbolos y sin build-id). Tiene que coincidir con
+   el de arriba y con el que se sirve en <https://proyectoharlequin.org/dist/>.
+4. `./build-bindtool.sh` compila `bind-tool`, la pieza que vincula tu nodo a tu máscara
+   (x86_64 `320d2f36…`, aarch64 `c93d0759…`).
 
 ### Por qué es diferente
 

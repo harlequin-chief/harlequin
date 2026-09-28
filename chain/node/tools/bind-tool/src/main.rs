@@ -33,7 +33,7 @@
 //! earned reputation.
 
 use clap::Parser;
-use sp_core::crypto::{AccountId32, Ss58Codec};
+use sp_core::crypto::{AccountId32, Ss58AddressFormat, Ss58Codec};
 use sp_core::{sr25519, Pair};
 use std::io::Write;
 use std::path::Path;
@@ -117,11 +117,25 @@ fn backup_existing(path: &Path) -> std::io::Result<Option<std::path::PathBuf>> {
     Ok(Some(dest))
 }
 
+/// Harlequin's SS58 address format (the mask addresses the browser prints start with «r»).
+const HARLEQUIN_SS58: u16 = 1728;
+
 fn main() {
     let args = Args::parse();
 
-    let account = match AccountId32::from_ss58check(args.mask.trim()) {
-        Ok(a) => a,
+    // A mask address is printed in HARLEQUIN's format (1728, the «r…» the browser shows). `from_ss58check`
+    // only accepts the library's default format and rejected every real mask with «set_default_ss58_version»
+    // — found 28-sep by the stranger's walk (WALK_BIND=1): the exact thing a newcomer pastes was refused.
+    // Accept 1728 and, for old notes and tooling, the generic 42; print back in 1728.
+    let hlq = Ss58AddressFormat::custom(HARLEQUIN_SS58);
+    sp_core::crypto::set_default_ss58_version(hlq);
+    let account = match AccountId32::from_ss58check_with_version(args.mask.trim()) {
+        Ok((a, v)) if v == hlq || u16::from(v) == 42 => a,
+        Ok((_, v)) => {
+            eprintln!("  x that address belongs to another network (format {}), not to Harlequin.", u16::from(v));
+            eprintln!("    it is the address you copied when you created your mask in the browser.");
+            std::process::exit(2);
+        },
         Err(e) => {
             eprintln!("  x that does not look like a mask address: {e}");
             eprintln!("    it is the address you copied when you created your mask in the browser.");

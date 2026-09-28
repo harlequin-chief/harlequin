@@ -60,7 +60,19 @@ use std::{
 /// Maximum blocks per response.
 pub(crate) const MAX_BLOCKS_IN_RESPONSE: usize = 128;
 
-/// HARLEQUIN PATCH (, hunk 2 of the ct103 incident): was 2. Two repeats is nothing on a
+/// HARLEQUIN PATCH (28-sep-2026, bench A2 in the lab): SOFT cap on the bytes of ONE block response we serve.
+/// Upstream fills a response up to `MAX_RESPONSE_SIZE` (16 MiB) and the requester gives it 20 s: 800 KB/s
+/// per request. A node on a slow link asks several peers at once, each request gets a slice of the link, NONE
+/// finishes in time, every request ends in `Network(Timeout)`, every peer is disconnected and backed off, and
+/// the node NEVER syncs (measured: 4 Mbit, ~1.5 MB blocks, best #0 for minutes with 6 peers). Smaller
+/// responses finish; the requester simply asks again for the rest. The first block always goes out even if
+/// it alone is bigger (only the hard 16 MiB cap can refuse it), so a heavy block never yields an empty answer.
+const SOFT_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
+/// HARLEQUIN PATCH (28-sep-2026): time we give a block request to answer. Upstream 20 s; with the 2 MiB soft
+/// cap above, 60 s means ~35 KB/s per request is enough — a phone on mobile data, not a datacentre.
+const BLOCK_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// HARLEQUIN PATCH (, hunk 2 of the isolated-validator incident): was 2. Two repeats is nothing on a
 /// link that flaps: a peer re-dials, re-sends what it lost in flight, and lands on the fine. Eight
 /// still catches a spammer (the penalty accumulates from the ninth identical request onwards) while
 /// leaving room for the honest retries of a syncing or reconnecting node.
@@ -107,7 +119,7 @@ pub fn generate_protocol_config<
 		std::iter::once(generate_legacy_protocol_name(protocol_id).into()).collect(),
 		1024 * 1024,
 		MAX_RESPONSE_SIZE,
-		Duration::from_secs(20),
+		BLOCK_REQUEST_TIMEOUT,
 		Some(inbound_queue),
 	)
 }
@@ -311,16 +323,16 @@ where
 				support_multiple_justifications,
 			)?;
 
-			// HARLEQUIN PATCH (, incidente ct103): a request that ASKED for a justification
+			// HARLEQUIN PATCH (, isolated-validator incident): a request that ASKED for a justification
 			// and got a response WITHOUT one was still booked as "fulfilled", so the peer's honest
 			// retry counted as a repeat offence. That is backwards: the shortfall is OURS (we do not
 			// have that justification yet), and re-asking is exactly what a syncing peer must do.
 			// Booking it as unfulfilled means the retry never accrues a penalty, and the peer keeps
 			// asking until we can actually answer.
 			//
-			// Why this mattered: our own bootnode asked ct103 for justifications of heights ct103 had
-			// never finalised (it was isolated and had forked above its finalised tip). ct103 answered
-			// bare 140-byte blocks, the bootnode re-asked, and ct103 fined it -1024 per repeat until it
+			// Why this mattered: our own bootnode asked an isolated validator for justifications of heights it had
+			// never finalised (it was isolated and had forked above its finalised tip). That node answered
+			// bare 140-byte blocks, the bootnode re-asked, and that node fined it -1024 per repeat until it
 			// dropped the ONLY peer that could have handed it back the canonical chain. A node that
 			// falls behind must not exile the peer that would catch it up — and any newcomer that lags
 			// falls into the same hole.
@@ -490,6 +502,10 @@ where
 					);
 				}
 
+				break;
+			}
+			// Soft cap (see SOFT_RESPONSE_BYTES): stop once we would pass it, but never before the first block.
+			if !blocks.is_empty() && new_total_size > SOFT_RESPONSE_BYTES {
 				break;
 			}
 

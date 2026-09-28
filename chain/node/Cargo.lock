@@ -4149,6 +4149,7 @@ dependencies = [
  "pallet-beacon",
  "pallet-directory",
  "pallet-forum",
+ "pallet-justice",
  "pallet-market",
  "pallet-multisig-upgrade",
  "pallet-reputation",

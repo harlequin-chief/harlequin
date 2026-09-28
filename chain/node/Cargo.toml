@@ -64,7 +64,7 @@ core2 = { git = "https://github.com/bbqsrc/core2", rev = "545e84b" }
 # HARLEQUIN PATCH (, ticket 3154fe0d): vendored sc-network-sync 0.56.1 with the
 # inflight-backoff BAN removed — 3 flap-disconnects reported a FATAL reputation that banned the peer,
 # reserved or not (reserved only guarantees redial after expiry), turning every home-link flap into a
-# ban loop in BOTH directions (bootnode↔ct103, tablet). Flap != malice on our mesh: the escalating
+# ban loop in BOTH directions (bootnode↔home validator). Flap != malice on our mesh: the escalating
 # (now capped) sync backoff already protects request scheduling; every other scoring path stays.
 # 4 marked hunks in vendor/sc-network-sync/src/strategy/disconnected_peers.rs, byte-identical
 # otherwise. RE-EVALUATE on every polkadot-sdk bump (#112).

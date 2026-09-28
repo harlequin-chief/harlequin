@@ -50,20 +50,14 @@ SPEC_URL="$DIST_BASE/dist/mainnet-raw.json"
 # Empty on purpose while no mirror is published. Empty means "there is no second place", and the
 # installer SAYS SO when the first one fails, instead of pretending it tried.
 MIRROR_BASE=""
-SPEC_SHA256="ba1b25f7179d24c89aabd0a5f924d06f15365e1040cff3be2811a771e42086a6"  # SEALED launch chainspec (genesis 2026-07-18)
+SPEC_SHA256="0b83ded5619e3fda0a872fd9acce78aac0d38b67f881e81630aa58ff0a3fa69a"  # REHEARSAL chainspec (genesis 0x95cff149, 2026-09-28): the dress rehearsal of the 27-Nov launch, same recipe; the launch chain replaces it that day
 
 BIN_URL_x86_64="$DIST_BASE/dist/harlequin-node"
-BIN_SHA_x86_64="d9f76f54c09dd3525fae369feed0594afde9a2349ae34faf53a7bec3ad6616b9" # batch tanda-backoff-guarda-2026-09-18 (isolated leader skips its slot, reserved backoff forgiveness, txguard, finality proof requests): the binary the network runs since 2026-09-26; reproducible build (stripped, no build-id)
+BIN_SHA_x86_64="3a4a34e95bfff99479d169d4c4ea85dab9958c9cd52e18de593d98eda1d7e24c" # launch candidate 4 (tag candidato-4-20260928): the binary the rehearsal network runs since 2026-09-28; reproducible build (stripped, no build-id)
 BIN_URL_aarch64="$DIST_BASE/dist/harlequin-node-arm64"
-# ── PHONES, TABLETS AND RASPBERRY PI: YOUR VERSION IS THE PREVIOUS ONE ────────────────────────────
-# Said plainly because you should not have to deduce it: the download for ARM machines (phone,
-# tablet, Raspberry Pi) is still the July build. The August fix — a node that had fallen behind no
-# longer penalises the peer that could catch it up — is only in the build for ordinary PCs and
-# servers so far. Nothing is broken for you: this is the same build that has been serving since
-# July, and it joins and syncs fine. It simply lacks that one improvement until the ARM build is
-# rebuilt from the same marked source. Cross-building it takes time, so it is a task with a date
-# rather than a promise.
-BIN_SHA_aarch64="1b65c660043a9d9efded6314f77f46a3c4f6cec501cb6c2dd310058fe65fa54e" # spec-3 rollout aarch64 (cross-built from the marca puerta-spec3-2026-07-26) — PREVIOUS build, see note above
+# Phones, tablets and Raspberry Pi get the SAME release as ordinary PCs: built from the same tag,
+# checked the same way.
+BIN_SHA_aarch64="6abbbda24558ceac0ebd9940e2a24b76a6d2977afaf704327d8e94b9c7c453d8" # launch candidate 4 aarch64, cross-built from the same tag as the x86 one (reproducible, path-scrubbed)
 
 # Baked into the spec too; passed explicitly in portable mode for first-dial robustness.
 # THREE DOORS, NOT ONE (2026-07-26). Until today the installer handed out a single address, so every
@@ -77,6 +71,12 @@ BIN_SHA_aarch64="1b65c660043a9d9efded6314f77f46a3c4f6cec501cb6c2dd310058fe65fa54
 # "complete the list" some day: that is the reason it is incomplete on purpose.
 BOOTNODE="/ip4/148.116.86.24/tcp/30333/p2p/12D3KooWBiZXWDXuXKzKw8f6Wpmo3Mx81oAgFu2VG1fsZihs3BHC"
 BOOTNODE2="/ip4/151.145.42.146/tcp/30333/p2p/12D3KooWLinJp4ZZnrcGsqXprk7snpdC64KnnTPenN2CP356z37X"
+# bind-tool (28-sep-2026): the NODE side of linking this node to YOUR mask — prints two PUBLIC values you paste
+# in the villa; no account secret ever passes through it. Reproducible build (node/build-bindtool.sh), same rules.
+BIND_URL_x86_64="$DIST_BASE/dist/harlequin-bind-tool"
+BIND_SHA_x86_64="320d2f3634cbfc2473eb4bc6ec84b8f81dadbd32b4bcf38f3bedef9d9fa8e0be"
+BIND_URL_aarch64="$DIST_BASE/dist/harlequin-bind-tool-arm64"
+BIND_SHA_aarch64="c93d07598cf8a06998203494665249f9f1bfeb36e4b829cd1d133534f02860bf"
 SVC="harlequin-node"
 
 # Weak-subjectivity checkpoint (M1) — re-pinned on EVERY release, next to the sha256 pins above.
@@ -88,16 +88,19 @@ SVC="harlequin-node"
 # operator you already trust. If the sources disagree — STOP, do not join.
 # F4 NOTE: values below pin the LAUNCH chain at genesis. At the relaunch ceremony (F4) they are
 # re-pinned to a fresh finalized checkpoint, and on every release thereafter.
+# 2026-09-28: REHEARSAL CHAIN. A brand-new chain has one block nobody can dispute: its genesis. Until
+# the chain has settled, the pin is the genesis itself (height 0); it moves to a settled finalized
+# block at the next release. The history below is the previous chain's.
 # Re-pinned 2026-08-14 to block #188805, finalized and then left to settle: it sits roughly a thousand
 # blocks below the finalized head, so it is not a fresh block that a reorganisation could still drop.
 # It is also well past the runtime upgrade at #79501, so this pin alone proves the chain you joined is
 # the one running the current runtime. Cross-verified on three independent nodes before pinning — by
 # height and by hash, agreeing exactly — and the previous pin (#79830, 2026-07-29) was verified the
 # same way.
-CHECKPOINT_HEIGHT="188805"
-CHECKPOINT_HASH="0x6f9b5400dc22e8e63b9a320e6d67793fe2dcd11596bbcf1603cde715e9765edc"
+CHECKPOINT_HEIGHT="0"
+CHECKPOINT_HASH="0x95cff149be56a08cc97547f7347e93d66a4bcebfa1ef2ab07a73205f164c5df9"
 CHECKPOINT_CHAIN="Harlequin Launch (cold-start)"  # system_chain name (spec id: hlq_launch)
-CHECKPOINT_PINNED_AT="2026-08-14"  # re-pin to a fresher finalized block before each public release
+CHECKPOINT_PINNED_AT="2026-09-28"  # re-pin to a fresher finalized block before each public release
 RPC_URL="http://127.0.0.1:9944"   # node RPC is local-only by default; the check runs on YOUR box
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -124,8 +127,8 @@ echo
 # 1. CPU architecture → binary + sha
 ARCH="$(uname -m)"
 case "$ARCH" in
-  x86_64)  BIN_URL="$BIN_URL_x86_64";  BIN_SHA256="$BIN_SHA_x86_64" ;;
-  aarch64) BIN_URL="$BIN_URL_aarch64"; BIN_SHA256="$BIN_SHA_aarch64" ;;
+  x86_64)  BIN_URL="$BIN_URL_x86_64";  BIN_SHA256="$BIN_SHA_x86_64";  BIND_URL="$BIND_URL_x86_64";  BIND_SHA256="$BIND_SHA_x86_64" ;;
+  aarch64) BIN_URL="$BIN_URL_aarch64"; BIN_SHA256="$BIN_SHA_aarch64"; BIND_URL="$BIND_URL_aarch64"; BIND_SHA256="$BIND_SHA_aarch64" ;;
   *) die "unsupported CPU '$ARCH' (supported: x86_64, aarch64)." ;;
 esac
 ok "cpu: $ARCH"
@@ -258,6 +261,7 @@ dl_or_mirror() {
 
 ok "downloading node binary ($ARCH)…"; dl_or_mirror "$BIN_URL"  "$TMP/harlequin-node"   "node binary"
 ok "downloading launch chain spec…";   dl_or_mirror "$SPEC_URL" "$TMP/mainnet-raw.json" "chain spec"
+ok "downloading bind-tool ($ARCH)…";   dl_or_mirror "$BIND_URL" "$TMP/harlequin-bind-tool" "bind-tool"
 
 # 4. verify sha256 — ABORT on mismatch (the security boundary of this script)
 verify() { # <file> <expected>
@@ -269,6 +273,7 @@ verify() { # <file> <expected>
 }
 verify "$TMP/harlequin-node"   "$BIN_SHA256";  ok "binary sha256 verified."
 verify "$TMP/mainnet-raw.json" "$SPEC_SHA256"; ok "chain spec sha256 verified."
+verify "$TMP/harlequin-bind-tool" "$BIND_SHA256"; ok "bind-tool sha256 verified."
 
 # 4b. weak-subjectivity verifier (M1) — installed next to the node, safe to re-run any time.
 #     Exit codes: 0 = checkpoint verified · 1 = MISMATCH (wrong chain) · 2 = local RPC unreachable.
@@ -373,6 +378,7 @@ if [ "$MODE" = "service" ]; then
   id harlequin >/dev/null 2>&1 || { useradd --system --home-dir "$PREFIX" --shell /usr/sbin/nologin harlequin; ok "created system user 'harlequin'."; }
   install -d -o harlequin -g harlequin -m 0750 "$PREFIX" "$PREFIX/data"
   install -o root -g root -m 0755 "$TMP/harlequin-node"   "$PREFIX/harlequin-node"
+  install -o root -g root -m 0755 "$TMP/harlequin-bind-tool" "$PREFIX/harlequin-bind-tool"
   install -o harlequin -g harlequin -m 0644 "$TMP/mainnet-raw.json" "$PREFIX/mainnet-raw.json"
   install -o root -g root -m 0755 "$TMP/verify-checkpoint.sh" "$PREFIX/verify-checkpoint.sh"
   ok "installed binary + spec under $PREFIX."
@@ -420,7 +426,10 @@ ExecStart=$PREFIX/harlequin-node \\
   --blocks-pruning archive \\
   --pool-type single-state \\
   --no-telemetry \\
-  --trie-cache-size 67108864 --db-cache 128
+  --trie-cache-size 67108864 --db-cache 128 \\
+  \$VOTE_ARGS
+# VOTE_ARGS is empty until you link this node to your mask (harlequin-link-to-mask writes /etc/harlequin/vote.env).
+EnvironmentFile=-/etc/harlequin/vote.env
 Restart=on-failure
 RestartSec=5
 LimitNOFILE=65536
@@ -438,6 +447,29 @@ RestrictNamespaces=true
 [Install]
 WantedBy=multi-user.target
 UNIT
+  # harlequin-link-to-mask: the NODE side of linking this node to your mask. It makes (or reuses) the node's
+  # vote key inside data/ (the only place the service may write), restarts the node signing with it, and
+  # prints the two PUBLIC values the villa asks for. Your mask's secret never comes near this machine.
+  # It runs as root, so it lives in /usr/local/sbin and its config in /etc/harlequin — NOT in $PREFIX, which
+  # the network-facing service user owns: a file root runs must not sit where that user can replace it.
+  install -d -o root -g root -m 0755 /etc/harlequin
+  LINKER=/usr/local/sbin/harlequin-link-to-mask
+  cat > "$LINKER" <<LINK
+#!/usr/bin/env bash
+set -euo pipefail
+[ "\$(id -u)" = 0 ] || { echo "  run it with sudo (it restarts the node service)." >&2; exit 1; }
+MASK="\${1:-}"; [ -n "\$MASK" ] || { echo "  usage: sudo harlequin-link-to-mask <your mask address, r…> [--rotate]" >&2; exit 1; }
+shift
+KEY="$PREFIX/data/vote.key"
+systemctl stop ${SVC}
+runuser -u harlequin -- "$PREFIX/harlequin-bind-tool" --mask "\$MASK" --key-file "\$KEY" "\$@" || { systemctl start ${SVC}; exit 1; }
+chown harlequin:harlequin "\$KEY"; chmod 600 "\$KEY"
+umask 077; printf 'VOTE_ARGS=--vote-as-file %s\\n' "\$KEY" > /etc/harlequin/vote.env
+systemctl start ${SVC}
+echo "  ✓ node restarted, signing with its vote key. Now paste the two values above in $DIST_BASE/villa/entrar/ and sign."
+LINK
+  chown root:root "$LINKER"; chmod 0755 "$LINKER"
+
   systemctl daemon-reload
   systemctl enable "$SVC" >/dev/null 2>&1 || true
   systemctl restart "$SVC"
@@ -467,6 +499,9 @@ UNIT
   info "status:  systemctl status ${SVC}"
   info "re-verify checkpoint any time: $PREFIX/verify-checkpoint.sh"
   info "account: $PREFIX/harlequin-node key generate   (store the phrase in YOUR password manager)"
+  info "link this node to YOUR mask (so its service is credited to you):"
+  info "    sudo harlequin-link-to-mask <your mask address, r…>"
+  info "  then paste the two values it prints in $DIST_BASE/villa/entrar/ and sign there (no fee for a new mask)."
   echo "  Your node, your keys, no master."
   echo
 
@@ -474,6 +509,7 @@ else
   # ── portable install (no systemd: Android proot, containers) ────────────────
   mkdir -p "$PREFIX/data"
   install -m 0755 "$TMP/harlequin-node"   "$PREFIX/harlequin-node"
+  install -m 0755 "$TMP/harlequin-bind-tool" "$PREFIX/harlequin-bind-tool"
   install -m 0644 "$TMP/mainnet-raw.json" "$PREFIX/mainnet-raw.json"
   install -m 0755 "$TMP/verify-checkpoint.sh" "$PREFIX/verify-checkpoint.sh"
   ok "installed binary + spec under $PREFIX."
@@ -508,7 +544,8 @@ if [ -f node.pid ] && kill -0 "\$(cat node.pid)" 2>/dev/null; then
 fi
 # same ceiling the systemd unit sets with LimitNOFILE: a syncing node opens a lot of files at once.
 ulimit -n 65536 2>/dev/null || true
-nohup ./harlequin-node \\
+VOTE=(); [ -f ./data/vote.key ] && VOTE=(--vote-as-file ./data/vote.key)   # set by ./link-to-mask.sh
+nohup ./harlequin-node "\${VOTE[@]}" \\
   --base-path ./data \\
   --chain ./mainnet-raw.json \\
   --node-key-file ./node-key \\
@@ -578,7 +615,8 @@ SP
 set -euo pipefail
 cd "\$(dirname "\$0")"
 ulimit -n 65536 2>/dev/null || true
-exec ./harlequin-node \\
+VOTE=(); [ -f ./data/vote.key ] && VOTE=(--vote-as-file ./data/vote.key)   # set by ./link-to-mask.sh
+exec ./harlequin-node "\${VOTE[@]}" \\
   --base-path ./data \\
   --chain ./mainnet-raw.json \\
   --node-key-file ./node-key \\
@@ -597,6 +635,22 @@ exec ./harlequin-node \\
 RUNFG
   chmod +x "$PREFIX/run-node-fg.sh"
 
+  # Portable twin of link-to-mask.sh: vote key in ./data, node restarted signing with it.
+  cat > "$PREFIX/link-to-mask.sh" <<PLINK
+#!/usr/bin/env bash
+set -euo pipefail
+cd "\$(dirname "\$0")"
+MASK="\${1:-}"; [ -n "\$MASK" ] || { echo "  usage: ./link-to-mask.sh <your mask address, r…> [--rotate]" >&2; exit 1; }
+shift
+mkdir -p ./data
+./stop-node.sh >/dev/null 2>&1 || true
+./harlequin-bind-tool --mask "\$MASK" --key-file ./data/vote.key "\$@" || { ./run-node.sh; exit 1; }
+chmod 600 ./data/vote.key
+./run-node.sh
+echo "  ✓ now paste the two values above in $DIST_BASE/villa/entrar/ and sign there."
+PLINK
+  chmod +x "$PREFIX/link-to-mask.sh"
+
   echo "  ────────────────────────────────────────────"
   ok "All set. Starting your follower node '$NODE_NAME' (detached — it survives closing the terminal)."
   info "· Android/Termux (proot): to survive closing the APP, start it from Termux itself instead:"
@@ -604,6 +658,8 @@ RUNFG
   info "· First start runs the weak-subjectivity check: your node must contain the pinned block or it stops."
   info "· Peek any time: $PREFIX/node-status.sh · live view: tail -f $PREFIX/node.log"
   info "· Your MASK (seed phrase) is created in the BROWSER: $DIST_BASE/rito"
+  info "· Link this node to your mask: $PREFIX/link-to-mask.sh <your r… address>"
+  info "  and paste the two values in $DIST_BASE/villa/entrar/ (the node's key never leaves this machine)."
   info "· Stop: $PREFIX/stop-node.sh · start again: $PREFIX/run-node.sh"
   info "· Keep your VPN on — a node announces its IP to peers."
   echo "  Your node, your keys, no master."
