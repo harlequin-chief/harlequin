@@ -39,9 +39,20 @@ genesis a bootnode was already sending about 237 KiB/s for a four-node chain; si
 dropped, the traffic can only grow with the age of the chain (inferred from the mechanism, measured once). It had stayed hidden on the previous chain because every upgrade restarted the nodes.
 
 The fix (watermarks follow local finality; what is far ahead of the blocks a node has is processed but neither
-stored nor relayed) is launch candidate 5, now under test in the lab, and it only counts once it runs on
-**every** node: a fixed newcomer still drowns if its peers keep flooding it. It will not reach the live network
-until that test passes.
+stored nor relayed) is launch candidate 5 (`.dist` `6a38ef47…` x86_64, `b4059793…` aarch64). It only counts once it
+runs on **every** node: a fixed newcomer still drowns if its peers keep flooding it.
+
+Tested before touching the live network, same lab run for both binaries (four validators, a newcomer joining after
+block #120):
+
+| | candidate 4 | candidate 5 |
+|---|---|---|
+| newcomer's finality after 15 minutes | block 0 | at the head, like the network |
+| votes relayed by the newcomer | 154,781 | 3,382 |
+| newcomer's first-day path | 4/4 | 4/4 |
+
+Then rolled out to the four live validators one at a time, each only after the network was signing 4 of 4. The
+bootnode that was sending 237 KiB/s now sends about 51 KiB/s.
 
 ## Why publish this
 

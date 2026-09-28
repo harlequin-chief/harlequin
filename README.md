@@ -33,10 +33,10 @@ built it; that is the honest state of a network in its first months. Anyone can 
 
 The build is **reproducible**: two clean Debian 13 machines building the same tree produce the same file,
 bit for bit (measured). Since the 2026-09-28 dress rehearsal of the relaunch, **this tree IS the build
-tree of the binary the network runs**: launch candidate 4, `.dist` sha256
-`3a4a34e95bfff99479d169d4c4ea85dab9958c9cd52e18de593d98eda1d7e24c` (x86_64) and
-`6abbbda24558ceac0ebd9940e2a24b76a6d2977afaf704327d8e94b9c7c453d8` (aarch64). We rebuilt it from this exact tree
-on a clean machine and got the same sha. To check a build:
+tree of the binary the network runs**: launch candidate 5, `.dist` sha256
+`6a38ef47251352606122e2f047dc82b98107d69044c39cbb7f869fbf88049317` (x86_64) and
+`b4059793cca139e1f9757a63501f7d9ac91f1d8dcf9e4c96d15fbbcb1d2dcea0` (aarch64). Its code is the tree of candidate 4, which we rebuilt on a clean
+machine to the same sha, plus one file (`chain/node/src/finality.rs`). To check a build:
 
 1. Clone this repository and place `chain/` at `/hlq-build/harlequin` and `ops/` at `/hlq-build/ops`
    (local crates are identified by their absolute path, so the path is part of the recipe).
@@ -123,10 +123,10 @@ construyeron; es el estado honesto de una red en sus primeros meses. Cualquiera 
 
 La compilación es **reproducible**: dos máquinas Debian 13 limpias que compilan el mismo árbol sacan el
 mismo fichero, bit a bit (medido). Desde el ensayo general del relanzamiento (28-sep-2026), **este árbol ES
-el árbol de compilación del binario que corre la red**: candidato de lanzamiento 4, sha256 del `.dist`
-`3a4a34e95bfff99479d169d4c4ea85dab9958c9cd52e18de593d98eda1d7e24c` (x86_64) y
-`6abbbda24558ceac0ebd9940e2a24b76a6d2977afaf704327d8e94b9c7c453d8` (aarch64). Lo recompilamos desde este mismo
-árbol en una máquina limpia y salió el mismo sha. Para comprobar una compilación:
+el árbol de compilación del binario que corre la red**: candidato de lanzamiento 5, sha256 del `.dist`
+`6a38ef47251352606122e2f047dc82b98107d69044c39cbb7f869fbf88049317` (x86_64) y
+`b4059793cca139e1f9757a63501f7d9ac91f1d8dcf9e4c96d15fbbcb1d2dcea0` (aarch64). Su código es el árbol del candidato 4, que
+recompilamos en una máquina limpia con el mismo sha, más un fichero (`chain/node/src/finality.rs`). Para comprobar una compilación:
 
 1. Clona este repositorio y pon `chain/` en `/hlq-build/harlequin` y `ops/` en `/hlq-build/ops` (los
    crates locales se identifican por su ruta absoluta, así que la ruta es parte de la receta).
