@@ -1,0 +1,30 @@
+[package]
+name = "wallet-core"
+version = "0.0.1"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+description = "Harlequin self-custody wallet core (#664). Key custody + address (= canonical mask handle) + transaction signing for the standalone wallet app. RNG-free (caller supplies entropy) for testability and so the host controls the randomness source. At-rest encryption (passphrase→KDF→AEAD) is a separate module. NO key ever leaves this crate in the clear."
+
+[dependencies]
+schnorrkel = "=0.11.5"    # sr25519 — same mask identity as the chain (#650/#652) + hlq-transport prekey. Pinned + audited (2026-06-25)
+sha2 = "0.10"             # address = canonical handle sha256(pubkey)[..16] (#650/#652)
+data-encoding = "2"       # base32 nopad lower for the handle
+argon2 = "=0.5.3"         # at-rest KDF: passphrase → key (Argon2id, memory-hard). Stable audited (NOT the rc). Pinned (2026-06-25)
+chacha20poly1305 = "=0.10.1" # at-rest AEAD: XChaCha20-Poly1305. Same audited crate snow pulls. Pinned (2026-06-25)
+zeroize = "=1.8.1"        # wipe derived keys from memory after use
+bip39 = "=2.2.2"          # recovery phrase: 32-byte entropy ↔ 24-word mnemonic (BIP-39). Pinned + audited (2026-06-25)
+blake2 = "=0.10.6"        # ss58 checksum (blake2b-512 over SS58PRE ++ prefix ++ pubkey). RustCrypto, pinned (2026-07-21)
+bs58 = "=0.5.1"           # ss58 base58 encoding. Pinned (2026-07-21)
+
+# WASM build (#664 wallet-UI #M3): schnorrkel pulls getrandom transitively, and getrandom needs an explicit
+# backend on wasm32-unknown-unknown. The `js` feature wires crypto.getRandomValues. This is target-scoped:
+# NATIVE builds are untouched (no js, native getrandom). wallet-core itself stays RNG-FREE — key creation is
+# `from_entropy` (host supplies the 32 bytes); this only satisfies the transitive dep's compile-time backend.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
+
+[dev-dependencies]
+hex = "0.4"
+
+# Own workspace (like the pallets): kept out of the lean core workspace.
+[workspace]

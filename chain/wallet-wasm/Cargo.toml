@@ -1,0 +1,27 @@
+[package]
+name = "wallet-wasm"
+version = "0.0.1"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+description = "Harlequin wallet-core → WASM bindings (#664/#M3). Thin wasm-bindgen wrapper so the browser wallet UI consumes wallet-core CLIENT-SIDE (keys never leave the browser). RNG-FREE: the host (browser crypto.getRandomValues) supplies all entropy/salt/nonce. No crypto here — pure delegation to the audited wallet-core."
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wallet-core = { path = "../wallet-core" }
+wasm-bindgen = "0.2"
+
+# getrandom 'js' backend is wired by wallet-core's own [target.wasm32] dep (schnorrkel transitive). Nothing
+# in this crate generates randomness — every secret input is passed in from the host.
+
+# W7 (macro-audit 2026-07-15): the published .wasm must not embed build-host paths.
+# strip=debuginfo here + --remap-path-prefix via RUSTFLAGS at build time keep the artifact clean.
+[profile.release]
+opt-level = "z"
+lto = true
+strip = "debuginfo"
+panic = "abort"
+
+# Own workspace (like the pallets): kept out of the lean core workspace.
+[workspace]
