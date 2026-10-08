@@ -67,7 +67,7 @@ impl Coin {
 
 /// A SCALE-encodable mirror of `tokens_core::EmissionCurve`, so the schedule can be a runtime constant
 /// (`#[pallet::constant]`). Converts to the core type for the pure math. Numbers are runtime config
-/// `[PARÁMETRO]` — never hard-coded here (SPEC §3.5 "nobody decrees the numbers").
+/// `[PARAMETER]` — never hard-coded here (SPEC §3.5 "nobody decrees the numbers").
 #[derive(
     codec::Encode,
     codec::Decode,
@@ -142,6 +142,19 @@ pub mod pallet {
         fn clear_era(era: u64);
     }
 
+    /// The hosting-reward input (E1, design/COBRO-POR-HOSPEDAR-E1-2026-10-02.md): `(mask, counted days)` per era from
+    /// `pallet-hosting` (daily beats of nodes bound to a mask). Pays presence, never power. `()` = no hosting pool.
+    pub trait EraHostingSource<AccountId> {
+        fn era_hosts(era: u64) -> alloc::vec::Vec<(AccountId, u64)>;
+        fn clear_era(era: u64);
+    }
+    impl<AccountId> EraHostingSource<AccountId> for () {
+        fn era_hosts(_era: u64) -> alloc::vec::Vec<(AccountId, u64)> {
+            alloc::vec::Vec::new()
+        }
+        fn clear_era(_era: u64) {}
+    }
+
     #[pallet::config]
     pub trait Config: frame_system::Config {
         /// The aggregate event type of the runtime.
@@ -174,6 +187,14 @@ pub mod pallet {
         /// (P-2/#838). Wired to `pallet-participation` in the runtime — the non-forgeable author/vote
         /// inherent feed, NOT a Root-gated call. Confers NO power, only a claim on the reward pool.
         type ServiceSource: EraServiceSource<Self::AccountId>;
+
+        /// Hosting days per era (E1). `()` disables the hosting pool.
+        type HostingSource: EraHostingSource<Self::AccountId>;
+
+        /// Slice of each era's HLQ tranche for the hosting pool, in basis points (1000 = 10 %). It is the CEILING of what
+        /// a farm of fake hosts could ever take. Only carved out when some mask hosted; otherwise service gets it all.
+        #[pallet::constant]
+        type HostingShareBps: Get<u16>;
 
         /// Ceiling for FEELESS extrinsics per block, in basis points of the max block weight
         /// (SPEC-RELAUNCH §2 R1(i)). Default 1500 = 15%: a mask farm can never fill blocks for free.
@@ -309,6 +330,8 @@ pub mod pallet {
         FeeCharged { payer: T::AccountId, node: T::AccountId, burned: u128, to_node: u128 },
         /// A new era: `hlq`/`sov` emitted into the reward pool and split among `nodes` service providers.
         EraReward { epoch: u64, hlq: u128, sov: u128, nodes: u32 },
+        /// The era's hosting pool: `hlq` minted among `masks` that hosted (E1).
+        HostingReward { epoch: u64, hlq: u128, masks: u32 },
     }
 
     #[pallet::error]
@@ -666,10 +689,41 @@ pub mod pallet {
             // but a FOUNDER's slice is simply never minted: not credited, not counted against the cap.
             // With only founders serving, nothing is minted at all — the first coin of Harlequin
             // enters circulation when the first citizen earns it.
+            // E1 (2026-10-02): the hosting pool. Read once per era (like the service feed), founders' slices unminted.
+            let mut hosts: alloc::vec::Vec<T::AccountId> = alloc::vec::Vec::new();
+            let mut host_days: alloc::vec::Vec<u64> = alloc::vec::Vec::new();
+            for (acct, d) in T::HostingSource::era_hosts(epoch) {
+                if d > 0 {
+                    hosts.push(acct);
+                    host_days.push(d);
+                }
+            }
+            Self::cap_weights(&mut host_days);
+            let hlq_tranche = if who.is_empty() && hosts.is_empty() {
+                0
+            } else {
+                Self::scheduled_pool(Coin::Hlq, T::HlqCurve::get(), epoch)
+            };
+            let bps = (T::HostingShareBps::get() as u128).min(10_000);
+            let host_pool = if hosts.is_empty() { 0 } else { hlq_tranche.saturating_mul(bps) / 10_000 };
+            let mut host_minted = 0u128;
+            if host_pool > 0 {
+                let shares = tokens_core::split_service_reward(host_pool, &host_days);
+                for (i, acct) in hosts.iter().enumerate() {
+                    if Self::is_founder(acct) || shares[i] == 0 {
+                        continue;
+                    }
+                    let _ = Self::credit(Coin::Hlq, acct, shares[i]);
+                    host_minted = host_minted.saturating_add(shares[i]);
+                }
+                if host_minted > 0 {
+                    Minted::<T>::mutate(Coin::Hlq, |m| *m = m.saturating_add(host_minted));
+                }
+            }
             let (hlq_pool, sov_pool) = if who.is_empty() {
                 (0, 0)
             } else {
-                let hlq_pool = Self::scheduled_pool(Coin::Hlq, T::HlqCurve::get(), epoch);
+                let hlq_pool = hlq_tranche.saturating_sub(host_pool);
                 let sov_pool = Self::scheduled_pool(Coin::Sov, T::SovCurve::get(), epoch);
                 let hlq_shares = tokens_core::split_service_reward(hlq_pool, &weights);
                 let sov_shares = tokens_core::split_service_reward(sov_pool, &sov_weights);
@@ -698,6 +752,10 @@ pub mod pallet {
 
             // Clear the era's accumulator (in the feed source) and advance.
             T::ServiceSource::clear_era(epoch);
+            T::HostingSource::clear_era(epoch);
+            if host_pool > 0 {
+                Self::deposit_event(Event::HostingReward { epoch, hlq: host_minted, masks: hosts.len() as u32 });
+            }
             Epoch::<T>::put(epoch.saturating_add(1));
             Self::deposit_event(Event::EraReward {
                 epoch,
@@ -768,6 +826,8 @@ mod tests {
         type FeeBurnBps = ConstU16<5000>; // 50/50 burn split
         type ServiceCapK = ConstU32<2>; // anti-Sybil cap = ceil(median·2)
         type ServiceSource = MockServiceSource; // P-2: tests seed service via `seed_service`
+        type HostingSource = MockHostingSource;
+        type HostingShareBps = ConstU16<1000>;
         type FeelessBlockBps = ConstU16<1500>; // 15% of block weight for feeless
         type FeelessEpochBlocks = ConstU64<10>; // short budget epoch for tests
         type MaxFeelessPerBlock = ConstU32<3>; // small so the count ceiling is testable
@@ -814,6 +874,23 @@ mod tests {
             SERVICE.with(|s| s.borrow_mut().clear());
         }
     }
+    // Mock hosting source (E1): tests seed `(mask, counted days)`; cleared by `clear_era` like the real pallet.
+    std::thread_local! {
+        static HOSTS: core::cell::RefCell<Vec<(u64, u64)>> = const { core::cell::RefCell::new(Vec::new()) };
+    }
+    pub struct MockHostingSource;
+    impl pallet_tokens::EraHostingSource<u64> for MockHostingSource {
+        fn era_hosts(_era: u64) -> Vec<(u64, u64)> {
+            HOSTS.with(|h| h.borrow().clone())
+        }
+        fn clear_era(_era: u64) {
+            HOSTS.with(|h| h.borrow_mut().clear());
+        }
+    }
+    fn seed_host(who: u64, days: u64) {
+        HOSTS.with(|h| h.borrow_mut().push((who, days)));
+    }
+
     /// Seed (accumulate) verified service for `who` — the P-2 replacement for the old `record_service`.
     fn seed_service(who: u64, weight: u64) {
         SERVICE.with(|s| {
@@ -831,6 +908,7 @@ mod tests {
     /// Reset the mock feed — every ext starts with no seeded service (thread_local can outlive one test).
     fn reset_service() {
         SERVICE.with(|s| s.borrow_mut().clear());
+        HOSTS.with(|h| h.borrow_mut().clear());
         STREAKS.with(|s| s.borrow_mut().clear());
     }
 
@@ -1050,6 +1128,51 @@ mod tests {
             assert_eq!(Epoch::<Test>::get(), 1);
             assert_eq!(service_of(1), 0);
             assert_eq!(service_of(2), 0);
+        });
+    }
+
+    // --- E1 hosting pool (2026-10-02) ---
+
+    #[test]
+    fn hosting_takes_its_slice_and_service_the_rest() {
+        new_test_ext().execute_with(|| {
+            seed_service(1, 5);
+            seed_host(20, 10);
+            seed_host(21, 10);
+            Tokens::run_epoch();
+            // HLQ tranche 1000: 10 % (100) to the hosts by days, 900 to service
+            assert_eq!(Tokens::balance(&20, Coin::Hlq), 50);
+            assert_eq!(Tokens::balance(&21, Coin::Hlq), 50);
+            assert_eq!(Tokens::balance(&1, Coin::Hlq), 900);
+            assert_eq!(Minted::<Test>::get(Coin::Hlq), 1000);
+            // SOV is not shared with hosting: it pays consensus service only
+            assert_eq!(Tokens::balance(&20, Coin::Sov), 0);
+            assert_eq!(Tokens::balance(&1, Coin::Sov), 100);
+            // the era's hosting days were cleared with the era
+            assert!(HOSTS.with(|h| h.borrow().is_empty()));
+        });
+    }
+
+    #[test]
+    fn without_hosts_service_keeps_the_whole_tranche() {
+        new_test_ext().execute_with(|| {
+            seed_service(1, 5);
+            Tokens::run_epoch();
+            assert_eq!(Tokens::balance(&1, Coin::Hlq), 1000);
+        });
+    }
+
+    #[test]
+    fn hosts_alone_mint_only_their_slice_and_days_are_capped() {
+        new_test_ext().execute_with(|| {
+            // no committee service this era: only the hosting slice is minted, the rest stays under the cap
+            seed_host(30, 10);
+            seed_host(31, 10);
+            seed_host(32, 1000); // a host claiming far more days than the others is capped at 2× the lower median
+            Tokens::run_epoch();
+            assert_eq!(Minted::<Test>::get(Coin::Hlq), Tokens::balance(&30, Coin::Hlq) + Tokens::balance(&31, Coin::Hlq) + Tokens::balance(&32, Coin::Hlq));
+            assert!(Minted::<Test>::get(Coin::Hlq) <= 100, "only the 10 % slice can be minted without service");
+            assert_eq!(Tokens::balance(&32, Coin::Hlq), 2 * Tokens::balance(&30, Coin::Hlq), "capped at k=2 × median");
         });
     }
 

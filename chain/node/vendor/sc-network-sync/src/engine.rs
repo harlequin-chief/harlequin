@@ -838,13 +838,13 @@ where
 
 		self.strategy.remove_peer(&peer_id);
 
-		// HARLEQUIN PATCH (, ticket #931). `remove_peer` acaba de meter a este peer en el
-		// backoff de `disconnected_peers` si se cayo con una peticion en vuelo. Para un DESCONOCIDO
-		// eso esta bien. Para un RESERVED no: dejar de pedirle bloques hasta diez minutos porque se
-		// ha caido es apagar la red para protegerla, y con sesiones de segundos el castigo se
-		// refresca antes de caducar y no caduca nunca. El eso convirtio un tropiezo en
-		// 111 horas sin finalidad. `disconnected_peers` no sabe quien es reserved —ni debe—, asi que
-		// la decision se toma aqui, que es donde esa lista vive.
+		// HARLEQUIN PATCH (, ticket #931). `remove_peer` just put this peer into the
+		// `disconnected_peers` backoff if it dropped with a request in flight. For an UNKNOWN peer
+		// that's fine. For a RESERVED one it isn't: refusing to ask it for blocks for up to ten minutes because it
+		// dropped is shutting down the network to protect it, and with sessions lasting seconds the penalty
+		// refreshes before it expires and never expires at all. That turned a stumble into
+		// 111 hours without finality. `disconnected_peers` doesn't know who is reserved — nor should it —, so
+		// the decision is made here, which is where that list lives.
 		if self.important_peers.contains(&peer_id) ||
 			self.default_peers_set_no_slot_peers.contains(&peer_id)
 		{

@@ -125,7 +125,7 @@ impl DisconnectedPeers {
 			// BAN. Upstream reports `REPUTATION_REPORT` (fatal) after MAX_NUM_DISCONNECTS, which
 			// disconnects and bans the peer — including RESERVED peers (the reserved set only
 			// guarantees redial after expiry, not scoring immunity). On our small mesh this turned
-			// every flapping home link into a ban loop in BOTH directions (bootnode↔home validator).
+			// every flapping lagging link into a ban loop in BOTH directions (bootnode↔lagging validator).
 			// The sync-availability backoff in `is_peer_available` (escalating, capped) already
 			// protects this node from wasting requests on a flapping peer; the CONNECTION should
 			// survive. Strangers remain covered by every other scoring path (keep-alive, bad
@@ -142,21 +142,21 @@ impl DisconnectedPeers {
 		}
 	}
 
-	/// HARLEQUIN PATCH (, ticket #931): olvidar el castigo de un peer.
+	/// HARLEQUIN PATCH (, ticket #931): forget a peer's penalty.
 	///
-	/// El backoff de esta estructura nació para no malgastar peticiones en un peer que no da abasto.
-	/// Eso tiene sentido para un DESCONOCIDO. Para un peer RESERVED no: un reserved es la columna
-	/// vertebral de la malla, y dejar de pedirle bloques hasta diez minutos porque se ha caído es
-	/// apagar la red para protegerla. El esto convirtió un tropiezo en 111 horas sin
-	/// finalidad: las sesiones duraban 1,7 s, así que el castigo se refrescaba antes de caducar y no
-	/// caducaba nunca.
+	/// This structure's backoff was born to avoid wasting requests on a peer that can't keep up.
+	/// That makes sense for an UNKNOWN peer. For a RESERVED peer it doesn't: a reserved peer is the
+	/// backbone of the mesh, and refusing to ask it for blocks for up to ten minutes because it dropped is
+	/// shutting down the network to protect it. This turned a stumble into 111 hours without
+	/// finality: sessions lasted 1.7 s, so the penalty refreshed before it expired and never
+	/// expired at all.
 	///
-	/// Esta estructura NO conoce el concepto de reserved a propósito —no es asunto suyo saber quién
-	/// es importante—, así que la decisión la toma quien sí lo sabe (`SyncingEngine`) y la aplica
-	/// llamando aquí. Devuelve `true` si había algo que olvidar.
+	/// This structure deliberately does NOT know the concept of reserved — it's not its business to know who
+	/// is important —, so the decision is made by whoever does know (`SyncingEngine`) and applies it
+	/// by calling here. Returns `true` if there was something to forget.
 	pub fn forget(&mut self, peer_id: &PeerId) -> bool {
 		if self.disconnected_peers.remove(peer_id).is_some() {
-			log::debug!(target: LOG_TARGET, "Peer {peer_id} es reserved: se olvida su backoff");
+			log::debug!(target: LOG_TARGET, "Peer {peer_id} is reserved: its backoff is forgotten");
 			true
 		} else {
 			false
@@ -207,38 +207,38 @@ mod tests {
 		assert_eq!(state.is_peer_available(&peer), false);
 	}
 
-	/// HARLEQUIN PATCH (, #931). La prueba se dispara en LOS DOS SENTIDOS, que es lo único
-	/// que demuestra que un arreglo arregla: el reserved perdonado vuelve a estar disponible, y el
-	/// desconocido sigue castigado. Si sólo se probara el primero, un `forget()` que perdonara a
-	/// TODO el mundo pasaría la prueba y habríamos quitado el freno entero sin enterarnos.
+	/// HARLEQUIN PATCH (, #931). The test fires in BOTH DIRECTIONS, which is the only thing
+	/// that proves a fix actually fixes: the forgiven reserved peer becomes available again, and the
+	/// unknown one stays punished. If only the first were tested, a `forget()` that forgave
+	/// EVERYONE would pass the test and we'd have removed the whole brake without noticing.
 	#[test]
 	fn reserved_peer_is_forgiven_but_stranger_stays_punished() {
 		let mut state = DisconnectedPeers::new();
 		let reserved = PeerId::random();
 		let stranger = PeerId::random();
 
-		// Los dos se caen con una peticion en vuelo, dos veces, y los dos quedan castigados.
+		// Both drop with a request in flight, twice, and both end up punished.
 		for _ in 0..2 {
 			assert!(state.on_disconnect_during_request(reserved).is_none());
 			assert!(state.on_disconnect_during_request(stranger).is_none());
 		}
-		assert_eq!(state.is_peer_available(&reserved), false, "el reserved deberia empezar castigado");
-		assert_eq!(state.is_peer_available(&stranger), false, "el desconocido deberia empezar castigado");
+		assert_eq!(state.is_peer_available(&reserved), false, "the reserved peer should start penalized");
+		assert_eq!(state.is_peer_available(&stranger), false, "the unknown peer should start penalized");
 
-		// El motor perdona SOLO al reserved (es quien sabe quien lo es).
-		assert!(state.forget(&reserved), "forget deberia encontrar algo que olvidar");
+		// The engine forgives ONLY the reserved one (it's the one who knows who it is).
+		assert!(state.forget(&reserved), "forget should find something to forget");
 
-		// SENTIDO 1: el reserved vuelve a estar disponible de inmediato, sin esperar los 10 minutos.
-		assert_eq!(state.is_peer_available(&reserved), true, "el reserved debe volver a recibir peticiones");
-		// SENTIDO 2: el desconocido sigue castigado. El freno no se ha quitado, se ha acotado.
-		assert_eq!(state.is_peer_available(&stranger), false, "el desconocido debe seguir castigado");
+		// DIRECTION 1: the reserved peer becomes available again immediately, without waiting the 10 minutes.
+		assert_eq!(state.is_peer_available(&reserved), true, "the reserved peer must receive requests again");
+		// DIRECTION 2: the unknown peer stays punished. The brake hasn't been removed, it's been scoped.
+		assert_eq!(state.is_peer_available(&stranger), false, "the unknown peer must stay penalized");
 
-		// Y perdonar a quien no estaba castigado no es un error, simplemente no hay nada que hacer.
+		// And forgiving someone who wasn't punished is not an error, there's simply nothing to do.
 		assert!(!state.forget(&PeerId::random()));
 	}
 
-	/// Un reserved que flapea SIN PARAR tampoco debe acumular castigo: cada caida lo mete y cada
-	/// perdon lo saca. Es el caso real del 02-sep, con sesiones de 1,7 s.
+	/// A reserved peer that flaps NONSTOP must also not accumulate punishment: each drop puts it in and each
+	/// forgiveness takes it out. This is the real case from 02-Sep, with 1.7 s sessions.
 	#[test]
 	fn reserved_peer_flapping_forever_never_accumulates_backoff() {
 		let mut state = DisconnectedPeers::new();
@@ -250,7 +250,7 @@ mod tests {
 			assert_eq!(
 				state.is_peer_available(&reserved),
 				true,
-				"tras 50 caidas seguidas el reserved sigue disponible: no se le acumula castigo"
+				"after 50 drops in a row the reserved peer is still available: no penalty accumulates"
 			);
 		}
 	}

@@ -757,34 +757,45 @@ pub fn reputation_dimension_fully_fixed_fp(
     let row_sum_fp: BTreeMap<String, i128> =
         nodes.iter().map(|i| (i.clone(), c_fp[i].values().sum())).collect();
 
-    let mut t = pre_fp.clone();
+    // Index-based iteration (2026-10-01, matrix 4.6). Same arithmetic as the String-keyed loop it replaces, term
+    // by term; every term is truncated on its own and i128 addition is exact, so summation order cannot change
+    // the result — bit-identical (pinned by `indexed_iteration_is_bit_identical_to_the_keyed_one`), and far
+    // cheaper, which is what lets the per-epoch recompute scale with the society.
+    let index: BTreeMap<&String, usize> = nodes.iter().enumerate().map(|(i, n)| (n, i)).collect();
+    let pre_v: Vec<i128> = nodes.iter().map(|n| pre_fp[n]).collect();
+    let rows: Vec<Vec<(usize, i128)>> = nodes
+        .iter()
+        .map(|i| c_fp[i].iter().map(|(j, w)| (index[j], *w)).collect())
+        .collect();
+    let row_sum_v: Vec<i128> = nodes.iter().map(|n| row_sum_fp[n]).collect();
+    let base: Vec<i128> = pre_v.iter().map(|v| alpha * v / one).collect();
+    let mut t = pre_v.clone();
+    let mut nt = alloc::vec![0i128; nodes.len()];
     for _ in 0..p.iterations {
-        let mut nt: BTreeMap<String, i128> =
-            nodes.iter().map(|n| (n.clone(), alpha * pre_fp[n] / one)).collect();
+        nt.copy_from_slice(&base);
         let mut leak: i128 = 0;
-        for i in &nodes {
-            let ti = t[i];
-            if ti == 0 {
+        for (i, ti) in t.iter().enumerate() {
+            if *ti == 0 {
                 continue;
             }
             let emitted = (one - alpha) * ti / one;
-            for (j, w) in &c_fp[i] {
-                *nt.get_mut(j).unwrap() += emitted * w / one;
+            for (j, w) in &rows[i] {
+                nt[*j] += emitted * w / one;
             }
-            leak += emitted * (one - row_sum_fp[i]) / one;
+            leak += emitted * (one - row_sum_v[i]) / one;
         }
         if leak != 0 {
-            for n in &nodes {
-                *nt.get_mut(n).unwrap() += leak * pre_fp[n] / one;
+            for (k, v) in nt.iter_mut().enumerate() {
+                *v += leak * pre_v[k] / one;
             }
         }
-        let delta: i128 = nodes.iter().map(|n| (nt[n] - t[n]).abs()).sum();
-        t = nt;
+        let delta: i128 = nt.iter().zip(t.iter()).map(|(a, b)| (a - b).abs()).sum();
+        core::mem::swap(&mut t, &mut nt);
         if delta == 0 {
             break;
         }
     }
-    t
+    nodes.into_iter().zip(t).collect()
 }
 
 /// FULLY DETERMINISTIC reputation in one dimension, presented as f64 (raw fixed-point × `scale`). Thin
@@ -982,8 +993,104 @@ pub fn decay(reputation: &BTreeMap<String, f64>, factor: f64) -> BTreeMap<String
     reputation.iter().map(|(k, v)| (k.clone(), v * factor)).collect()
 }
 
+/// The String-keyed loop the index-based one replaced, kept ONLY to pin bit-identity in tests.
+#[cfg(all(test, feature = "std"))]
+fn keyed_iteration_for_tests(
+    agents: &[Agent],
+    graph: &TrustGraph,
+    dim: &str,
+    p: &Params,
+) -> BTreeMap<String, i128> {
+    let nodes: Vec<String> = agents.iter().map(|a| a.id.clone()).collect();
+    let pre = pretrust(agents, dim, p.genesis_weight);
+    let evidence_fp: BTreeMap<String, i128> =
+        agents.iter().map(|a| (a.id.clone(), to_fp(a.evidence.values().sum()))).collect();
+    let dim_evidence_fp: BTreeMap<String, i128> =
+        agents.iter().map(|a| (a.id.clone(), to_fp(a.evidence_in(dim)))).collect();
+    let c_fp = graph.damped_local_matrix_fp(dim, &nodes, p, &evidence_fp, &dim_evidence_fp);
+
+    let one = FP_SCALE;
+    let alpha = to_fp(p.alpha);
+    let pre_fp: BTreeMap<String, i128> = pre.iter().map(|(k, v)| (k.clone(), to_fp(*v))).collect();
+    let row_sum_fp: BTreeMap<String, i128> =
+        nodes.iter().map(|i| (i.clone(), c_fp[i].values().sum())).collect();
+
+    let mut t = pre_fp.clone();
+    for _ in 0..p.iterations {
+        let mut nt: BTreeMap<String, i128> =
+            nodes.iter().map(|n| (n.clone(), alpha * pre_fp[n] / one)).collect();
+        let mut leak: i128 = 0;
+        for i in &nodes {
+            let ti = t[i];
+            if ti == 0 {
+                continue;
+            }
+            let emitted = (one - alpha) * ti / one;
+            for (j, w) in &c_fp[i] {
+                *nt.get_mut(j).unwrap() += emitted * w / one;
+            }
+            leak += emitted * (one - row_sum_fp[i]) / one;
+        }
+        if leak != 0 {
+            for n in &nodes {
+                *nt.get_mut(n).unwrap() += leak * pre_fp[n] / one;
+            }
+        }
+        let delta: i128 = nodes.iter().map(|n| (nt[n] - t[n]).abs()).sum();
+        t = nt;
+        if delta == 0 {
+            break;
+        }
+    }
+    t
+}
+
 #[cfg(all(test, feature = "std"))]
 mod tests {
+    #[test]
+    fn indexed_iteration_is_bit_identical_to_the_keyed_one() {
+        // Societies of several shapes; every suit; the new loop must reproduce the old one exactly.
+        let mut seed: u64 = 0x9E37_79B9_7F4A_7C15;
+        let mut rnd = |n: u64| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed % n
+        };
+        for &n in &[3usize, 17, 60, 150] {
+            let mut agents = Vec::new();
+            for i in 0..n {
+                let mut a = Agent::new(&i.to_string());
+                if i < 2 {
+                    a = a.genesis();
+                }
+                for d in DIMENSIONS {
+                    if rnd(3) == 0 {
+                        a = a.with_evidence(d, (1 + rnd(500)) as f64);
+                    }
+                }
+                agents.push(a);
+            }
+            let mut g = TrustGraph::new();
+            for i in 0..n {
+                for _ in 0..4 {
+                    let j = rnd(n as u64) as usize;
+                    if j != i {
+                        g.attest(&i.to_string(), &j.to_string(), DIMENSIONS[rnd(4) as usize], (1 + rnd(9)) as f64);
+                    }
+                }
+            }
+            let p = Params { community: true, in_concentration: true, ..Default::default() };
+            for d in DIMENSIONS {
+                assert_eq!(
+                    reputation_dimension_fully_fixed_fp(&agents, &g, d, &p),
+                    super::keyed_iteration_for_tests(&agents, &g, d, &p),
+                    "n={n} dim={d}"
+                );
+            }
+        }
+    }
+
     use super::*;
 
     #[test]
@@ -1432,7 +1539,7 @@ mod tests {
 
     #[test]
     fn fully_fixed_is_invariant_to_input_ordering() {
-        // Macro-audit 1.1 (campaña estrés tick 8): CONSENSUS-SAFETY property. Every node must compute the
+        // Macro-audit 1.1 (stress-test campaign tick 8): CONSENSUS-SAFETY property. Every node must compute the
         // exact same reputation regardless of the order in which it received agents and attestation edges
         // (different nodes see txs in different orders). f64 addition is not associative, and label
         // propagation is order-sensitive — so this is not free; it holds only because every step uses
@@ -1502,7 +1609,7 @@ mod tests {
 
     #[test]
     fn suit_coverage_collusion_does_not_lift_the_conservative_min() {
-        // Adversarial (auditoría nocturna): NEW angle. 4 colluders, each genuinely strong in ONE
+        // Adversarial (overnight audit): NEW angle. 4 colluders, each genuinely strong in ONE
         // distinct suit and empty in the other three, vouch each other ACROSS suits trying to "cover" each
         // other's weak suits and so lift everyone's conservative MIN (the real power, §1.2b) above zero.
         // It fails by construction: reputation is PER-SUIT and you can only DELEGATE trust in a suit where
@@ -1572,7 +1679,7 @@ mod tests {
 
     #[test]
     fn funnel_detector_cannot_be_evaded_by_atomizing_the_feeders() {
-        // Adversarial (campaña estrés tick 9): the in-concentration signal (§2d) measures the HHI of a
+        // Adversarial (stress-test campaign tick 9): the in-concentration signal (§2d) measures the HHI of a
         // target's inflow GROUPED BY the feeders' community. The obvious evasion is to atomize the feeders
         // so they look like many independent communities, dragging the HHI down. It FAILS, by construction:
         // funnelling onto a target makes that target the hub that bridges every feeder into ONE community

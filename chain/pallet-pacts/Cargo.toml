@@ -1,0 +1,18 @@
+[package]
+name = "pallet-pacts"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+description = "Harlequin pacts: private contracts signed on chain. The chain holds only a salted commitment to the document (never the text). Mode A (between parties): visible parties, completed when every party has signed with its own mask. Mode B (sealed): only a commitment to the document plus its off-chain signatures, so who signed with whom stays private. No money moves here."
+
+[dependencies]
+codec = { version = "3.7.5", package = "parity-scale-codec", default-features = false, features = ["derive"] }
+frame = { version = "0.17.0", package = "polkadot-sdk-frame", default-features = false, features = ["runtime"] }
+scale-info = { version = "2.11.6", default-features = false, features = ["derive"] }
+
+[features]
+default = ["std"]
+std = ["codec/std", "frame/std", "scale-info/std"]
+
+# Own workspace so the heavy FRAME dependency tree stays out of the lean core workspace (`../Cargo.toml`).
+[workspace]

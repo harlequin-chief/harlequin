@@ -1,0 +1,194 @@
+/* Harlequin — The Threshold (initiation rite). Design system = the site's styles.css (same palette, fonts,
+   gold, crimson, diamond mesh). Externalized from the inline <style> because the site's CSP (style-src 'self')
+   blocks inline styles. The look is Harlequin's; the logo is the real /logo-gold.png (never a drawing). */
+:root{
+  --bg:#0a0a0f; --bg-2:#101018; --veil:#15151f;
+  --ink:#e9e6df; --muted:#8f8a7e;
+  --gold:#d4af6a; --gold-soft:#b9974f; --gold-bright:#e6c26a;
+  --crimson:#9b2335; --teal:#1f5d5a;
+  --line:rgba(212,175,106,.18); --edge:rgba(212,175,106,.28);
+  --serif:Georgia,"Times New Roman",Cambria,"Noto Serif",serif;
+  --sans:"Helvetica Neue",Arial,system-ui,sans-serif;
+  --mono:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{height:100%}
+html{scroll-behavior:smooth}
+body{
+  background:
+    radial-gradient(1200px 700px at 50% -10%, rgba(155,35,53,.16), transparent 60%),
+    radial-gradient(900px 600px at 50% 0, rgba(212,175,106,.08), transparent 55%),
+    var(--bg);
+  background-repeat:no-repeat; background-color:var(--bg);
+  color:var(--ink);
+  font-family:var(--serif);
+  -webkit-font-smoothing:antialiased;
+  min-height:100vh; min-height:100svh;
+  display:flex; flex-direction:column; align-items:center;
+  overflow-x:hidden;
+}
+/* Harlequin rhomb lattice (site-wide motif): faint gold + crimson diamonds, radially masked. */
+body::before{
+  content:""; position:fixed; inset:0; z-index:0; pointer-events:none;
+  background-image:
+    repeating-linear-gradient(45deg,  transparent 0 43px, rgba(212,175,106,.038) 43px 44px),
+    repeating-linear-gradient(-45deg, transparent 0 43px, rgba(155,35,53,.038) 43px 44px);
+  mask-image:radial-gradient(circle at 50% 40%, #000 0%, #000 45%, transparent 92%);
+  -webkit-mask-image:radial-gradient(circle at 50% 40%, #000 0%, #000 45%, transparent 92%);
+}
+/* 1-oct-2026: SAFE centring. The body (height:100% + align-items:center) used to centre an act taller than
+   the screen, overflowing it at the TOP: on a phone the title of the 24 words and of the mask ended up off
+   screen with no way to scroll up and see them. margin:auto centres when it fits and lets it grow downward
+   when it does not. */
+.stage{position:relative; z-index:1; width:min(680px,92vw); margin:auto; padding:48px 8px 72px; text-align:center}
+.act{display:none; animation:rise .9s cubic-bezier(.2,.7,.2,1) both}
+.act.on{display:block}
+@keyframes rise{from{opacity:0; transform:translateY(18px)}to{opacity:1; transform:none}}
+
+.kicker{letter-spacing:.34em; text-transform:uppercase; font-size:12px; color:var(--gold);
+  font-family:var(--sans); font-weight:700; margin-bottom:26px; opacity:.92}
+h1{font-family:var(--serif); font-size:clamp(30px,6vw,52px); font-weight:500; line-height:1.1;
+  letter-spacing:.01em; margin-bottom:22px; color:var(--ink)}
+.oratory{font-size:clamp(17px,2.4vw,21px); line-height:1.7; color:var(--muted); max-width:52ch;
+  margin:0 auto 34px; font-style:italic}
+.oratory em{color:var(--ink); font-style:italic}
+
+.crest{width:150px; height:150px; margin:6px auto 30px; display:block;
+  filter:drop-shadow(0 8px 30px rgba(212,175,106,.18))}
+.crest.breathe{animation:breathe 5s ease-in-out infinite}
+@keyframes breathe{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
+
+button.rite, a.rite{
+  display:inline-block; text-decoration:none; text-align:center;
+  appearance:none; cursor:pointer; font-family:var(--sans); font-weight:700;
+  font-size:14px; letter-spacing:.16em; text-transform:uppercase;
+  color:var(--bg); background:linear-gradient(180deg,var(--gold-bright),var(--gold));
+  border:0; border-radius:2px; padding:16px 34px; margin-top:8px;
+  box-shadow:0 10px 34px rgba(212,175,106,.20); transition:transform .18s ease, box-shadow .18s ease}
+button.rite:hover, a.rite:hover{transform:translateY(-2px); box-shadow:0 16px 44px rgba(212,175,106,.32)}
+button.rite:active, a.rite:active{transform:translateY(0)}
+button.ghost, a.ghost{display:inline-block; text-decoration:none; background:none; color:var(--muted); box-shadow:none; border:1px solid var(--edge);
+  letter-spacing:.14em}
+button.ghost:hover{color:var(--ink); box-shadow:none}
+button[disabled]{opacity:.4; cursor:not-allowed; transform:none!important}
+
+.pillars{list-style:none; max-width:46ch; margin:0 auto 34px; text-align:left}
+.pillars li{padding:16px 0 16px 40px; position:relative; border-bottom:1px solid rgba(233,228,214,.08);
+  font-size:17px; line-height:1.5; color:var(--ink)}
+.pillars li:last-child{border-bottom:0}
+.pillars li::before{content:"◆"; position:absolute; left:8px; top:16px; color:var(--gold); font-size:14px}
+.pillars li span:not(.es):not(.en){display:block; color:var(--muted); font-size:14.5px; margin-top:4px; font-style:italic}
+
+.seed-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:10px; max-width:520px; margin:6px auto 26px}
+.seed-word{background:var(--veil); border:1px solid var(--edge); border-radius:3px; padding:12px 10px;
+  font-family:var(--mono); font-size:15px; color:var(--ink); display:flex; align-items:baseline; gap:9px}
+.seed-word i{color:var(--gold); font-style:normal; font-size:11px; min-width:18px; text-align:right; opacity:.7}
+.warn{color:var(--crimson); font-weight:600; letter-spacing:.02em}
+.verify-row{display:flex; gap:10px; justify-content:center; flex-wrap:wrap; margin:14px auto 8px; max-width:520px}
+.verify-row input{background:var(--bg-2); border:1px solid var(--edge); border-radius:3px; color:var(--ink);
+  font-family:var(--mono); font-size:15px; padding:11px 12px; width:150px; text-align:center}
+.verify-row input:focus{outline:none; border-color:var(--gold)}
+.verify-label{font-size:13px; color:var(--muted); margin-bottom:2px; display:block}
+.hint{font-size:13.5px; color:var(--muted); margin-top:10px; min-height:20px}
+.hint.bad{color:var(--crimson)}
+.hint.good{color:var(--teal)}
+/* utilities (avoid inline style=, which the CSP style-src 'self' blocks) */
+.mt{margin-top:14px}
+.seed-word.full{grid-column:1/-1}
+
+.progress{position:fixed; top:0; left:0; height:2px; background:linear-gradient(90deg,var(--gold),var(--crimson));
+  width:0; z-index:5; transition:width .6s ease}
+footer{position:fixed; bottom:14px; left:0; right:0; text-align:center; font-size:11px; letter-spacing:.3em;
+  text-transform:uppercase; color:rgba(233,228,214,.28); font-family:var(--sans); z-index:1}
+
+/* Act IV — the mask IN PLAIN SIGHT (2026-08-03, a request from the maintainer: the rite gave the words and
+   nothing more; the newborn identity stayed stuck in a variable). Handle capsule + copy button,
+   same visual language as the command boxes across the rest of the site. */
+.mask-reveal{max-width:560px;margin:14px auto}
+/* the mask act is taller than the others: room so the last button does not sit under the fixed footer */
+#act4{padding-bottom:72px}
+.mask-label{font-family:var(--sans);font-size:11px;letter-spacing:.3em;color:var(--gold);
+  text-transform:uppercase;margin-bottom:8px}
+.copybox{display:flex;align-items:center;gap:10px;justify-content:center;
+  background:rgba(233,228,214,.04);border:1px solid rgba(212,175,106,.28);border-radius:8px;
+  padding:12px 14px}
+.copybox code{font-size:15px;letter-spacing:.04em;color:var(--ink,#e9e4d6);word-break:break-all;
+  user-select:all}
+.copybox .copy{flex:none;font-family:var(--sans);font-size:11px;letter-spacing:.14em;
+  text-transform:uppercase;color:rgba(233,228,214,.75);background:rgba(212,175,106,.08);
+  border:1px solid rgba(212,175,106,.35);border-radius:6px;padding:6px 10px;cursor:pointer}
+.copybox .copy:hover{color:var(--gold)}
+.copybox .copy.copied{color:var(--gold);border-color:var(--gold);background:rgba(212,175,106,.16)}
+
+/* Reduced motion (added 2026-07-31). This page does NOT load styles.css, so the site-wide
+   neutraliser never reached it: someone who asks the system for less movement still got the full
+   rite — five acts of fade-and-rise plus the breathing crest. Same rule as the global one, with the
+   `both` fill of `rise` this leaves every act at its settled state (opacity 1), not hidden. */
+@media (prefers-reduced-motion:reduce){
+  *{animation:none!important; transition:none!important; scroll-behavior:auto}
+}
+.lock-row input{min-width:220px}
+/* "Set the lock" (2026-09-23): secondary action with real presence — gold outline, same scale as the
+   rite buttons — instead of the thin ghost that read as unstyled next to the gold one (spotted by
+   the operator). */
+button.ghost.lock-btn{color:var(--gold); border-color:var(--gold); padding:12px 26px; font-size:13px;
+  letter-spacing:.14em; text-transform:uppercase; margin-top:6px}
+button.ghost.lock-btn:hover{background:rgba(212,175,106,.08)}
+/* 2026-09-24 (the operator, 1280×813): the fixed motto sat on top of the last line of text. It now carries a
+   fade of the page colour behind it, and every act (not just the last) leaves room for it at the end. */
+footer{background:linear-gradient(to top, var(--bg) 55%, rgba(0,0,0,0)); padding:22px 0 0; bottom:0; padding-bottom:14px}
+.act{padding-bottom:72px}
+
+/* Language (2026-09-25): English primary and Spanish as transcription — same rule as styles.css. lang-boot.js
+   sets `lang-es` on <html> before painting, based on the domain. The .es/.en wrappers must not inherit the
+   style of the pillars' glosses (hence the :not above). */
+.es{display:none}
+.lang-es .en{display:none}
+.lang-es .es{display:revert}
+html:not(.lang-es) .es{display:none!important}
+/* 27-sep-2026: on a phone (390 px) the third column of the 24 words ran off the screen and cut off
+   words — exactly what the citizen has to copy by hand. `1fr` does not shrink below its longest word.
+   Below 480 px: two columns (the longest BIP39 word has 8 letters) and the footer motto with less air. */
+@media (max-width:480px){
+  .seed-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .seed-word{padding:11px 10px}
+  footer{letter-spacing:.12em; padding:0 14px}
+  /* the motto is fixed and on a phone it covers the button on the longer acts: only shown on the cover (act 0) */
+  body:has(.act.on:not(#act0)) footer{display:none}
+}
+
+/* ── 1-oct-2026 (the maintainer: "the rite has a ton of visual problems") ───────────────────────────────── */
+h1,.oratory,.mask-label,.kicker,footer{text-wrap:balance}
+.copybox{flex-wrap:wrap}
+.copybox code{font-family:var(--mono); word-break:normal; overflow-wrap:anywhere}
+/* final act: the mask is the protagonist; everything else, in the background and folded away */
+.mask-hero{margin:4px auto 6px}
+.mask-hero .copybox{border-color:var(--gold); background:rgba(212,175,106,.07); box-shadow:0 0 40px rgba(212,175,106,.10)}
+.mask-hero code{font-size:17px; color:var(--gold-bright)}
+.cross{margin:26px auto 8px}
+.cross .rite{min-width:min(320px,100%)}
+.later{max-width:560px; margin:30px auto 0; text-align:left; border-top:1px solid var(--line); padding-top:6px}
+.later details{border-bottom:1px solid var(--line)}
+.later summary{cursor:pointer; list-style:none; padding:16px 4px; font-family:var(--sans); font-size:12px; letter-spacing:.22em;
+  text-transform:uppercase; color:var(--gold); display:flex; justify-content:space-between; align-items:center; gap:12px}
+.later summary::-webkit-details-marker{display:none}
+.later summary::after{content:"+"; font-size:18px; color:var(--gold-soft); transition:transform .25s}
+.later details[open] summary::after{transform:rotate(45deg)}
+.later .inner{padding:0 4px 18px; text-align:center}
+.later .hint{text-align:center}
+.later a.ghost{padding:12px 26px; font-family:var(--sans); font-size:13px; letter-spacing:.14em; text-transform:uppercase; border-radius:2px}
+.back{margin-top:22px}
+.back button{font-size:11px; padding:10px 18px; border-radius:2px; font-family:var(--sans); cursor:pointer}
+@media (max-width:480px){
+  .kicker{letter-spacing:.2em; font-size:11px; margin-bottom:20px}
+  .mask-label{letter-spacing:.18em}
+  .later summary{letter-spacing:.14em}
+  button.rite, a.rite{letter-spacing:.1em; padding:16px 22px; width:100%}
+  .mask-hero code{font-size:15px}
+  .copybox{padding:12px}
+  .copybox .copy{width:100%}
+  .lock-row input{min-width:0; width:100%}
+  footer{font-size:10px; letter-spacing:.1em}
+  .crest{width:120px; height:120px; margin-bottom:22px}
+}
+#seedNote{margin-bottom:18px}

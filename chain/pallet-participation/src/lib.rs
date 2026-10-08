@@ -207,7 +207,7 @@ pub mod pallet {
         /// SOV-by-endurance (DECIDED the maintainer, option A): ceiling `k` of the consecutive-era
         /// streak that multiplies SOV weight. Serving era N with a streak of `MaxStreak` earns full
         /// SOV weight; a newcomer's first era earns 1×. Missing an era resets the streak to zero —
-        /// endurance is the one currency a sybil cannot mint. PARÁMETRO (mainnet 8, testnet low).
+        /// endurance is the one currency a sybil cannot mint. PARAMETER (mainnet 8, testnet low).
         #[pallet::constant]
         type MaxStreak: Get<u32>;
 
@@ -940,7 +940,7 @@ mod tests {
                 seed_era(0, who, 10);
             }
             let out = Participation::era_service_streak(0);
-            assert!(out.iter().all(|(_, _, s)| *s == 1), "no arranque con ventaja");
+            assert!(out.iter().all(|(_, _, s)| *s == 1), "no head start");
         });
     }
 }

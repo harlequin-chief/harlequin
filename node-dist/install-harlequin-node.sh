@@ -50,14 +50,14 @@ SPEC_URL="$DIST_BASE/dist/mainnet-raw.json"
 # Empty on purpose while no mirror is published. Empty means "there is no second place", and the
 # installer SAYS SO when the first one fails, instead of pretending it tried.
 MIRROR_BASE=""
-SPEC_SHA256="0b83ded5619e3fda0a872fd9acce78aac0d38b67f881e81630aa58ff0a3fa69a"  # REHEARSAL chainspec (genesis 0x95cff149, 2026-09-28): the dress rehearsal of the 27-Nov launch, same recipe; the launch chain replaces it that day
+SPEC_SHA256="be8082320c5f54900c284616846e5ab15f3fd8adabf66b93b436dc53cc4fa1bc"  # REHEARSAL chainspec 2 (genesis 0xecdaa7d3, 2026-10-08): the second dress rehearsal of the 27-Nov launch, built from launch candidate 6; the launch itself gets a new ceremony and a new spec
 
 BIN_URL_x86_64="$DIST_BASE/dist/harlequin-node"
-BIN_SHA_x86_64="6a38ef47251352606122e2f047dc82b98107d69044c39cbb7f869fbf88049317" # launch candidate 5 (tag candidato-5-20260928: finality gossip no longer floods peers): the binary the rehearsal network runs; reproducible build (stripped, no build-id)
+BIN_SHA_x86_64="4b5d471504dbe9bdab14068de6b3736386f7143e97b26892c7b29068d75ebcf6" # launch candidate 6 (tag candidato-6-20261007: pacts, market deals, hosting reward, light profile): reproduced bit for bit in two cold builds
 BIN_URL_aarch64="$DIST_BASE/dist/harlequin-node-arm64"
 # Phones, tablets and Raspberry Pi get the SAME release as ordinary PCs: built from the same tag,
 # checked the same way.
-BIN_SHA_aarch64="b4059793cca139e1f9757a63501f7d9ac91f1d8dcf9e4c96d15fbbcb1d2dcea0" # launch candidate 5 aarch64, cross-built from the same tag as the x86 one (reproducible, path-scrubbed)
+BIN_SHA_aarch64="ede44f0f2a62ba8f3a708b5b84856edc75bef767d15a1d8928fa98e58e868f48" # launch candidate 6 aarch64, cross-built from the same tag; its runtime is the same wasm as the x86 one
 
 # Baked into the spec too; passed explicitly in portable mode for first-dial robustness.
 # THREE DOORS, NOT ONE (2026-07-26). Until today the installer handed out a single address, so every
@@ -77,6 +77,12 @@ BIND_URL_x86_64="$DIST_BASE/dist/harlequin-bind-tool"
 BIND_SHA_x86_64="320d2f3634cbfc2473eb4bc6ec84b8f81dadbd32b4bcf38f3bedef9d9fa8e0be"
 BIND_URL_aarch64="$DIST_BASE/dist/harlequin-bind-tool-arm64"
 BIND_SHA_aarch64="c93d07598cf8a06998203494665249f9f1bfeb36e4b829cd1d133534f02860bf"
+# harlequin-heartbeat (2026-10-02, hosting reward E1): the daily beat that gets a node BOUND to a mask paid for hosting.
+# Empty sha = this release does not ship it yet: the installer skips the beat (never downloads an unpinned file).
+HB_URL_x86_64="$DIST_BASE/dist/harlequin-heartbeat"
+HB_SHA_x86_64=""
+HB_URL_aarch64="$DIST_BASE/dist/harlequin-heartbeat-arm64"
+HB_SHA_aarch64=""
 SVC="harlequin-node"
 
 # Weak-subjectivity checkpoint (M1) — re-pinned on EVERY release, next to the sha256 pins above.
@@ -88,7 +94,7 @@ SVC="harlequin-node"
 # operator you already trust. If the sources disagree — STOP, do not join.
 # F4 NOTE: values below pin the LAUNCH chain at genesis. At the relaunch ceremony (F4) they are
 # re-pinned to a fresh finalized checkpoint, and on every release thereafter.
-# 2026-09-28: REHEARSAL CHAIN. A brand-new chain has one block nobody can dispute: its genesis. Until
+# 2026-10-08: REHEARSAL CHAIN 2 (2026-09-28 was rehearsal 1). A brand-new chain has one block nobody can dispute: its genesis. Until
 # the chain has settled, the pin is the genesis itself (height 0); it moves to a settled finalized
 # block at the next release. The history below is the previous chain's.
 # Re-pinned 2026-08-14 to block #188805, finalized and then left to settle: it sits roughly a thousand
@@ -98,9 +104,9 @@ SVC="harlequin-node"
 # height and by hash, agreeing exactly — and the previous pin (#79830, 2026-07-29) was verified the
 # same way.
 CHECKPOINT_HEIGHT="0"
-CHECKPOINT_HASH="0x95cff149be56a08cc97547f7347e93d66a4bcebfa1ef2ab07a73205f164c5df9"
+CHECKPOINT_HASH="0xecdaa7d302af9f0e8a071c780460bf55faa164f8a9fb30df64b36aeab9c13aef"
 CHECKPOINT_CHAIN="Harlequin Launch (cold-start)"  # system_chain name (spec id: hlq_launch)
-CHECKPOINT_PINNED_AT="2026-09-28"  # re-pin to a fresher finalized block before each public release
+CHECKPOINT_PINNED_AT="2026-10-08"  # re-pin to a fresher finalized block before each public release
 RPC_URL="http://127.0.0.1:9944"   # node RPC is local-only by default; the check runs on YOUR box
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -127,8 +133,8 @@ echo
 # 1. CPU architecture → binary + sha
 ARCH="$(uname -m)"
 case "$ARCH" in
-  x86_64)  BIN_URL="$BIN_URL_x86_64";  BIN_SHA256="$BIN_SHA_x86_64";  BIND_URL="$BIND_URL_x86_64";  BIND_SHA256="$BIND_SHA_x86_64" ;;
-  aarch64) BIN_URL="$BIN_URL_aarch64"; BIN_SHA256="$BIN_SHA_aarch64"; BIND_URL="$BIND_URL_aarch64"; BIND_SHA256="$BIND_SHA_aarch64" ;;
+  x86_64)  BIN_URL="$BIN_URL_x86_64";  BIN_SHA256="$BIN_SHA_x86_64";  BIND_URL="$BIND_URL_x86_64";  BIND_SHA256="$BIND_SHA_x86_64"; HB_URL="$HB_URL_x86_64"; HB_SHA256="$HB_SHA_x86_64" ;;
+  aarch64) BIN_URL="$BIN_URL_aarch64"; BIN_SHA256="$BIN_SHA_aarch64"; BIND_URL="$BIND_URL_aarch64"; BIND_SHA256="$BIND_SHA_aarch64"; HB_URL="$HB_URL_aarch64"; HB_SHA256="$HB_SHA_aarch64" ;;
   *) die "unsupported CPU '$ARCH' (supported: x86_64, aarch64)." ;;
 esac
 ok "cpu: $ARCH"
@@ -165,7 +171,27 @@ if [ "${MEM_MB:-0}" -gt 0 ]; then
 fi
 DISK_MB="$(df -Pm "${HOME:-/}" 2>/dev/null | awk 'NR==2{print $4}' || echo 0)"
 if [ "${DISK_MB:-0}" -gt 0 ] && [ "$DISK_MB" -lt 4000 ]; then
-  echo "  ⚠ only ${DISK_MB} MB free on this filesystem. The chain is about 2 GB today (measured 2026-09-26) and grows every day."
+  echo "  ⚠ only ${DISK_MB} MB free on this filesystem. A full archive grows ~15 GB/year; the light profile (chosen below on small disks) stays near 300 MB."
+fi
+
+# 1c. Storage profile (2026-10-01). Archive keeps every block and state forever: ~6 KB/block ≈ 43 MB/day ≈ 15 GB/year,
+#     measured on the rehearsal chain. A follower does not need that: measured on a 1 GB box for 21.6 h with pruning
+#     at only 2,400 blocks (8 h), finality stayed in step (lag 12-27 blocks) and the disk FELL to 136 MB once pruning
+#     bit. The light profile keeps 28,800 blocks (4 days) — three times the window proven safe for the finality
+#     committee read (#270). Validators and bootnodes keep archive: they serve history to newcomers.
+#     HLQ_PRUNING=archive|light forces it; default auto = light on small machines (< 2 GB RAM or < 20 GB free).
+PRUNING="${HLQ_PRUNING:-auto}"
+case "$PRUNING" in
+  auto) if [ "${MEM_MB:-0}" -gt 0 ] && [ "$MEM_MB" -lt 2048 ] || { [ "${DISK_MB:-0}" -gt 0 ] && [ "$DISK_MB" -lt 20000 ]; }; then PRUNING=light; else PRUNING=archive; fi;;
+  archive|light) ;;
+  *) die "HLQ_PRUNING must be auto, archive or light (got: $PRUNING)";;
+esac
+if [ "$PRUNING" = light ]; then
+  PRUNE_ARGS="--state-pruning 28800 --blocks-pruning 28800"
+  ok "storage: light (keeps the last 4 days; stays near 150-300 MB). HLQ_PRUNING=archive keeps everything."
+else
+  PRUNE_ARGS="--state-pruning archive --blocks-pruning archive"
+  ok "storage: archive (keeps everything, ~15 GB/year). HLQ_PRUNING=light keeps only the last 4 days."
 fi
 
 # 2. install mode: systemd service vs portable foreground
@@ -238,8 +264,30 @@ dl() { # <url> <dest> — same guarantees on either tool: HTTPS-only, TLS>=1.2, 
     wget -q --https-only --secure-protocol=TLSv1_2 --max-redirect=0 --timeout=15 -O "$2" "$1"
   fi
 }
+# dl_mirror <url> <dest> — the mirror is a file host (GitHub Releases answers 302 to its storage), so
+# here redirects ARE followed, at most 3 and HTTPS-only on every hop. Nothing is trusted more for it:
+# whatever arrives is checked against the same sha256 pins. (2026-10-07: with no redirects the planned
+# Releases mirror would have failed on every download, and only the day the main place was down.)
+dl_mirror() {
+  if [ "$HAVE_DL" = "curl" ]; then
+    curl -fsSL --proto '=https' --proto-redir '=https' --max-redirs 3 --tlsv1.2 --connect-timeout 15 --max-time 900 "$1" -o "$2"
+  else
+    # wget's --https-only binds only in recursive mode: a 302 to http:// would be followed. So the hops
+    # are walked by hand, each Location must be https://, and the final GET still follows none.
+    local u="$1" loc i
+    for i in 1 2 3 4; do
+      loc="$(wget -S --spider --https-only --secure-protocol=TLSv1_2 --max-redirect=0 --timeout=15 "$u" 2>&1 \
+        | awk 'tolower($1)=="location:"{print $2}' | tr -d '\r' | tail -n 1)"
+      [ -n "$loc" ] || break
+      [ "$i" -lt 4 ] || return 1
+      case "$loc" in https://*) u="$loc" ;; *) return 1 ;; esac
+    done
+    wget -q --https-only --secure-protocol=TLSv1_2 --max-redirect=0 --timeout=15 -O "$2" "$u"
+  fi
+}
 [ "${BIN_URL#https://}"  != "$BIN_URL"  ] || die "binary URL is not https."
 [ "${SPEC_URL#https://}" != "$SPEC_URL" ] || die "spec URL is not https."
+[ -z "$MIRROR_BASE" ] || [ "${MIRROR_BASE#https://}" != "$MIRROR_BASE" ] || die "mirror URL is not https."
 # dl_or_mirror <primary-url> <dest> <what>: try the published place; if it does not answer, try the
 # mirror — and if there is no mirror, say exactly that. A download that fails in silence, or a mirror
 # variable that is empty and looks configured, is how someone ends up with half an installation.
@@ -254,7 +302,7 @@ dl_or_mirror() {
   fi
   info "the main place did not answer — trying the mirror…"
   local path="${url#*/dist/}"
-  dl "$MIRROR_BASE/$path" "$dest" \
+  dl_mirror "$MIRROR_BASE/$path" "$dest" \
     || die "could not download the $what from either place ($url and $MIRROR_BASE/$path)."
   ok "got the $what from the mirror. It will be sha256-verified exactly like the main one."
 }
@@ -274,6 +322,11 @@ verify() { # <file> <expected>
 verify "$TMP/harlequin-node"   "$BIN_SHA256";  ok "binary sha256 verified."
 verify "$TMP/mainnet-raw.json" "$SPEC_SHA256"; ok "chain spec sha256 verified."
 verify "$TMP/harlequin-bind-tool" "$BIND_SHA256"; ok "bind-tool sha256 verified."
+HAVE_HB=0
+if [ -n "${HB_SHA256:-}" ]; then
+  ok "downloading heartbeat ($ARCH)…"; dl_or_mirror "$HB_URL" "$TMP/harlequin-heartbeat" "heartbeat"
+  verify "$TMP/harlequin-heartbeat" "$HB_SHA256"; ok "heartbeat sha256 verified."; HAVE_HB=1
+fi
 
 # 4b. weak-subjectivity verifier (M1) — installed next to the node, safe to re-run any time.
 #     Exit codes: 0 = checkpoint verified · 1 = MISMATCH (wrong chain) · 2 = local RPC unreachable.
@@ -371,7 +424,8 @@ chmod +x "$TMP/verify-checkpoint.sh"
 # validating requires earned reputation (committee membership), by design. So no --validator anywhere here.
 # --state/blocks-pruning archive: the finality committee for each block is read from on-chain state at that
 # block's EPOCH-START; default pruning keeps only the last 256 states, so the read would return EMPTY and
-# finality would stall (the #270 stall). Archive keeps all state so the read always resolves.
+# finality would stall (the #270 stall). Archive keeps all state so the read always resolves; the light profile
+# (1c above) keeps 28,800 blocks, far more than the window the read needs (proven at 2,400 for 21 h on 1-oct).
 
 if [ "$MODE" = "service" ]; then
   # ── service install (unprivileged system user + hardened unit) ─────────────
@@ -422,8 +476,7 @@ ExecStart=$PREFIX/harlequin-node \\
   --network-backend libp2p \\
   --no-mdns \\
   --bootnodes "${BOOTNODE}" "${BOOTNODE2}" \\
-  --state-pruning archive \\
-  --blocks-pruning archive \\
+  $PRUNE_ARGS \\
   --pool-type single-state \\
   --no-telemetry \\
   --trie-cache-size 67108864 --db-cache 128 \\
@@ -470,7 +523,41 @@ echo "  ✓ node restarted, signing with its vote key. Now paste the two values 
 LINK
   chown root:root "$LINKER"; chmod 0755 "$LINKER"
 
+  # Daily hosting beat (E1): only does anything once this node is linked to a mask (the vote key exists). It signs a
+  # recent block with that key and sends it to THIS node's RPC; no coins, no account secret. Randomised hour so a
+  # thousand nodes do not beat in the same minute (and the hour says nothing about where you are).
+  if [ "$HAVE_HB" = 1 ]; then
+    install -o root -g root -m 0755 "$TMP/harlequin-heartbeat" "$PREFIX/harlequin-heartbeat"
+    cat > /etc/systemd/system/harlequin-heartbeat.service <<HBS
+[Unit]
+Description=Harlequin hosting heartbeat (daily, once linked to a mask)
+ConditionPathExists=$PREFIX/data/vote.key
+After=${SVC}.service
+[Service]
+Type=oneshot
+User=harlequin
+ExecStart=$PREFIX/harlequin-heartbeat --key-file $PREFIX/data/vote.key
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+HBS
+    cat > /etc/systemd/system/harlequin-heartbeat.timer <<HBT
+[Unit]
+Description=Harlequin hosting heartbeat, once a day
+[Timer]
+OnBootSec=30min
+OnUnitActiveSec=1d
+RandomizedDelaySec=4h
+Persistent=true
+[Install]
+WantedBy=timers.target
+HBT
+    ok "daily hosting heartbeat installed (starts counting once you link the node to your mask)."
+  fi
+
   systemctl daemon-reload
+  [ "$HAVE_HB" = 1 ] && { systemctl enable --now harlequin-heartbeat.timer >/dev/null 2>&1 || true; }
   systemctl enable "$SVC" >/dev/null 2>&1 || true
   systemctl restart "$SVC"
   ok "service '${SVC}' enabled and started."
@@ -556,8 +643,7 @@ nohup ./harlequin-node "\${VOTE[@]}" \\
   --no-mdns \\
   --wasmtime-instantiation-strategy recreate-instance-copy-on-write \\
   --bootnodes "${BOOTNODE}" "${BOOTNODE2}" \\
-  --state-pruning archive \\
-  --blocks-pruning archive \\
+  $PRUNE_ARGS \\
   --pool-type single-state \\
   --no-telemetry \\
   --trie-cache-size 67108864 --db-cache 128 > node.log 2>&1 &
@@ -627,8 +713,7 @@ exec ./harlequin-node "\${VOTE[@]}" \\
   --no-mdns \\
   --wasmtime-instantiation-strategy recreate-instance-copy-on-write \\
   --bootnodes "${BOOTNODE}" "${BOOTNODE2}" \\
-  --state-pruning archive \\
-  --blocks-pruning archive \\
+  $PRUNE_ARGS \\
   --pool-type single-state \\
   --no-telemetry \\
   --trie-cache-size 67108864 --db-cache 128
@@ -652,6 +737,15 @@ PLINK
   chmod +x "$PREFIX/link-to-mask.sh"
 
   echo "  ────────────────────────────────────────────"
+  # 2026-10-02 (matrix 2.4): on a phone the first thing that kills a node is not the node, it is Android putting
+  # Termux to sleep. Say it FIRST, before anything else, only where it applies.
+  if [ -n "${ANDROID_ROOT:-}" ] || grep -qi android /proc/version 2>/dev/null; then
+    echo "  ⚠ ANDROID: before anything else, or the phone will freeze your node within minutes:"
+    echo "    1. In Termux (outside debian) run:  termux-wake-lock"
+    echo "    2. Android Settings → Apps → Termux → Battery → Unrestricted (no battery optimisation)."
+    echo "    3. Keep it on a charger and on Wi-Fi; a node syncs best when the phone is left alone."
+    echo
+  fi
   ok "All set. Starting your follower node '$NODE_NAME' (detached — it survives closing the terminal)."
   info "· Android/Termux (proot): to survive closing the APP, start it from Termux itself instead:"
   info "    setsid nohup proot-distro login debian -- bash ~/harlequin/run-node-fg.sh > ~/node.log 2>&1 &"

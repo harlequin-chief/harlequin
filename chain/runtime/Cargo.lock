@@ -1758,10 +1758,12 @@ dependencies = [
  "pallet-beacon",
  "pallet-directory",
  "pallet-forum",
+ "pallet-hosting",
  "pallet-justice",
  "pallet-manifesto",
  "pallet-market",
  "pallet-multisig-upgrade",
+ "pallet-pacts",
  "pallet-participation",
  "pallet-reputation",
  "pallet-sudo",
@@ -2554,6 +2556,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-hosting"
+version = "0.1.0"
+dependencies = [
+ "parity-scale-codec",
+ "polkadot-sdk-frame",
+ "scale-info",
+]
+
+[[package]]
 name = "pallet-justice"
 version = "0.1.0"
 dependencies = [
@@ -2593,6 +2604,15 @@ dependencies = [
  "polkadot-sdk-frame",
  "scale-info",
  "serde",
+]
+
+[[package]]
+name = "pallet-pacts"
+version = "0.1.0"
+dependencies = [
+ "parity-scale-codec",
+ "polkadot-sdk-frame",
+ "scale-info",
 ]
 
 [[package]]

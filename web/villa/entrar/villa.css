@@ -1,0 +1,265 @@
+    /* ── Villa login (#637) — page-scoped on top of site tokens ─────────────── */
+    /* once inside: no need for the door's title; and the long address is not needed to enter (27-sep-2026) */
+    body.in-villa .v-title, body.in-villa .v-sub{display:none}
+    #login-ss58{display:none}
+    .villa-wrap{max-width:680px;margin:0 auto;padding:6.5rem 1.25rem 6rem}
+    @media (max-width:700px){.villa-wrap{padding-top:7.5rem}}  /* clear the two-row nav (2026-09-27) */
+    .villa-card{background:var(--bg-2);border:1px solid var(--line);border-radius:10px;
+      padding:2rem 1.75rem;margin:1.5rem 0}
+    .villa-card h2{font-family:var(--serif);color:var(--gold);font-weight:normal;
+      font-size:1.35rem;margin:0 0 .75rem;letter-spacing:.02em}
+    .villa-card p{color:var(--muted);line-height:1.65;margin:.5rem 0}
+    .v-label{display:block;color:var(--muted);font-size:.8rem;letter-spacing:.08em;
+      text-transform:uppercase;margin:1.1rem 0 .35rem}
+    .v-input, .v-area{width:100%;background:var(--bg);border:1px solid var(--line);border-radius:6px;
+      color:var(--ink);padding:.65rem .8rem;font-size:1rem;font-family:var(--sans)}
+    .v-area{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85rem;min-height:4.5rem;resize:vertical}
+    .v-input:focus,.v-area:focus{outline:none;border-color:var(--gold-soft)}
+    .v-btn{display:inline-block;background:transparent;border:1px solid var(--gold);color:var(--gold);
+      font-family:var(--serif);font-size:1.05rem;letter-spacing:.04em;border-radius:6px;
+      padding:.6rem 1.6rem;margin-top:1.2rem;cursor:pointer;text-decoration:none;transition:background .2s,color .2s}
+    .v-btn:hover:not(:disabled){background:var(--gold);color:var(--bg)}
+    .v-btn:disabled{opacity:.35;cursor:not-allowed}
+    .v-btn--ghost{border-color:var(--line);color:var(--muted);font-size:.9rem;padding:.45rem 1.1rem}
+    .v-btn--ghost:hover{background:transparent;border-color:var(--gold-soft);color:var(--gold-soft)}
+    .v-row{display:flex;gap:.75rem;flex-wrap:wrap;align-items:center}
+    .v-note{font-size:.85rem;color:var(--muted);margin-top:.9rem;line-height:1.55}
+    .v-mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85rem;color:var(--ink);
+      word-break:break-all;background:var(--bg);border:1px solid var(--line);border-radius:6px;
+      padding:.6rem .8rem;margin:.4rem 0}
+    .v-phrase{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:.4rem;margin:.8rem 0}
+    .v-phrase span{background:var(--bg);border:1px solid var(--line);border-radius:5px;
+      padding:.35rem .5rem;font-size:.85rem;color:var(--ink)}
+    .v-phrase b{color:var(--gold-soft);font-weight:normal;margin-right:.35rem;font-size:.75rem}
+    .v-status{margin-top:1rem;padding:.7rem .9rem;border-radius:6px;font-size:.9rem;display:none;line-height:1.5;overflow-wrap:anywhere}
+    .v-status.ok{display:block;border:1px solid rgba(120,180,120,.4);color:#a8d5a8;background:rgba(60,120,60,.08)}
+    .v-status.err{display:block;border:1px solid rgba(155,35,53,.5);color:#e0a3ad;background:rgba(155,35,53,.1)}
+    .v-status.info{display:block;border:1px solid var(--line);color:var(--muted);background:var(--bg)}
+    .v-warn{border:1px solid rgba(155,35,53,.5);border-radius:8px;background:rgba(155,35,53,.07);
+      padding:1rem 1.2rem;margin:1rem 0;color:var(--ink);font-size:.92rem;line-height:1.6}
+    .v-warn strong{color:#e0a3ad}
+    .v-check{display:flex;gap:.6rem;align-items:flex-start;margin-top:.8rem;color:var(--muted);font-size:.9rem}
+    .v-check input{margin-top:.25rem;accent-color:var(--gold)}
+    .v-handle{font-family:var(--serif);color:var(--gold);font-size:1.4rem;letter-spacing:.03em;word-break:break-all}
+    .v-screen{display:none}
+    .v-screen.active{display:block}
+    .v-tabs{display:flex;gap:.5rem;border-bottom:1px solid var(--line);margin-bottom:1.2rem}
+    .v-tab{background:none;border:none;color:var(--muted);font-family:var(--serif);font-size:1rem;
+      padding:.5rem .9rem;cursor:pointer;border-bottom:2px solid transparent}
+    .v-tab.active{color:var(--gold);border-bottom-color:var(--gold)}
+    .v-divider{border:none;border-top:1px solid var(--line);margin:1.6rem 0}
+    .v-kicker{color:var(--muted);letter-spacing:.14em;text-transform:uppercase;font-size:.78rem;text-align:center}
+    .v-title{font-family:var(--serif);color:var(--ink);font-weight:normal;text-align:center;
+      font-size:2rem;margin:.4rem 0 .2rem}
+    .v-sub{text-align:center;color:var(--muted);font-size:.95rem}
+/* CSP: utilities that replace inline style= (the VPS serves style-src 'self') */
+.v-hide{display:none!important}   /* 8-oct-2026: «.place-card .v-btn--gold{display:inline-block}» outweighed it and the seal button never hid */
+.v-center{text-align:center}
+.v-left{text-align:left}
+.v-handle--sm{font-size:1.05rem}
+.v-row--center{justify-content:center;margin-top:.8rem}
+    .v-note a{color:var(--gold);text-decoration:underline}
+
+/* ══ 1-oct-2026 — THE DOOR AND THE WORLD ══════════════════════════════════════════════════════════════════
+   The maintainer: "when you log in you should enter like another world, as if you were crossing a door";
+   "almost like a game in the browser: a villa, a place where a society keeps growing, not plain boxes".
+   Outside: the door (zona-entrada) in the background. On signing in: two leaves open with light (.portal).
+   Inside: the square (villa-hero) full screen, places = lanterns over the scene, an illustrated vignette on
+   touching them, and the chain's real life (a bell per block, a chronicle, windows lighting up with
+   neighbours). */
+
+/* outside: the door in the background */
+.door-bg{position:fixed;inset:0;z-index:0;pointer-events:none;
+  background:linear-gradient(to bottom, rgba(5,6,13,.55), rgba(5,6,13,.15) 40%, rgba(5,6,13,.6)),
+    url(/cueva-entrada.jpg) 68% 60% / cover no-repeat, #05060d}  /* 7-oct-2026: the cave mouth (previously paso-montana.svg) */
+/* desktop: the card sits in the centre and was covering the cave's light → bigger background, anchored to
+   the left: the mouth (≈70% of the image's width) falls to the right of the card. */
+@media (min-width:900px) and (min-aspect-ratio:4/3){
+  .door-bg{background-size:auto, 135% auto, auto;background-position:0 0, 0% 55%, 0 0}
+}
+.villa-page .villa-wrap{position:relative;z-index:2}
+.villa-page .topbar{z-index:20}
+.villa-page .villa-card{background:rgba(14,13,20,.82);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+  border-color:rgba(212,175,106,.28);box-shadow:0 30px 80px -30px rgba(0,0,0,.9)}
+.door-card{padding-top:1.6rem}
+.door-crest{display:block;margin:0 auto .4rem;width:64px;height:64px;filter:drop-shadow(0 6px 20px rgba(212,175,106,.35))}
+.door-card h2{text-align:center;font-size:1.6rem;margin-bottom:.2rem}
+.door-who{margin:.2rem 0 0 !important;font-size:.82rem;letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
+.villa-page .v-handle{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:1.05rem;letter-spacing:.02em;
+  color:var(--gold);overflow-wrap:anywhere;word-break:normal;margin:.5rem 0 .2rem}
+.v-btn--gold{background:linear-gradient(180deg,#e6c26a,#d4af6a);color:#0a0a0f;border:0;font-family:var(--sans);
+  font-weight:700;letter-spacing:.14em;text-transform:uppercase;font-size:.88rem;padding:.95rem 2rem;border-radius:3px;
+  box-shadow:0 12px 36px rgba(212,175,106,.25)}
+.v-btn--gold:hover:not(:disabled){background:linear-gradient(180deg,#f0d07c,#e0bb70);color:#0a0a0f}
+.door-card .v-btn--gold{display:block;width:100%;margin-top:1.4rem}
+@media (max-width:520px){.villa-wrap{padding-left:1rem;padding-right:1rem}.villa-card{padding:1.6rem 1.15rem}}
+
+/* inside: no public shell, the world fills the screen */
+body.in-villa{overflow:hidden;background:#07070b}
+body.in-villa .topbar, body.in-villa .door-bg, body.in-villa .v-kicker{display:none !important}
+body.in-villa .villa-wrap{max-width:none;padding:0;margin:0}
+.world{position:fixed;inset:0;z-index:5;background:#07070b;color:var(--ink)}
+.scene-scroll{position:absolute;inset:0;overflow-x:auto;overflow-y:hidden;display:flex;align-items:center;
+  scrollbar-width:none;-webkit-overflow-scrolling:touch;cursor:grab}
+.scene-scroll::-webkit-scrollbar{display:none}
+.scene{position:relative;flex:none;width:max(100vw, calc(100svh * 1.7502));aspect-ratio:1920/1097;margin:auto}
+.scene-img{position:absolute;inset:0;background:url(/villa-valle.jpg) center / 100% 100% no-repeat}  /* 7-oct-2026: the ROUND VALLEY (previously villa-hero.jpg, the square) */
+.scene-img::after{content:"";position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(120% 90% at 50% 55%, transparent 50%, rgba(4,4,8,.75) 100%),
+    linear-gradient(to bottom, rgba(4,4,8,.55), transparent 18%, transparent 78%, rgba(4,4,8,.7))}
+.world.arrive .scene-img{animation:arrive 2.6s cubic-bezier(.2,.7,.2,1) both}
+@keyframes arrive{from{transform:scale(1.22);filter:brightness(1.8) blur(3px)}to{transform:none;filter:none}}
+
+/* lanterns flickering over the illustration's lamps */
+.glow{position:absolute;width:9%;aspect-ratio:1;transform:translate(-50%,-50%);border-radius:50%;pointer-events:none;
+  background:radial-gradient(circle, rgba(255,214,130,.55), rgba(255,180,80,.18) 40%, transparent 70%);
+  mix-blend-mode:screen;animation:flicker 3.2s ease-in-out infinite}
+.g1{left:28.6%;top:50%}.g2{left:75.8%;top:50%;animation-delay:-.7s}.g3{left:91.1%;top:66%;animation-delay:-1.3s}
+.g4{left:93.8%;top:20%;animation-delay:-2s}.g5{left:59.7%;top:45.6%;animation-delay:-.4s}.g6{left:14%;top:92%;width:16%;animation-delay:-1.7s}
+@keyframes flicker{0%,100%{opacity:.75}20%{opacity:.95}35%{opacity:.6}55%{opacity:1}70%{opacity:.7}85%{opacity:.9}}
+/* windows that light up with the neighbours (set by villa.js) */
+.win{position:absolute;width:.9%;aspect-ratio:3/4;transform:translate(-50%,-50%);border-radius:2px;pointer-events:none;
+  background:radial-gradient(circle, rgba(255,232,165,.95), rgba(255,190,90,.45) 50%, transparent 72%);mix-blend-mode:screen;
+  opacity:0;transition:opacity 1.6s ease;animation:flicker 4.5s ease-in-out infinite}
+.win.lit{opacity:1}
+/* embers rising */
+.embers i{position:absolute;bottom:-2%;width:4px;height:4px;border-radius:50%;background:#ffd27a;
+  box-shadow:0 0 8px 2px rgba(255,190,90,.7);opacity:0;animation:ember 9s linear infinite}
+.embers i:nth-child(1){left:8%;animation-delay:0s}.embers i:nth-child(2){left:16%;animation-delay:-2s}
+.embers i:nth-child(3){left:24%;animation-delay:-4.5s}.embers i:nth-child(4){left:33%;animation-delay:-1s}
+.embers i:nth-child(5){left:41%;animation-delay:-6s}.embers i:nth-child(6){left:50%;animation-delay:-3s}
+.embers i:nth-child(7){left:58%;animation-delay:-7.5s}.embers i:nth-child(8){left:66%;animation-delay:-5s}
+.embers i:nth-child(9){left:74%;animation-delay:-.5s}.embers i:nth-child(10){left:82%;animation-delay:-8s}
+.embers i:nth-child(11){left:90%;animation-delay:-3.7s}.embers i:nth-child(12){left:96%;animation-delay:-6.6s}
+@keyframes ember{0%{transform:translate(0,0);opacity:0}10%{opacity:.9}60%{opacity:.6}100%{transform:translate(30px,-75vh);opacity:0}}
+
+/* the places: a pulsing lantern and its name */
+.spot{position:absolute;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:7px;
+  background:none;border:0;padding:6px;cursor:pointer;color:#f6ecd4;font-family:var(--serif);font-size:15px;
+  letter-spacing:.03em;text-shadow:0 2px 8px #000, 0 0 2px #000;z-index:3}
+.spot::before{content:"";width:16px;height:16px;border-radius:50%;background:radial-gradient(circle,#fff6d8,#e6c26a 45%,#b98a2e 75%);
+  box-shadow:0 0 0 4px rgba(230,194,106,.22), 0 0 22px 6px rgba(230,194,106,.55);animation:beacon 2.4s ease-in-out infinite}
+.spot > span{background:rgba(8,8,12,.62);border:1px solid rgba(212,175,106,.38);border-radius:999px;padding:5px 13px;
+  white-space:nowrap;backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);transition:background .25s,border-color .25s,transform .25s}
+.spot:hover > span, .spot:focus-visible > span{background:rgba(212,175,106,.92);color:#0a0a0f;border-color:#e6c26a;text-shadow:none;transform:translateY(-2px)}
+.spot:focus-visible{outline:none}
+@keyframes beacon{0%,100%{box-shadow:0 0 0 4px rgba(230,194,106,.22),0 0 18px 4px rgba(230,194,106,.45)}50%{box-shadow:0 0 0 9px rgba(230,194,106,.08),0 0 30px 10px rgba(230,194,106,.7)}}
+.spot-banco{left:7.5%;top:49%}.spot-forja{left:28.6%;top:49%}.spot-red{left:37.6%;top:32%}.spot-foro{left:49.5%;top:57.5%}
+.spot-campana{left:51.2%;top:22%}.spot-mercado{left:75.8%;top:52.4%}.spot-camerino{left:93.8%;top:18.2%}
+.spot-corro{left:14%;top:86%}.spot-consejo{left:91.1%;top:59.2%}.spot-notario{left:59.7%;top:43.8%}
+/* 7-oct-2026: the places at the EDGES (Bank on the left, Dressing Room on the right) grow INWARD. The scene is
+   wider than the screen (it scrolls) and with the label centred on the dot they got cut off at the edge. The
+   dot does not move: its centre sits at 6px padding + 8px radius = 14px from the button's edge. */
+.spot-banco{transform:translate(-14px,-50%);align-items:flex-start}
+.spot-camerino{transform:translate(calc(-100% + 14px),-50%);align-items:flex-end}
+.scene.ring .spot-campana::before{animation:ring 1.4s ease-out 2}
+@keyframes ring{0%{box-shadow:0 0 0 0 rgba(255,236,170,.9),0 0 30px 10px rgba(230,194,106,.8)}100%{box-shadow:0 0 0 46px rgba(255,236,170,0),0 0 30px 10px rgba(230,194,106,.4)}}
+
+/* HUD: the villa, your mask and leave at the top; the chronicle at the bottom */
+.hud{position:absolute;left:0;right:0;z-index:8;display:flex;align-items:center;gap:12px;padding:12px clamp(12px,3vw,28px)}
+.hud-top{top:0;justify-content:space-between;background:linear-gradient(to bottom, rgba(5,5,9,.85), transparent)}
+.hud-brand{display:flex;align-items:center;gap:10px;font-family:var(--serif);font-size:20px;color:var(--gold);letter-spacing:.04em;text-shadow:0 2px 8px #000}
+.hud-brand img{filter:drop-shadow(0 2px 8px rgba(212,175,106,.4))}
+.hud-mask{display:flex;align-items:center;gap:8px;min-width:0;max-width:46vw;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;
+  color:#f0e4c4;background:rgba(8,8,12,.6);border:1px solid rgba(212,175,106,.3);border-radius:999px;padding:6px 12px}
+.hud-mask #shell-handle{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hud-dot{flex:none;width:8px;height:8px;border-radius:50%;background:#7fd18b;box-shadow:0 0 8px #7fd18b}
+.hud-leave{flex:none;background:rgba(8,8,12,.6);color:var(--muted);border:1px solid rgba(233,228,214,.2);border-radius:999px;
+  font-family:var(--sans);font-size:12px;letter-spacing:.12em;text-transform:uppercase;padding:7px 14px;cursor:pointer}
+.hud-leave:hover{color:var(--ink);border-color:var(--gold-soft)}
+.world-exp{display:none}
+.chronicle{position:absolute;left:50%;bottom:max(14px, env(safe-area-inset-bottom));transform:translateX(-50%);z-index:8;
+  display:flex;align-items:center;gap:10px;max-width:min(680px, calc(100vw - 24px));padding:10px 18px;border-radius:999px;
+  background:rgba(8,8,12,.72);border:1px solid rgba(212,175,106,.3);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+  font-family:var(--serif);font-style:italic;font-size:14.5px;color:#e9dcc0;text-align:center;line-height:1.4}
+.chr-bell{font-style:normal;font-size:15px;opacity:.85}
+.chronicle.ring .chr-bell{animation:swing .5s ease-in-out 4}
+@keyframes swing{0%,100%{transform:rotate(0)}25%{transform:rotate(18deg)}75%{transform:rotate(-18deg)}}
+.pan-hint{display:none;position:absolute;left:50%;top:66px;transform:translateX(-50%);z-index:7;margin:0;font-family:var(--sans);
+  font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:rgba(240,228,196,.75);text-shadow:0 1px 6px #000;
+  animation:fadeHint 6s ease 1.5s both}
+@keyframes fadeHint{0%{opacity:0}15%,70%{opacity:1}100%{opacity:0}}
+
+/* a place's vignette */
+.place{position:absolute;inset:0;z-index:12;display:flex;align-items:center;justify-content:center;padding:16px;
+  background:rgba(3,3,6,.55);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px)}
+.place[hidden]{display:none}
+.place-card{position:relative;width:min(520px,100%);max-height:calc(100svh - 32px);overflow:auto;border-radius:14px;
+  background:#0f0d15;border:1px solid rgba(212,175,106,.35);box-shadow:0 40px 100px -20px #000;animation:unfold .45s cubic-bezier(.2,.7,.2,1) both}
+@keyframes unfold{from{opacity:0;transform:translateY(24px) scale(.97)}to{opacity:1;transform:none}}
+.place-img{aspect-ratio:16/9;background:center / cover no-repeat;border-bottom:1px solid rgba(212,175,106,.25);position:relative}
+.place-img::after{content:"";position:absolute;inset:0;background:linear-gradient(to bottom, transparent 55%, #0f0d15)}
+.pi-banco{background-image:url(/zona-banco.jpg)}.pi-mercado{background-image:url(/zona-mercado.jpg)}
+.pi-foro{background-image:url(/zona-foro.jpg)}.pi-red{background-image:url(/zona-tablon.jpg)}
+.pi-corro{background-image:url(/zona-chat.jpg)}.pi-consejo{background-image:url(/zona-consejo-h.png)}
+/* 7-oct-2026: forge, bell and dressing room crop the VALLEY (the same scene you walk on), not the old square */
+.pi-camerino{background-image:url(/villa-valle.jpg);background-position:99% 13%;background-size:420%}.pi-forja{background-image:url(/villa-valle.jpg);background-position:25.5% 48%;background-size:380%}
+.pi-campana{background-image:url(/villa-valle.jpg);background-position:51.5% 18%;background-size:520%}
+.place-body, .forja-body{padding:4px 22px 22px;text-align:center}
+.forja-body{text-align:left}
+.forja-body[hidden], .place-body[hidden]{display:none}
+.place-card h2{font-family:var(--serif);font-weight:normal;color:var(--gold);font-size:1.6rem;margin:0 0 .4rem;text-align:center}
+.place-card p{color:var(--muted);line-height:1.6;margin:.4rem 0}
+.place-live{font-style:italic;color:#e9dcc0 !important;font-size:.92rem}
+.place-live:empty{display:none}
+.place-x{position:absolute;top:10px;right:10px;z-index:2;width:38px;height:38px;border-radius:50%;border:1px solid rgba(212,175,106,.4);
+  background:rgba(8,8,12,.7);color:var(--ink);font-size:22px;line-height:1;cursor:pointer}
+.place-card .v-btn--gold{display:inline-block;margin-top:1rem;min-width:200px}
+.forja-body code{font-size:.8rem;color:var(--gold-soft);overflow-wrap:anywhere}
+.forja-body .v-row .v-btn{margin-top:.8rem}
+
+/* the cave passage (1-oct-2026, the maintainer: "a cave between the mountains; crossing it, the light comes
+   and the valley is there"): rock darkness, a mouth of light in the distance that grows as you walk, the
+   walls rushing past, and the light enveloping you. */
+.portal{position:fixed;inset:0;z-index:100000;pointer-events:none;overflow:hidden;display:none;
+  background:radial-gradient(circle at 50% 54%, #2a1c12 0, #120c09 28%, #060505 60%, #020203 100%)}
+.portal.go{display:block;animation:portalOut 3.4s ease both}
+.cave-light{position:absolute;left:50%;top:54%;width:34vmin;height:42vmin;transform:translate(-50%,-50%) scale(.12);
+  clip-path:polygon(12% 100%,8% 62%,18% 30%,34% 10%,50% 3%,66% 9%,82% 28%,92% 60%,88% 100%);
+  background:radial-gradient(60% 55% at 50% 60%, #fffbea 0%, #ffe3a0 30%, #e6a94e 60%, #7a4a1c 100%)}
+.cave-wall{position:absolute;inset:-20%;border-radius:50%;
+  background:radial-gradient(closest-side, transparent 38%, rgba(10,8,8,.0) 40%, #0b0908 60%, #050404 100%)}
+.cave-wall.w2{inset:-60%;background:radial-gradient(closest-side, transparent 30%, #120e0c 45%, #070606 70%)}
+.portal.go .cave-light{animation:walk 2.6s cubic-bezier(.55,0,.75,.3) .2s both, step .55s ease-in-out .2s 5}
+.portal.go .cave-wall{animation:rush 2.6s cubic-bezier(.55,0,.75,.3) .2s both}
+.portal.go .cave-wall.w2{animation:rush2 2.6s cubic-bezier(.55,0,.75,.3) .2s both}
+.flare{position:absolute;inset:0;background:radial-gradient(circle at 50% 54%, #fffdf2, #ffe9b0 40%, rgba(255,214,130,.0) 75%);opacity:0}
+.portal.go .flare{animation:flare 1.2s ease 2.3s both}
+@keyframes walk{0%{transform:translate(-50%,-50%) scale(.12)}100%{transform:translate(-50%,-50%) scale(7)}}
+@keyframes step{0%,100%{margin-top:0}50%{margin-top:-6px}}
+@keyframes rush{0%{transform:scale(1);opacity:1}100%{transform:scale(4);opacity:0}}
+@keyframes rush2{0%{transform:scale(1.4);opacity:1}100%{transform:scale(6);opacity:0}}
+@keyframes flare{0%{opacity:0}40%{opacity:1}100%{opacity:0}}
+@keyframes portalOut{0%{opacity:0}6%{opacity:1}80%{opacity:1}100%{opacity:0}}
+
+/* Places bar (mobile only): a scrollable row of pills, at the very bottom; the chronicle rises above it. */
+.place-bar{display:none}
+.pb{flex:none;background:rgba(8,8,12,.72);border:1px solid rgba(212,175,106,.38);border-radius:999px;padding:7px 14px;
+  color:#f6ecd4;font-family:var(--serif);font-size:14px;letter-spacing:.03em;white-space:nowrap;cursor:pointer;
+  backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
+.pb:active,.pb:focus-visible{background:rgba(212,175,106,.92);color:#0a0a0f;border-color:#e6c26a;outline:none}
+@media (max-width:700px){
+  .place-bar{display:flex;gap:8px;position:absolute;left:0;right:0;bottom:max(12px, env(safe-area-inset-bottom));z-index:8;
+    overflow-x:auto;padding:0 14px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .place-bar::-webkit-scrollbar{display:none}
+  .chronicle{bottom:calc(max(12px, env(safe-area-inset-bottom)) + 52px)}
+  .pan-hint{display:block}
+  .hud-brand span{display:none}
+  .hud-mask{max-width:56vw}
+  .spot{font-size:14px}
+  .chronicle{font-size:13px;padding:9px 14px;border-radius:14px}
+  .place{align-items:flex-end;padding:0}
+  .place-card{width:100%;border-radius:16px 16px 0 0;max-height:88svh}
+}
+@media (prefers-reduced-motion:reduce){
+  .glow,.win,.embers i,.spot::before,.world.arrive .scene-img,.pan-hint{animation:none !important}
+  .embers{display:none}
+  .portal{display:none !important}
+}
+
+/* The Notary (1-oct-2026): pacts signed without the text ever leaving the device */
+.pi-notario{background-image:url(/zona-tablon.jpg);background-position:center 30%}
+.notario-body .v-tabs{margin-top:1rem}
+.notario-body .v-tab{font-size:.95rem}
+.pact-sig{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.78rem;overflow-wrap:anywhere;color:var(--ink)}
+.pact-ok{color:#a8d5a8}.pact-bad{color:#e0a3ad}

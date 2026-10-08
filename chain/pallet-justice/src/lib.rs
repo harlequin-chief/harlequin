@@ -1,6 +1,6 @@
 //! Harlequin justice pallet — disputes judged by a **jury drawn by reputation-weighted VRF sortition**
-//! (SPEC §4), with **robust interest-exclusion** (Art. IX: *"nadie es juez… de aquella en que tenga
-//! interés"*). It is the on-chain execution of the constitutional backstop (pre-freeze audit, issue #5):
+//! (SPEC §4), with **robust interest-exclusion** (Art. IX: *"no one is judge… of a matter in which they
+//! have an interest"*). It is the on-chain execution of the constitutional backstop (pre-freeze audit, issue #5):
 //! the sealed canon (Art. XII) only bites if the jury that applies it is independent of the parties — so
 //! the load-bearing part of this pallet is **who is kept off the jury**, not the tally.
 //!
@@ -42,7 +42,7 @@ extern crate alloc;
 pub use pallet::*;
 
 /// Reputation source: the per-account consensus reputation (the conservative MIN across the four suits,
-/// SPEC §1.2b / §4 "piso = mín(todas)") that the jury draw is weighted by. Wired by the runtime to the
+/// SPEC §1.2b / §4 "floor = min(all)") that the jury draw is weighted by. Wired by the runtime to the
 /// reputation pallet.
 pub trait ReputationInspect<AccountId> {
     /// Every account with positive consensus reputation and its raw fixed-point weight.
@@ -213,7 +213,7 @@ pub mod pallet {
         #[pallet::constant]
         type MaxInterested: Get<u32>;
 
-        /// Supermajority of the DRAWN jury required to find guilt (SPEC §4: "supermayoría honesta"). The
+        /// Supermajority of the DRAWN jury required to find guilt (SPEC §4: "honest supermajority"). The
         /// fraction is of the whole jury, not only of those who voted — silence is not guilt.
         #[pallet::constant]
         type GuiltThreshold: Get<Permill>;

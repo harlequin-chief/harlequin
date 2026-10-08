@@ -30,7 +30,7 @@ use alloc::vec::Vec;
 /// format-breaking change so old posts stay verifiable under their original rules.
 pub const FORMAT_VERSION: u8 = 1;
 
-/// Maximum body length in bytes (PARÁMETRO — client/anti-abuse bound, not an on-chain limit since the
+/// Maximum body length in bytes (PARAMETER — client/anti-abuse bound, not an on-chain limit since the
 /// text is off-chain). Keeps a single post to one content-addressed block.
 pub const MAX_BODY_LEN: usize = 16 * 1024;
 

@@ -1052,39 +1052,39 @@ impl WovenTrustJustificationImport {
 impl JustificationImport<Block> for WovenTrustJustificationImport {
     type Error = ConsensusError;
 
-    /// PUERTA 2 (). Devolver una lista vacía significaba «no me falta ninguna prueba de
-    /// finalidad», y era mentira siempre que el nodo iba por detrás. Este método es el ÚNICO sitio
-    /// donde un nodo declara qué justificaciones necesita para que el motor de sincronía se las pida
-    /// a sus pares; vacío = no las pide NUNCA, y nadie las manda sin pedirlas.
+    /// GATE 2 (). Returning an empty list used to mean "I'm not missing any finality
+    /// proof", and that was a lie whenever the node was lagging behind. This method is the ONLY place
+    /// where a node declares which justifications it needs, so the sync engine requests them
+    /// from its peers; empty = it NEVER requests them, and nobody sends them unasked.
     ///
-    /// Consecuencia medida el, con la cadena 112 horas sin finalizar: ningún nodo podía
-    /// ponerse al día, ni el nuestro de casa (316.000 bloques por detrás, `finalized #0`) ni un
-    /// recién llegado. Diagnosticado el en `DESIGN-FINALITY-CATCHUP.md` y no implementado.
+    /// Consequence measured on, with the chain 112 hours without finalizing: no node could
+    /// catch up, not even our own lagging node (316,000 blocks behind, `finalized #0`) nor a
+    /// freshly joined one. Diagnosed on in `DESIGN-FINALITY-CATCHUP.md` and not implemented.
     ///
-    /// Qué se pide: los siguientes objetivos de finalidad por encima del último finalizado, en saltos
-    /// de `FINALITY_STEP` —las alturas donde el comité vota, no todos los bloques—, acotado a
-    /// `MAX_CATCHUP_TARGETS` para no inundar a los pares ni pedir lo que aún no existe.
+    /// What is requested: the next finality targets above the last finalized one, in steps
+    /// of `FINALITY_STEP` — the heights where the committee votes, not every block — capped at
+    /// `MAX_CATCHUP_TARGETS` so as not to flood peers nor request what doesn't exist yet.
     ///
-    /// LO QUE ESTO **NO** ARREGLA, y hay que leerlo antes de creer que cierra el asunto: pide UNA VEZ,
-    /// al arrancar. El documento es explícito en que un nodo que sigue por detrás tiene que SEGUIR
-    /// pidiendo, y eso exige engancharlo al latido del gadget. Esa mitad no está aquí.
+    /// WHAT THIS **DOES NOT** FIX, and must be read before assuming it closes the matter: it asks ONCE,
+    /// at startup. The document is explicit that a node that remains behind has to KEEP
+    /// asking, and that requires wiring it to the gadget's heartbeat. That other half is not here.
     async fn on_start(&mut self) -> Vec<(Hash, NumberFor<Block>)> {
-        /// Cuántos objetivos pedir de una vez. Ocho saltos cubren un hueco razonable sin convertir el
-        /// arranque en una avalancha de peticiones contra los pares.
+        /// How many targets to request at once. Eight steps cover a reasonable gap without turning
+        /// startup into a flood of requests against peers.
         const MAX_CATCHUP_TARGETS: u32 = 8;
 
         let info = self.client.info();
         let finalized = info.finalized_number;
         let best = info.best_number;
         if best <= finalized {
-            return Vec::new(); // al día: no falta ninguna prueba
+            return Vec::new(); // up to date: no proof is missing
         }
 
         let mut wanted = Vec::new();
         let mut height = finalized.saturating_add(FINALITY_STEP);
         while height <= best && (wanted.len() as u32) < MAX_CATCHUP_TARGETS {
-            // Solo se pide lo que este nodo tiene en su propia cadena: pedir la prueba de un bloque
-            // que no conoce no tiene sentido y ensucia el diagnóstico del que la recibe.
+            // Only request what this node already has on its own chain: requesting the proof of a
+            // block it doesn't know makes no sense and muddies the diagnosis of whoever receives it.
             if let Ok(Some(hash)) = self.client.block_hash(height) {
                 wanted.push((hash, height));
             }
@@ -1094,7 +1094,7 @@ impl JustificationImport<Block> for WovenTrustJustificationImport {
         if !wanted.is_empty() {
             log::info!(
                 target: "woven-trust",
-                "finality catch-up: pidiendo {} pruebas de finalidad entre #{} y #{} (finalizado #{}, punta #{})",
+                "finality catch-up: requesting {} finality proofs between #{} and #{} (finalized #{}, tip #{})",
                 wanted.len(),
                 wanted.first().map(|(_, n)| *n).unwrap_or_default(),
                 wanted.last().map(|(_, n)| *n).unwrap_or_default(),

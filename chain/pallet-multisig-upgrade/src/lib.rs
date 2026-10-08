@@ -84,7 +84,7 @@ pub trait SealedInvariants {
     fn current() -> Option<InvariantDeclaration>;
 }
 
-/// The current finality-grade co-signing set (SPEC §3: "co-firma de la mayoría del comité vigente").
+/// The current finality-grade co-signing set (SPEC §3: "co-signature of the majority of the sitting committee").
 /// The runtime wires the best on-chain-derivable set; an EMPTY vec means "no committee samplable this
 /// epoch" and feeds the disaster-mode metric.
 pub trait CommitteeInspect<AccountId> {
@@ -99,7 +99,7 @@ pub trait CommitteeInspect<AccountId> {
     }
 }
 
-/// Standing source for seat cession ("miembros de alta reputación"): the runtime wires it to the
+/// Standing source for seat cession ("high-reputation members"): the runtime wires it to the
 /// reputation pallet. `high_floor` is the network's own bar (the p25 attest floor — one bar, reused,
 /// no new discretion).
 pub trait StandingInspect<AccountId> {
@@ -162,7 +162,7 @@ pub mod pallet {
         #[pallet::constant]
         type EpochLength: Get<BlockNumberFor<Self>>;
 
-        /// Consecutive committee-less epochs that enable DISASTER renewal (PARÁMETRO, default 14).
+        /// Consecutive committee-less epochs that enable DISASTER renewal (PARAMETER, default 14).
         #[pallet::constant]
         type DisasterEpochs: Get<u32>;
     }

@@ -578,7 +578,7 @@ mod tests {
 
     #[test]
     fn sortition_matches_f64_across_the_full_lam_range() {
-        // Macro-audit 2.2 — FIXED (campaña estrés tick 11, mode-anchored Poisson). The fixed-point
+        // Macro-audit 2.2 — FIXED (stress-test campaign tick 11, mode-anchored Poisson). The fixed-point
         // sortition now tracks the f64 oracle to within 2 seats across the WHOLE VRF-value range for the
         // full span of per-node lam the consensus can see (lam = tau * r/total, capped by max_seats). The
         // old version only held for lam <= 14 and collapsed to the seat cap for lam >~ 21; this is the
@@ -619,7 +619,7 @@ mod tests {
 
     #[test]
     fn known_defect_vrf_is_grindable_but_reputation_anchor_holds() {
-        // KNOWN DEFECT (campaña estrés tick 7, macroaudit §2.1): the sortition uses a SIMULATED VRF —
+        // KNOWN DEFECT (stress-test campaign tick 7, macroaudit §2.1): the sortition uses a SIMULATED VRF —
         // value = SHA-256(sk|seed) — and the sk is DERIVED FROM A FREELY-CHOSEN id (protocol-core:
         // sk-{id}; Art. VII lets a member pick their name). So a node can GRIND its id offline against a
         // predictable epoch seed to lift its committee seats well above its fair share. This pins:

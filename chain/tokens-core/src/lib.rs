@@ -1,6 +1,6 @@
 //! Harlequin economic core — **two coins**, dependency-free, deterministic, integer-only.
 //!
-//! Spec anchor: **SPEC §3** (instrumentos económicos). The two coins (LORE / the maintainer):
+//! Spec anchor: **SPEC §3** (economic instruments). The two coins (LORE / the maintainer):
 //!   - **HLQ (Harlequin)** — daily-use medium of exchange. Liquid, low-friction (SPEC §3.2, option C: no
 //!     peg promise — value is *moved* in HLQ, *stored* in SOV).
 //!   - **SOV (Soberano)** — scarce store of value. Cap-fixed, disinflationary emission with a hard cut,
@@ -15,7 +15,7 @@
 //! **No discretionary mint.** New coin enters circulation ONLY through a pre-committed
 //! [`EmissionCurve`] — a public, non-discretionary rule (Art. X "sound money"). There is no "create
 //! N coins" call. The curve is disinflationary with a hard cap; once the cap is reached, emission is 0
-//! forever. The *numbers* (initial reward, halving period, cap) are **[PARÁMETRO]** — supplied by the
+//! forever. The *numbers* (initial reward, halving period, cap) are **[PARAMETER]** — supplied by the
 //! caller / runtime config, never decided inside this code (SPEC §3.5: "nobody decrees the numbers").
 //!
 //! **Deterministic.** All math is integer (`u128`) with checked arithmetic; `BTreeMap` gives a fixed
@@ -64,7 +64,7 @@ pub enum Error {
 /// (Art. X). Emission proceeds in **eras** of `era_length` epochs; each era the per-epoch reward is scaled
 /// by the rational decay ratio `decay_num / decay_den` (so `1/2` = a Bitcoin halving, `3/4` = a flatter
 /// 0.75 decay). It only ever *decreases*, and total minted can never exceed `cap` (hard cut). Numbers are
-/// caller-supplied `[PARÁMETRO]`.
+/// caller-supplied `[PARAMETER]`.
 ///
 /// Why a rational ratio and not just halving: a pure halving (r=1/2) front-loads emission — >50% of the cap
 /// in the first era — so early node operators capture nearly everything and later ones get crumbs, which

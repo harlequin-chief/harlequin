@@ -159,7 +159,12 @@ fn main() {
     // Additive accrual: attest→claim pays per epoch of honest service (≈linear), founders keep
     // serving too (+25/epoch each); an external earns +60/epoch. E = epochs between joins
     // (mainnet epoch = 2h → E=12 ≈ one new member/day).
-    for (rate, paired) in [(4u32, false), (12, false), (4, true), (12, true)] {
+    // SIM_DAILY=1 (2026-10-01, matrix 4.9): the runtime's epoch is 7,200 blocks = 1 DAY, not 2 h. Same people, same
+    // effort per day: one join per epoch (= per day) and 12× the per-epoch accrual. Epoch counts then read as days.
+    let daily = std::env::var("SIM_DAILY").is_ok();
+    let mul = if daily { 12.0 } else { 1.0 };
+    let rates: Vec<(u32, bool)> = if daily { vec![(1, false), (1, true)] } else { vec![(4, false), (12, false), (4, true), (12, true)] };
+    for (rate, paired) in rates {
         let mut w = founders_world();
         let mut joined = 0u32;
         let (arm, _, _, _) = walk(&mut w, 400, &format!("S1 E={rate} paired={paired}"), false, |w, e| {
@@ -175,10 +180,10 @@ fn main() {
             let keys: Vec<String> = w.evidence.keys().cloned().collect();
             for k in keys {
                 let v = w.evidence[&k];
-                w.evidence.insert(k.clone(), v + if k.starts_with('x') { 60.0 } else { 25.0 });
+                w.evidence.insert(k.clone(), v + mul * if k.starts_with('x') { 60.0 } else { 25.0 });
             }
         });
-        println!("  → S1 E={rate} paired={paired}: ARMS at epoch {:?}\n", arm);
+        println!("  → S1 E={rate} paired={paired} daily={daily}: ARMS at epoch {:?}\n", arm);
     }
 
     // ── S2/S3 run as CONTINUATIONS of the organic sponsored web (the only state that actually

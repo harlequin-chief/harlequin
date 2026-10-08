@@ -1,1 +1,18 @@
+# Artefactos de compilación (decenas de GB, reproducibles desde el código)
 target/
+**/target/
+# Binarios y wasm compilados: NO viven en el repositorio; se pinean por sha en
+# dist-f2/BINARIES-MANIFEST.md. Patrones ANCLADOS a propósito: un patrón suelto como
+# `devnet-driver` excluía también el DIRECTORIO del código fuente del driver (fallo real, 25-jul).
+/dist-f2/*
+!/dist-f2/BINARIES-MANIFEST.md
+*.wasm
+/node/harlequin-node
+/node/tools/*/harlequin-node
+# Ruido local
+*.log
+*.tmp
+.DS_Store
+
+# Python bytecode cache from the stats feed
+__pycache__/

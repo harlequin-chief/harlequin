@@ -457,7 +457,7 @@ where
 		}
 	}
 
-	/// HARLEQUIN PATCH (, #931). Ver `disconnected_peers::forget`.
+	/// HARLEQUIN PATCH (, #931). See `disconnected_peers::forget`.
 	fn clear_disconnect_backoff(&mut self, peer_id: &PeerId) {
 		self.disconnected_peers.forget(peer_id);
 	}

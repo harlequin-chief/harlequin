@@ -115,7 +115,7 @@ where
 		self.chain_sync.as_mut().map(|s| s.add_peer(peer_id, best_hash, best_number));
 	}
 
-	/// HARLEQUIN PATCH (, #931): solo ChainSync lleva backoff; warp y state no.
+	/// HARLEQUIN PATCH (, #931): only ChainSync carries backoff; warp and state don't.
 	fn clear_disconnect_backoff(&mut self, peer_id: &PeerId) {
 		if let Some(ref mut chain_sync) = self.chain_sync {
 			chain_sync.clear_disconnect_backoff(peer_id);

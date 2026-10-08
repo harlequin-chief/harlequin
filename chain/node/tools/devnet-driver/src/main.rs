@@ -61,6 +61,11 @@ struct Args {
     /// Seconds per epoch to size timeouts (testnet: EpochLength 10 blocks x 6s = 60s).
     #[arg(long, default_value_t = 60u64)]
     epoch_secs: u64,
+    /// `--mode journey`: one byte that seeds the stranger's mask (node key = seed + 1). A mask walks its
+    /// first day only once per chain, so re-running the journey on the same chain needs a NEW byte; the
+    /// default keeps the historical mask so older reports stay reproducible.
+    #[arg(long, default_value_t = 0xc3u8)]
+    mask_seed: u8,
     /// `iron` = the full A/B/C entrenchment run. `seed` = ONLY sudo-seed `--target` with `--amount`
     /// evidence per suit and exit — the long-range (M2) harness uses it to fabricate reputation
     /// history on an isolated rival chain.
@@ -892,6 +897,154 @@ async fn main() {
         std::process::exit(if r.fail == 0 { 0 } else { 1 });
     }
 
+    if args.mode == "host" {
+        // HOSTING REWARD E1 (2026-10-02): the stranger of `--mode journey` (same --mask-seed) bound a node. That node
+        // beats once a "day" (testnet: 2 blocks) with an UNSIGNED heartbeat signed by its hot key. After the streak
+        // (testnet: 2 days) days count, and at the era boundary (testnet: 10 blocks) the mask must hold HLQ. An unbound
+        // key's beat and a second beat on the same day must be REFUSED by the pool. Refusals are results.
+        let mask = sr25519::Pair::from_seed(&[args.mask_seed; 32]);
+        let hot = sr25519::Pair::from_seed(&[args.mask_seed.wrapping_add(1); 32]);
+        let stranger = sr25519::Pair::from_seed(&[0x77u8; 32]);
+        let acc: AccountId32 = mask.public().into();
+        let bound = chain.vote_key_of(&acc).await;
+        r.check("host.node-bound", bound == Some(hot.public().0), format!("{:?}", bound.map(|k| hex_str(&k))));
+        let start_bal = chain.balance_hlq(&mask.public().0).await;
+        let beat = |p: &sr25519::Pair, at: u32, hash: [u8; 32]| {
+            let hk = p.public().0;
+            let mut m = b"hlq-heartbeat-v1".to_vec();
+            m.extend_from_slice(&hk);
+            m.extend_from_slice(&at.to_le_bytes());
+            m.extend_from_slice(&hash);
+            let sig = p.sign(&m).0;
+            UncheckedXt::new_bare(RuntimeCall::Hosting(pallet_hosting::Call::heartbeat { at, hash, hot: hk, sig })).encode()
+        };
+        let send = |xt: Vec<u8>| {
+            let c = chain.c.clone();
+            async move {
+                c.request::<H256, _>("author_submitExtrinsic", rpc_params![format!("0x{}", hex_str(&xt))]).await.map_err(|e| e.to_string())
+            }
+        };
+        let head = |c: &Chain| {
+            let c = c.c.clone();
+            async move {
+                let h: serde_json::Value = rpc(&c, "chain_getHeader", rpc_params![]).await;
+                u32::from_str_radix(h["number"].as_str().unwrap_or("0x0").trim_start_matches("0x"), 16).unwrap_or(0)
+            }
+        };
+        let hash_at = |c: &Chain, n: u32| {
+            let c = c.c.clone();
+            async move {
+                let h: String = rpc(&c, "chain_getBlockHash", rpc_params![n]).await;
+                let v = hex_bytes(&h);
+                let mut a = [0u8; 32];
+                a.copy_from_slice(&v[..32]);
+                a
+            }
+        };
+        let (mut accepted, mut same_day_refused, mut unbound_refused) = (0u32, false, false);
+        let mut last_day = u32::MAX;
+        let t0 = std::time::Instant::now();
+        while t0.elapsed().as_secs() < 900 {
+            let tip = head(&chain).await;
+            let day = tip / 2;
+            if tip > 3 && day != last_day {
+                let at = tip - 2;
+                let h = hash_at(&chain, at).await;
+                match send(beat(&hot, at, h)).await {
+                    Ok(_) => { accepted += 1; last_day = day; println!("  beat day {day} (block #{at}) accepted"); }
+                    Err(e) => println!("  beat day {day} refused: {}", e.chars().take(120).collect::<String>()),
+                }
+                if !same_day_refused && accepted >= 1 {
+                    same_day_refused = send(beat(&hot, at, h)).await.is_err();
+                }
+                if !unbound_refused {
+                    unbound_refused = send(beat(&stranger, at, h)).await.is_err();
+                }
+            }
+            if accepted >= 8 && chain.balance_hlq(&mask.public().0).await > start_bal {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+        }
+        let end_bal = chain.balance_hlq(&mask.public().0).await;
+        r.check("host.beats-accepted", accepted >= 4, format!("{accepted} days"));
+        r.check("host.same-day-refused", same_day_refused, String::new());
+        r.check("host.unbound-refused", unbound_refused, String::new());
+        r.check("host.paid-for-hosting", end_bal > start_bal, format!("HLQ {start_bal} -> {end_bal}"));
+        println!("\n== RESULT: {} PASS / {} FAIL ==", r.pass, r.fail);
+        std::process::exit(if r.fail == 0 { 0 } else { 1 });
+    }
+
+    if args.mode == "pact" {
+        // A PRIVATE CONTRACT, THE STRANGER'S WAY (2026-10-01): two masks born this minute, no coin. A proposes a
+        // salted commitment naming both, B signs: the pact must complete. Then one seals a key (mode B). The
+        // chain sees only 32-byte commitments. Everything rides the rationed feeless lane; refusal = RESULT.
+        let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let a = sr25519::Pair::from_seed(&sp_core::blake2_256(&(t, 11u8).encode()));
+        let b = sr25519::Pair::from_seed(&sp_core::blake2_256(&(t, 12u8).encode()));
+        let a_acc: AccountId32 = a.public().into();
+        let b_acc: AccountId32 = b.public().into();
+        let mk = |c| RuntimeCall::Pacts(c);
+        let dec = |v: Option<Vec<u8>>| v.map(|v| u64::decode(&mut &v[..]).unwrap_or(0)).unwrap_or(0);
+        let id = dec(chain.storage("Pacts", "NextPactId").await);
+        let commitment = sp_core::blake2_256(&(t, b"pact-under-test").encode());
+        let parties = vec![a_acc.clone(), b_acc.clone()].try_into().unwrap();
+        let r1 = chain.submit_as_try(&a, mk(pallet_pacts::Call::propose { commitment, parties, ttl: 600 })).await;
+        println!("propose (fresh A): {:?}", r1.as_ref().map(|_| "accepted"));
+        wait_blocks(&chain, 3).await;
+        for f in chain.recent_failures(4).await { println!("  ExtrinsicFailed {f}"); }
+        r.check("pact.proposed", dec(chain.storage("Pacts", "NextPactId").await) > id, format!("pact id {id}"));
+        let r2 = chain.submit_as_try(&b, mk(pallet_pacts::Call::sign { id })).await;
+        println!("sign (fresh B): {:?}", r2.as_ref().map(|_| "accepted"));
+        wait_blocks(&chain, 3).await;
+        for f in chain.recent_failures(4).await { println!("  ExtrinsicFailed {f}"); }
+        let completed = chain.map_raw("Pacts", "Pacts", &id.encode()).await
+            .map(|v| v.last().copied() == Some(1)).unwrap_or(false);
+        r.check("pact.completed-by-both", completed, format!("A {} / B {}", a_acc, b_acc));
+        let key = sp_core::blake2_256(&(t, b"sealed-under-test").encode());
+        let r3 = chain.submit_as_try(&b, mk(pallet_pacts::Call::seal { key })).await;
+        println!("seal (fresh B): {:?}", r3.as_ref().map(|_| "accepted"));
+        wait_blocks(&chain, 3).await;
+        let sealed = chain.map_raw("Pacts", "Sealed", &key.to_vec()).await.is_some();
+        r.check("pact.sealed", sealed, String::new());
+        println!("\n== RESULT: {} PASS / {} FAIL ==", r.pass, r.fail);
+        std::process::exit(if r.fail == 0 { 0 } else { 1 });
+    }
+
+    if args.mode == "deal" {
+        // CLOSING A DEAL, THE STRANGER'S WAY (proposal, 2026-09-27): two masks born this minute, no
+        // coin, no vouches — the seller publishes, the buyer proposes, the seller confirms. Everything
+        // must ride the rationed feeless lane; a refusal is a RESULT here, not a crash.
+        let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let seller = sr25519::Pair::from_seed(&sp_core::blake2_256(&(t, 1u8).encode()));
+        let buyer = sr25519::Pair::from_seed(&sp_core::blake2_256(&(t, 2u8).encode()));
+        let seller_acc: AccountId32 = seller.public().into();
+        let buyer_acc: AccountId32 = buyer.public().into();
+        let mk = |c| RuntimeCall::Market(c);
+        let dec = |b: Option<Vec<u8>>| b.map(|v| u64::decode(&mut &v[..]).unwrap_or(0)).unwrap_or(0);
+        let offer = dec(chain.storage("Market", "NextId").await);
+        let r1 = chain.submit_as_try(&seller, mk(pallet_market::Call::publish { detail: [7u8; 32], category: b"test".to_vec().try_into().unwrap() })).await;
+        println!("publish (fresh seller): {:?}", r1.as_ref().map(|_| "accepted"));
+        wait_blocks(&chain, 3).await;
+        for f in chain.recent_failures(4).await { println!("  ExtrinsicFailed {f}"); }
+        r.check("deal.publish-landed", dec(chain.storage("Market", "NextId").await) > offer, format!("offer id {offer}"));
+        let deal = dec(chain.storage("Market", "NextDealId").await);
+        let r2 = chain.submit_as_try(&buyer, mk(pallet_market::Call::propose_deal { offer, counterparty: seller_acc.clone() })).await;
+        println!("propose_deal (fresh buyer): {:?}", r2.as_ref().map(|_| "accepted"));
+        wait_blocks(&chain, 3).await;
+        for f in chain.recent_failures(4).await { println!("  ExtrinsicFailed {f}"); }
+        r.check("deal.proposed", dec(chain.storage("Market", "NextDealId").await) > deal, format!("deal id {deal}"));
+        let r3 = chain.submit_as_try(&seller, mk(pallet_market::Call::confirm_deal { deal })).await;
+        println!("confirm_deal (seller): {:?}", r3.as_ref().map(|_| "accepted"));
+        wait_blocks(&chain, 3).await;
+        for f in chain.recent_failures(4).await { println!("  ExtrinsicFailed {f}"); }
+        let closed = chain.map_raw("Market", "Deals", &deal.encode()).await
+            .map(|v| v.last().copied() == Some(1)).unwrap_or(false);
+        r.check("deal.closed-by-both", closed, format!("buyer {} / seller {}", buyer_acc, seller_acc));
+        println!("\n== RESULT: {} PASS / {} FAIL ==", r.pass, r.fail);
+        std::process::exit(if r.fail == 0 { 0 } else { 1 });
+    }
+
     if args.mode == "renewal-disaster" {
         // DISASTER RENEWAL REHEARSAL (2026-09-26). Measured on the live chain: the renewal committee
         // (reputation AND an active beacon key) is EMPTY — nobody commits/reveals to the beacon — so
@@ -1083,9 +1236,9 @@ async fn main() {
         // the promise is that ONE person arriving with nothing can walk the entire path. Four acts:
         // take a name, bind your node so you can ever be paid, speak, and offer something.
         println!("== THE STRANGER'S WHOLE ROAD — one mask, four acts ==");
-        let mask = sr25519::Pair::from_seed(&[0xc3; 32]);
+        let mask = sr25519::Pair::from_seed(&[args.mask_seed; 32]);
         let acc: AccountId32 = mask.public().into();
-        let hot = sr25519::Pair::from_seed(&[0xc4; 32]);
+        let hot = sr25519::Pair::from_seed(&[args.mask_seed.wrapping_add(1); 32]);
         println!("mask = {}  (node key 0x{})", acc.to_ss58check(), hex_str(&hot.public().0));
         let bal = chain.balance_hlq(&mask.public().0).await;
         r.check("journey.starts-broke", bal == 0, format!("HLQ = {bal}"));

@@ -327,7 +327,7 @@ mod tests {
 
     #[test]
     fn cascade_is_proportional_decaying_and_consent_scoped() {
-        // Constitutional invariants of cascade slashing (Art. V bridge, SPEC §1.5d, campaña estrés tick 6).
+        // Constitutional invariants of cascade slashing (Art. V bridge, SPEC §1.5d, stress-test campaign tick 6).
         // A sponsor loses standing NOT because another's act is charged to them, but because vouching is
         // THEIR own act and it proved a bad judgement — and only ever an attenuated reflection of it:
         //   (1) consent-scoped: only those who vouched are touched; an outsider is never slashed;
@@ -369,7 +369,7 @@ mod tests {
 
     #[test]
     fn cascade_is_cycle_safe_each_sponsor_slashed_once() {
-        // Campaña estrés tick 12 (macroaudit §3 cycle guard): a CYCLIC vouch graph must slash each
+        // Stress-test campaign tick 12 (macroaudit §3 cycle guard): a CYCLIC vouch graph must slash each
         // sponsor AT MOST ONCE — its vouch is one act (§1.5d) — matching the on-chain pallet's BFS+visited.
         // a <-> b vouch each other; a sponsors the culprit x. The old recursion re-slashed a and b on the
         // cycle (a lost ~53, b ~26 for loss 80); BFS+visited gives the honest once-each (a=40, b=20).

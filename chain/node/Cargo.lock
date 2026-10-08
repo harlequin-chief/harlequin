@@ -4149,9 +4149,11 @@ dependencies = [
  "pallet-beacon",
  "pallet-directory",
  "pallet-forum",
+ "pallet-hosting",
  "pallet-justice",
  "pallet-market",
  "pallet-multisig-upgrade",
+ "pallet-pacts",
  "pallet-reputation",
  "pallet-tokens",
  "parity-scale-codec",
@@ -5794,10 +5796,12 @@ dependencies = [
  "pallet-beacon",
  "pallet-directory",
  "pallet-forum",
+ "pallet-hosting",
  "pallet-justice",
  "pallet-manifesto",
  "pallet-market",
  "pallet-multisig-upgrade",
+ "pallet-pacts",
  "pallet-participation",
  "pallet-reputation",
  "pallet-sudo",
@@ -5904,6 +5908,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e8094feaf31ff591f651a2664fb9cfd92bba7a60ce3197265e9482ebe753c8f7"
 dependencies = [
  "hashbrown 0.14.5",
+]
+
+[[package]]
+name = "heartbeat"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "sp-core",
 ]
 
 [[package]]
@@ -9665,6 +9677,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-hosting"
+version = "0.1.0"
+dependencies = [
+ "parity-scale-codec",
+ "polkadot-sdk-frame",
+ "scale-info",
+]
+
+[[package]]
 name = "pallet-identity"
 version = "48.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10124,6 +10145,15 @@ dependencies = [
  "sp-core",
  "sp-io",
  "sp-runtime",
+]
+
+[[package]]
+name = "pallet-pacts"
+version = "0.1.0"
+dependencies = [
+ "parity-scale-codec",
+ "polkadot-sdk-frame",
+ "scale-info",
 ]
 
 [[package]]

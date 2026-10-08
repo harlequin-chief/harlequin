@@ -40,10 +40,10 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     // empty map → finality wedged at 2/4 with no error. The frozen spec_version was the ENABLER. Every
     // runtime change bumps this from now on (it's also what `set_code` requires: strictly-greater), and
     // the node's startup gate compares node-compiled spec vs on-chain spec to refuse an incoherent pair.
-    // 3 = la puerta abierta (26-jul-2026). Un upgrade que no sube este número NO es un upgrade: los
-    // nodos no lo distinguen del anterior y la guardia de coherencia del arranque no tiene con qué
-    // comparar. Se sube AQUÍ, en el candidato, nunca en la cadena viva.
-    spec_version: 3,
+    // 3 = the open door (26-Jul-2026). An upgrade that doesn't bump this number is NOT an upgrade:
+    // nodes can't tell it apart from the previous one and the startup coherence guard has nothing to
+    // compare against. It's bumped HERE, in the candidate, never on the live chain.
+    spec_version: 4,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -140,6 +140,12 @@ mod runtime {
 
     #[runtime::pallet_index(14)]
     pub type MultisigUpgrade = pallet_multisig_upgrade::Pallet<Runtime>;
+
+    #[runtime::pallet_index(15)]
+    pub type Pacts = pallet_pacts::Pallet<Runtime>;
+
+    #[runtime::pallet_index(16)]
+    pub type Hosting = pallet_hosting::Pallet<Runtime>;
 }
 
 #[derive_impl(frame_system::config_preludes::SolochainDefaultConfig)]
@@ -224,6 +230,21 @@ impl HlqTxPayment {
                 | RuntimeCall::Reputation(pallet_reputation::Call::set_vote_key { .. })
                 | RuntimeCall::Forum(pallet_forum::Call::post { .. })
                 | RuntimeCall::Market(pallet_market::Call::publish { .. })
+                // PROPOSAL (unratified, 2026-09-27): closing a deal and withdrawing one's own offer ride
+                // the same rationed lane — a newcomer who could publish but not close, or not take an
+                // offer down, was measured on 23-sep (withdraw charged a fee a new mask cannot have).
+                | RuntimeCall::Market(pallet_market::Call::withdraw { .. })
+                | RuntimeCall::Market(pallet_market::Call::propose_deal { .. })
+                | RuntimeCall::Market(pallet_market::Call::confirm_deal { .. })
+                | RuntimeCall::Market(pallet_market::Call::cancel_deal { .. })
+                | RuntimeCall::Market(pallet_market::Call::reap_deal { .. })
+                // Pacts (2026-10-01): a newborn mask with no coins must be able to sign a private contract.
+                // Same rationed lane: per-mask budget per epoch + per-block count ceiling.
+                | RuntimeCall::Pacts(pallet_pacts::Call::propose { .. })
+                | RuntimeCall::Pacts(pallet_pacts::Call::sign { .. })
+                | RuntimeCall::Pacts(pallet_pacts::Call::withdraw { .. })
+                | RuntimeCall::Pacts(pallet_pacts::Call::reap { .. })
+                | RuntimeCall::Pacts(pallet_pacts::Call::seal { .. })
                 | RuntimeCall::BeaconPallet(pallet_beacon::Call::commit { .. })
                 | RuntimeCall::BeaconPallet(pallet_beacon::Call::reveal { .. })
                 | RuntimeCall::Justice(pallet_justice::Call::cast_vote { .. })
@@ -404,7 +425,7 @@ parameter_types! {
     /// (🔴#5-iii, SPEC-RELAUNCH §7) ABSOLUTE attester floor: one thousandth of the woven mass
     /// (FP_SCALE/1000 — network consensus reputation sums to ≈FP_SCALE). A witness must hold at least a
     /// thousandth of the network's woven trust for its testimony to admit evidence; the live floor is
-    /// `max(p25 of the rep>0 set, this)`, recomputed each epoch. PARÁMETRO (calibration dial).
+    /// `max(p25 of the rep>0 set, this)`, recomputed each epoch. PARAMETER (calibration dial).
     pub const AttestFloorMin: i128 = pallet_reputation::FP_SCALE / 1000;
 }
 
@@ -429,19 +450,19 @@ impl pallet_reputation::Config for Runtime {
     type AttestBudget = ConstU32<8>;
     type AttestFloorMinFp = AttestFloorMin;
     /// (🔴#5-v, gate F1b) c = 1: one attest admits at most the attester's OWN evidence in the suit —
-    /// nobody vouches more weight than they themselves carry. PARÁMETRO.
+    /// nobody vouches more weight than they themselves carry. PARAMETER.
     type AttestStakeMultiplier = ConstU32<1>;
     /// (F2 piece 6) Service → evidence, straight from participation's verified counters.
     type ServiceFeed = ParticipationServiceFeed;
-    /// One block authored in turn / one committee vote = ONE unit of Technical evidence ("un bloque
-    /// honesto, una unidad de verdad"). PARÁMETRO — joint F3 review calibrates it against the decay
+    /// One block authored in turn / one committee vote = ONE unit of Technical evidence ("one honest
+    /// block, one unit of truth"). PARAMETER — joint F3 review calibrates it against the decay
     /// and the founders' launch seed before the ceremony.
     type ServiceEvidenceRate = ConstU128<1>;
     /// (G1 gap-check, §1.5d) Vouch-bomb probation window at genesis. MAINNET = 7200 blocks
     /// = **1 reputation epoch (1 day)**: a vouch must survive one full dawn before a protégé's fraud
     /// can claw at its sponsor. It MUST be non-zero on mainnet: the setter has no dispatch path there
     /// (EvidenceOrigin = Root, Sudo not compiled), so this default is the live value forever.
-    /// PARÁMETRO provisional — the maintainer ratifies the width alongside λ before the ceremony.
+    /// PARAMETER provisional — the maintainer ratifies the width alongside λ before the ceremony.
     /// TESTNET = 0 (off) so fast-validation cascades behave as before and the dial stays exercisable.
     #[cfg(feature = "mainnet")]
     type DefaultProbationWindow = ConstU32<7200>;
@@ -477,15 +498,33 @@ impl pallet_market::Config for Runtime {
     /// v1 anti-spam = the per-mask active-offer cap alone (no-op gate): a newcomer's first listing is never
     /// gated behind holding HLQ (open entry). Swap to the B6 micro-fee here if real spam appears.
     type Postage = ();
+    /// A closed deal grants NO reputation by itself (2026-10-01): two masks of one person could manufacture
+    /// commerce standing by closing deals with each other. Commerce reputation keeps coming from counterparty
+    /// attestation (`attest_evidence`, four anti-Sybil layers); a closed deal is what such an attestation and
+    /// a justice case can cite.
+    type OnDealClosed = ();
+    /// Unconfirmed proposals per mask, and the counterparty's window to confirm (7 days at 12 s).
+    type MaxOpenDealsPerMask = ConstU32<4>;
+    type DealTtl = ConstU32<50_400>;
     /// Max length of the optional category tag. Deployment parameter.
     type MaxCategoryLen = ConstU32<16>;
     /// Max simultaneous active offers per mask — the sole v1 anti-spam bound. Deployment parameter.
     type MaxPerMask = ConstU32<32>;
 }
 
+/// Pacts: private contracts signed on chain (design/PACTOS-CONTRATOS-PRIVADOS-2026-10-01.md). The chain holds a
+/// salted commitment, never the text. Bounds keep free accounts from growing eternal state.
+impl pallet_pacts::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type MaxParties = ConstU32<8>;
+    type MaxOpenPerMask = ConstU32<4>;
+    /// Longest signing window: 30 days at 12 s.
+    type MaxPactTtl = ConstU32<216_000>;
+}
+
 // --- Tokenomics (#595 / SPEC §3, §9): two coins (HLQ daily-use, SOV reserve), hard-capped disinflationary
 // emission, money ≠ power. Numbers LOCKED by the maintainer: SOV hard cap 54,000,000 (deck of 54), HLQ hard cap
-// 540,000,000 (×10). SOV r=1/2 (steep, closes ~4-5y = credible scarcity); HLQ r=15/16 (long, ~20y, pays
+// 540,000,000 (×10). SOV r=3/4 (steep, closes in a few eras = credible scarcity); HLQ r=15/16 (long, ~20y, pays
 // nodes through the adoption ramp). Founders collect ZERO (G2, `pallet_tokens::Founders`) — NO premine,
 // so both curves are re-derived from the FULL cap (`initial = cap*(1-r)`). Fee burn 50/50. Numbers
 // stress-modelled `sim/coin_scenarios_stress.py` + `sim/fee_model.py`, ratified by the maintainer. The
@@ -566,6 +605,55 @@ impl pallet_tokens::Config for Runtime {
     /// boundary to build the reward split. NOT a Root-gated call (Root is compiled out on mainnet), so
     /// emission mints without a king. Confers NO power, only a claim on the reward pool.
     type ServiceSource = ParticipationEraServiceFeed;
+    /// E1 hosting pool (2026-10-02, design/COBRO-POR-HOSPEDAR-E1-2026-10-02.md): masks whose bound node beat every day
+    /// share 10 % of each era's HLQ tranche by days present — the ceiling of what fake hosts could ever take.
+    type HostingSource = HostingFeed;
+    type HostingShareBps = ConstU16<1000>;
+}
+
+/// Hosting days of an era, from pallet-hosting.
+pub struct HostingFeed;
+impl pallet_tokens::EraHostingSource<<Runtime as frame_system::Config>::AccountId> for HostingFeed {
+    fn era_hosts(era: u64) -> alloc::vec::Vec<(<Runtime as frame_system::Config>::AccountId, u64)> {
+        pallet_hosting::Pallet::<Runtime>::era_hosts(era)
+    }
+    fn clear_era(era: u64) {
+        pallet_hosting::Pallet::<Runtime>::clear_era(era)
+    }
+}
+
+/// A hot session key → the mask it is bound to (`set_vote_key`'s reverse map).
+pub struct BoundMask;
+impl pallet_hosting::MaskOfHotKey<<Runtime as frame_system::Config>::AccountId> for BoundMask {
+    fn mask_of(hot: &[u8; 32]) -> Option<<Runtime as frame_system::Config>::AccountId> {
+        pallet_reputation::VoteKeyOwner::<Runtime>::get(*hot)
+    }
+}
+
+impl pallet_hosting::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type MaskOf = BoundMask;
+    /// A day = the reputation/feeless epoch (7,200 blocks at 12 s); TESTNET 2 so streaks build in a devnet.
+    #[cfg(feature = "mainnet")]
+    type DayLength = ConstU32<7200>;
+    #[cfg(not(feature = "mainnet"))]
+    type DayLength = ConstU32<2>;
+    /// MUST equal pallet-tokens' EraLength.
+    #[cfg(feature = "mainnet")]
+    type EraLength = ConstU32<1_317_600>;
+    #[cfg(not(feature = "mainnet"))]
+    type EraLength = ConstU32<10>;
+    /// 30 unbroken days before days count (TESTNET 2): farms cost time.
+    #[cfg(feature = "mainnet")]
+    type MinStreakDays = ConstU32<30>;
+    #[cfg(not(feature = "mainnet"))]
+    type MinStreakDays = ConstU32<2>;
+    type MaxGapDays = ConstU32<3>;
+    /// A beat points at a block at most 600 blocks (~2 h) old; BlockHashCount (2,400) keeps those hashes.
+    type MaxBeatAge = ConstU32<600>;
+    type UnsignedPriority = ConstU64<1>;
+    /// Bounds the era-end read/clear in on_finalize (review 2-oct). Far above launch scale; raise by upgrade.
+    type MaxHostsPerEra = ConstU32<20_000>;
 }
 
 /// Adapter: the participation feed reads the conservative on-chain reputation (min of the four suits) from
@@ -625,7 +713,7 @@ impl pallet_participation::Config for Runtime {
     type MaxCommittee = ConstU32<64>;
     /// SOV-by-endurance ceiling (the maintainer, option A): full SOV weight after 8 consecutive
     /// served eras. At a ~1-day era this is ~8 days to cap; the SOV curve (r=3/4, ~7y) and λ set what
-    /// that means in years. PARÁMETRO, re-ratifiable with the curve. TESTNET: 3 so devnets cap fast.
+    /// that means in years. PARAMETER, re-ratifiable with the curve. TESTNET: 3 so devnets cap fast.
     #[cfg(feature = "mainnet")]
     type MaxStreak = ConstU32<8>;
     #[cfg(not(feature = "mainnet"))]
@@ -678,7 +766,7 @@ parameter_types! {
     pub const MaxJury: u32 = 32;
     /// Max accounts explicitly flagged interested at `open_case` (bounds the exclusion list).
     pub const MaxInterested: u32 = 16;
-    /// 2/3 supermajority of the DRAWN jury to find guilt (SPEC §4 "supermayoría honesta").
+    /// 2/3 supermajority of the DRAWN jury to find guilt (SPEC §4 "honest supermajority").
     pub const GuiltThreshold: Permill = Permill::from_percent(67);
     /// §7-🔴#4: 2/3 of the drawn jury must have VOTED for a close to produce a verdict.
     pub const VoteQuorum: Permill = Permill::from_percent(67);
@@ -866,7 +954,7 @@ const RENEWAL_ELECTORATE_TAU: usize = 60;
 #[cfg(not(feature = "mainnet"))]
 const RENEWAL_ELECTORATE_TAU: usize = 4;
 
-/// The finality-grade co-signing set for key renewals (SPEC §3 "co-firma del comité vigente").
+/// The finality-grade co-signing set for key renewals (SPEC §3 "co-signature of the sitting committee").
 /// v1 = the TOP-τ reputable accounts holding a committed beacon key this epoch: committee-grade
 /// standing, committee-sized (bounded denominator — a mask farm cannot inflate the electorate to
 /// make the majority unreachable and grief renewals: review; displacing a member of this
@@ -959,7 +1047,7 @@ impl pallet_multisig_upgrade::Config for Runtime {
     type EpochLength = ConstU32<7200>;
     #[cfg(not(feature = "mainnet"))]
     type EpochLength = ConstU32<10>;
-    /// R2 (PARÁMETRO): 14 committee-less epochs ≈ two weeks at a daily epoch enable disaster renewal.
+    /// R2 (PARAMETER): 14 committee-less epochs ≈ two weeks at a daily epoch enable disaster renewal.
     type DisasterEpochs = ConstU32<14>;
 }
 

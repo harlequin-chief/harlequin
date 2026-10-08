@@ -1,0 +1,15 @@
+[package]
+name = "heartbeat"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+description = "The daily hosting heartbeat of a node bound to a mask: signs a recent block with the node's vote key and submits it to the node's own RPC (unsigned). No account secret, no coins needed."
+publish = false
+
+[[bin]]
+name = "harlequin-heartbeat"
+path = "src/main.rs"
+
+[dependencies]
+sp-core = "*"
+hex = "0.4"

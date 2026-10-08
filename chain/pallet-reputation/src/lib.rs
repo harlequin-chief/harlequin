@@ -174,7 +174,7 @@ pub mod pallet {
         type SponsorLiability: Get<Permill>;
 
         /// (🔴#5-i, SPEC-RELAUNCH §7) Max attestations one attester may cast per epoch, shared across
-        /// suits and beneficiaries (PARÁMETRO, default 8). The first of the four anti-pair-Sybil layers:
+        /// suits and beneficiaries (PARAMETER, default 8). The first of the four anti-pair-Sybil layers:
         /// however cheap a mask is, its testimony throughput is rate-limited by the chain's own clock.
         #[pallet::constant]
         type AttestBudget: Get<u32>;
@@ -182,12 +182,12 @@ pub mod pallet {
         /// (G1 gap-check, §1.5d) Initial value of `ProbationWindow`. On the king-less mainnet
         /// no origin can dispatch `set_probation_window` (EvidenceOrigin is Root and Sudo is not compiled
         /// in), so the shipped default IS the live value forever: a 0 default would ship the vouch-bomb
-        /// guard permanently off. PARÁMETRO — a mutable calibration, but it must ship non-zero on mainnet.
+        /// guard permanently off. PARAMETER — a mutable calibration, but it must ship non-zero on mainnet.
         #[pallet::constant]
         type DefaultProbationWindow: Get<BlockNumberFor<Self>>;
 
         /// (🔴#5-iii, SPEC-RELAUNCH §7) ABSOLUTE floor of attester consensus reputation, raw fixed-point
-        /// (PARÁMETRO). The epoch floor is `max(p25 of the rep>0 set, this)` — see [`AttestFloorFp`] —
+        /// (PARAMETER). The epoch floor is `max(p25 of the rep>0 set, this)` — see [`AttestFloorFp`] —
         /// so even at genesis/empty state a zero-reputation mask's testimony admits nothing. Below the
         /// floor an attest is ACCEPTED but weighs 0 (no censorship; it just does not count).
         #[pallet::constant]
@@ -197,7 +197,7 @@ pub mod pallet {
         /// one attest admits at most `c × the attester's OWN evidence in the same suit` — **nobody
         /// vouches more weight than they themselves carry**. The other layers bound testimony
         /// THROUGHPUT; this bounds its SIZE, so one fat attest from a barely-above-floor account
-        /// cannot mint arbitrary evidence. PARÁMETRO, default 1.
+        /// cannot mint arbitrary evidence. PARAMETER, default 1.
         #[pallet::constant]
         type AttestStakeMultiplier: Get<u32>;
 
@@ -205,7 +205,7 @@ pub mod pallet {
         /// per-epoch counters; `()` disables it (unit tests).
         type ServiceFeed: super::ServiceFeed<Self::AccountId>;
 
-        /// (F2 piece 6) Evidence units credited per unit of measured service (PARÁMETRO — reviewed
+        /// (F2 piece 6) Evidence units credited per unit of measured service (PARAMETER — reviewed
         /// jointly in F3: this dial decides how fast running a node buys standing). 0 disables.
         #[pallet::constant]
         type ServiceEvidenceRate: Get<u128>;
@@ -270,7 +270,7 @@ pub mod pallet {
     /// (🔴#5-ii) LIFETIME saturating attest counter per `(attester, beneficiary, suit)` — the geometric
     /// r=½ pair decay: the n-th attest of a pair admits `amount >> n`, so one pair can never fabricate
     /// more than 2× a single full-weight attest per suit IN ITS WHOLE LIFE. m2 (SPEC-RELAUNCH §7,
-    /// decisión consciente): this is grow-only storage — accepted trade-off for the lifetime anti-Sybil
+    /// conscious decision): this is grow-only storage — accepted trade-off for the lifetime anti-Sybil
     /// bound; each entry is one saturating u8 (counting stops at [`ATTEST_PAIR_DECAY_MAX`], past which
     /// the admitted weight is ~0 anyway) and exists only for pairs that actually transacted, so the
     /// attacker pays for the storage it creates.
@@ -308,7 +308,7 @@ pub mod pallet {
     /// this identity, "rectification" would degrade into a discretionary fine — the exact thing the
     /// acta forbids. A record's CURRENT worth is `amount · ρ^(epochs elapsed)` (the same retention the
     /// aggregate store decays by; integer fixed-point, deterministic). Struck (rectified) records are
-    /// REMOVED — "tachar la falsedad probada"; fully-decayed ones are worth 0 and inert.
+    /// REMOVED — "strike out the proven falsehood"; fully-decayed ones are worth 0 and inert.
     #[pallet::storage]
     pub type EvidenceRecords<T: Config> =
         StorageMap<_, Blake2_128Concat, u64, (T::AccountId, Suit, u128, u64), OptionQuery>;
@@ -1009,7 +1009,7 @@ pub mod pallet {
             // at most this fraction of its CURRENT standing in the suit per incident — so a single verdict
             // can never wipe a sponsor (a sleeper's deliberate "kamikaze" fraud cannot drain those who
             // vouched for it beyond a bounded slice). Several independent incidents still erode standing (a
-            // real pattern of bad judgement). The fraction is a tunable dial (PARÁMETRO §1.5d).
+            // real pattern of bad judgement). The fraction is a tunable dial (PARAMETER §1.5d).
             let cap = Permill::from_percent(50);
             let now = frame_system::Pallet::<T>::block_number();
             let probation = ProbationWindow::<T>::get();
@@ -1776,6 +1776,33 @@ mod tests {
             assert!(Reputation::vouch_quota_of(&1) > 0);
             // now the earned standing buys the right to sponsor
             assert_ok!(Reputation::vouch(RuntimeOrigin::signed(1), 2u64, Suit::Commerce, 1));
+        });
+    }
+
+    #[test]
+    fn vouch_quota_keeps_the_hard_min_on_purpose() {
+        // SPEC 1.2c decision (2026-10-01): POWER uses the concave aggregate, the vouch QUOTA keeps the hard MIN.
+        // A balanced member can sponsor more than a specialist whose concave aggregate is HIGHER: vouching exposes
+        // the sponsor to the cascade, so it asks for trust in all four suits. Change this only by deciding it.
+        new_test_ext().execute_with(|| {
+            let fp = reputation_core::FP_SCALE;
+            for suit in Suit::ALL {
+                ReputationSnapshot::<Test>::insert(10u64, suit, fp / 20); // balanced: 0.05 everywhere
+            }
+            ReputationSnapshot::<Test>::insert(11u64, Suit::Commerce, fp / 2); // specialist: 0.5, 0.5, 0.5 …
+            ReputationSnapshot::<Test>::insert(11u64, Suit::Technical, fp / 2);
+            ReputationSnapshot::<Test>::insert(11u64, Suit::Judicial, fp / 2);
+            ReputationSnapshot::<Test>::insert(11u64, Suit::Governance, fp / 1000); // … and one weak suit
+            let concave = |v: [i128; 4]| -> i128 {
+                let mut v = v;
+                v.sort();
+                (v[0] + (v[1] + v[2]) / 2) / 2
+            };
+            assert!(concave([fp / 2, fp / 2, fp / 2, fp / 1000]) > concave([fp / 20; 4]), "premise: specialist has more power");
+            assert!(
+                Reputation::vouch_quota_of(&10) > Reputation::vouch_quota_of(&11),
+                "the balanced member must be able to sponsor more than the specialist (hard MIN)"
+            );
         });
     }
 

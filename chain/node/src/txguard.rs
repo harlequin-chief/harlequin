@@ -19,37 +19,37 @@
 //! ceremony — it rides in the next node binary like any other patch.
 //!
 //!
-//! ⏸ ESTADO (segunda pasada): **CRIBA POR FORMA, sin tocar `runtime/`.**
-//! La primera versión quería decodificar al extrinsic REAL, y eso exige exportar un tipo que el
-//! runtime tiene privado (`type Block`, `type TxExtension`). the maintainer aprobó «solo `node/`, sin tocar la
-//! cadena», así que ese camino queda **parado en su gated #45 (vence 19-ago)** y NO se toma aquí.
+//! ⏸ STATUS (second pass): **SHAPE-BASED SCREEN, without touching `runtime/`.**
+//! The first version wanted to decode into the REAL extrinsic, and that requires exporting a type the
+//! runtime keeps private (`type Block`, `type TxExtension`). the maintainer approved "only `node/`, without touching the
+//! chain", so that path stays **blocked behind its gate #45 (due 19-Aug)** and is NOT taken here.
 //!
-//! Lo que sí se puede hacer dentro de lo aprobado: mirar el **preámbulo**, cuya regla vive en
-//! `sp-runtime` (no en nuestro runtime). Un extrinsic empieza por un byte de versión+tipo, y solo
-//! cuatro combinaciones existen: bare v4/v5, firmado v4, general v5. Cualquier otro primer byte
-//! **no puede ser un extrinsic**, se decodifique como se decodifique.
+//! What can be done within what's approved: look at the **preamble**, whose rule lives in
+//! `sp-runtime` (not in our runtime). An extrinsic starts with a version+type byte, and only
+//! four combinations exist: bare v4/v5, signed v4, general v5. Any other first byte
+//! **cannot be an extrinsic**, however it gets decoded.
 //!
-//! Qué caza y qué no — dicho antes de que alguien lo suponga:
-//!   · CAZA la basura medida el 13-ago (`0x00`, `0x0400`, `0x08xxxx`, `0x10…`): su primer byte no es
-//!     una versión válida. Ahí muere el 100 % de lo probado en laboratorio.
-//!   · NO CAZA un blob que empiece por un byte válido y siga con basura: ese llega al runtime y sigue
-//!     trampeando. Para eso hace falta el decode completo, o sea el #45.
-//! Es una criba, no un cedazo fino, y se documenta como tal.
+//! What it catches and what it doesn't — stated before anyone assumes otherwise:
+//!   · CATCHES the rubbish measured on 13-Aug (`0x00`, `0x0400`, `0x08xxxx`, `0x10…`): its first byte is not
+//!     a valid version. That kills 100% of what was tested in the lab.
+//!   · DOES NOT CATCH a blob that starts with a valid byte and continues with garbage: that reaches the runtime and keeps
+//!     tripping it up. That needs the full decode, i.e. #45.
+//! It's a screen, not a fine sieve, and is documented as such.
 //!
-//! Validación obligatoria antes de darlo por bueno (criterio de the reviewer): medir **cuántas líneas de
-//! diario escribe una basura ANTES y DESPUÉS**. «Se ve más limpio» no es una prueba.
+//! Mandatory validation before calling it good (the reviewer's criterion): measure **how many journal
+//! lines a piece of rubbish writes BEFORE and AFTER**. "It looks cleaner" is not proof.
 //! Both doors go through here: the RPC (`author_submitExtrinsic`) and the p2p transaction protocol
 //! both reach the pool through this wrapper, which is the whole reason for wrapping the pool rather
 //! than patching one entry point.
 
 use std::{collections::HashMap, pin::Pin, sync::Arc};
 
-// Este crate va por el paraguas `polkadot-sdk` (igual que `service.rs`): la API del pool no es una
-// dependencia directa, así que se importa por ahí o no compila.
+// This crate goes through the `polkadot-sdk` umbrella (same as `service.rs`): the pool API is not a
+// direct dependency, so it's imported from there or it doesn't compile.
 //
-// ARREGLO (): `codec` NO cuelga del paraguas `polkadot_sdk` — se pedía como
-// `polkadot_sdk::codec` y ese camino no existe, así que este fichero no ha compilado desde que se
-// escribió el. Sale de `sp_runtime`, que ya era dependencia directa de este mismo módulo.
+// FIX (): `codec` does NOT hang off the `polkadot_sdk` umbrella — it was being requested as
+// `polkadot_sdk::codec` and that path doesn't exist, so this file hasn't compiled since it was
+// written. It comes from `sp_runtime`, which was already a direct dependency of this same module.
 use polkadot_sdk::sc_transaction_pool_api::{
     error::Error as PoolError, ImportNotificationStream, PoolStatus, ReadyTransactions,
     TransactionFor, TransactionPool, TransactionSource, TransactionStatusStreamFor, TxHash,
@@ -58,16 +58,16 @@ use polkadot_sdk::sc_transaction_pool_api::{
 use sp_runtime::codec::{self, Decode, Encode};
 use sp_runtime::{traits::Block as BlockT, transaction_validity::InvalidTransaction};
 
-/// ¿Puede esto ser un extrinsic, mirando solo su preámbulo?
+/// Can this be an extrinsic, looking only at its preamble?
 ///
-/// Regla de `sp-runtime` (`generic/unchecked_extrinsic.rs`): el primer byte es versión+tipo, con
-/// `version = byte & 0b0011_1111` y `tipo = byte & 0b1100_0000`, y solo valen: bare en v4/v5,
-/// firmado en v4, general en v5. No usamos ningún tipo del runtime: por eso esto cabe dentro de
-/// «solo `node/`».
+/// Rule from `sp-runtime` (`generic/unchecked_extrinsic.rs`): the first byte is version+type, with
+/// `version = byte & 0b0011_1111` and `type = byte & 0b1100_0000`, and only these are valid: bare in v4/v5,
+/// signed in v4, general in v5. We don't use any runtime type: that's why this fits within
+/// "only `node/`".
 fn looks_like_extrinsic(bytes: &[u8]) -> bool {
-    // El pool maneja extrinsics opacos: un `Vec<u8>` con prefijo compacto de longitud. Si el blob
-    // viene envuelto, se mira DENTRO; si no, se mira tal cual. Comprobado contra las dos formas
-    // porque de eso dependía la primera versión y estaba sin verificar.
+    // The pool handles opaque extrinsics: a `Vec<u8>` with a compact length prefix. If the blob
+    // comes wrapped, it's looked at INSIDE; if not, it's looked at as-is. Checked against both forms
+    // because the first version depended on that and it was unverified.
     match <Vec<u8> as Decode>::decode(&mut &bytes[..]) {
         Ok(unwrapped) => looks_like_preamble(&unwrapped),
         Err(_) => looks_like_preamble(bytes),
@@ -99,16 +99,16 @@ mod tests {
 
     #[test]
     fn the_rubbish_we_measured_is_refused() {
-        // Exactamente los blobs que el 13-ago hicieron trampear al runtime en laboratorio.
+        // Exactly the blobs that on 13-Aug tripped up the runtime in the lab.
         for bad in [&[0x00u8][..], &[0x00, 0x00][..], &[0xde, 0xad][..], &[0xff][..], &[][..]] {
-            assert!(!looks_like_preamble(bad), "deberia rechazarse: {bad:?}");
+            assert!(!looks_like_preamble(bad), "should be rejected: {bad:?}");
         }
     }
 
     #[test]
     fn real_extrinsic_preambles_are_let_through() {
         for good in [0x04u8, 0x05, 0x84, 0x45] {
-            assert!(looks_like_preamble(&[good, 0x00]), "deberia pasar: {good:#04x}");
+            assert!(looks_like_preamble(&[good, 0x00]), "should pass: {good:#04x}");
         }
     }
 }
@@ -213,9 +213,9 @@ where
     async fn report_invalid(
         &self,
         at: Option<<Self::Block as BlockT>::Hash>,
-        // ARREGLO (): el trait pide `TxInvalidityReportMap` (un IndexMap), no un Vec de
-        // pares. Aquí se escribió con la firma de otra versión de la API, y por eso este fichero no
-        // compilaba. Esto es una delegación pura: cambia el tipo, no el comportamiento.
+        // FIX (): the trait requires `TxInvalidityReportMap` (an IndexMap), not a Vec of
+        // pairs. This was written with the signature of a different API version, and that's why this
+        // file didn't compile. This is pure delegation: it changes the type, not the behaviour.
         invalid_tx_errors: TxInvalidityReportMap<TxHash<Self>>,
     ) -> Vec<Arc<Self::InPoolTransaction>> {
         self.0.report_invalid(at, invalid_tx_errors).await

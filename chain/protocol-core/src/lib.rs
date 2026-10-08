@@ -438,7 +438,7 @@ mod tests {
 
     #[test]
     fn funnelled_concentration_does_not_reach_the_sortition_collapse_band() {
-        // GOOD NEWS half of the tick-2 follow-up (campaña estrés tick 4): trying to MANUFACTURE a
+        // GOOD NEWS half of the tick-2 follow-up (stress-test campaign tick 4): trying to MANUFACTURE a
         // dominant node by funnelling trust onto g0 in every suit does NOT push its lam into the
         // collapse band — the in-concentration + community damping caps what one node accrues from
         // vouches, so Gini stays moderate and g0 still rotates (its seat count varies across beacons).
@@ -462,7 +462,7 @@ mod tests {
 
     #[test]
     fn dominant_node_rotates_instead_of_pinning_at_the_cap() {
-        // FIXED at the epoch level (campaña estrés tick 11, mode-anchored Poisson). A node that genuinely
+        // FIXED at the epoch level (stress-test campaign tick 11, mode-anchored Poisson). A node that genuinely
         // dominates evidence across all suits — with its expected seats lam HIGH but below the seat cap —
         // used to win the cap (64) on EVERY beacon (the collapse, tick 4): zero rotation, defeating Art.
         // VI. Now its seat count is Poisson-distributed and VARIES beacon to beacon (rotation restored),
