@@ -14,13 +14,14 @@ ARG BIN_URL=https://harlequinproject.org/dist/harlequin-node
 # truth — and this one was two runtime generations behind the chain it claims to join.
 # Re-pinned 2026-08-27 to the build running on all four nodes since 2026-08-03.
 # Re-pinned 2026-09-28 to launch candidate 5, the build of the rehearsal chain (genesis 0x95cff149).
-ARG BIN_SHA256=6a38ef47251352606122e2f047dc82b98107d69044c39cbb7f869fbf88049317
+# Re-pinned 2026-10-08 to launch candidate 6, the build of rehearsal chain 2 (genesis 0xecdaa7d3).
+ARG BIN_SHA256=4b5d471504dbe9bdab14068de6b3736386f7143e97b26892c7b29068d75ebcf6
 
 # The chain spec is verified here too, not just mounted on trust. `docker build` alone must be enough
 # to prove BOTH halves of what the node runs; asking the operator to check the spec by hand elsewhere
 # is asking them to skip it.
 ARG CHAINSPEC_URL=https://harlequinproject.org/dist/mainnet-raw.json
-ARG CHAINSPEC_SHA256=0b83ded5619e3fda0a872fd9acce78aac0d38b67f881e81630aa58ff0a3fa69a
+ARG CHAINSPEC_SHA256=be8082320c5f54900c284616846e5ab15f3fd8adabf66b93b436dc53cc4fa1bc
 
 RUN set -eux; \
     apt-get update; \
