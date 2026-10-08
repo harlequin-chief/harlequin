@@ -43,9 +43,13 @@ November 27th.
 
 To see everything working together, ten bots lived on a separate six-node test network with real finality and the launch
 runtime at test cadence. They used the same wallet code and transaction builder as the website and talked only to the
-mediator, like a browser. Every action counted only when it could be read back from the chain: 798 verified actions
-(names, forum posts and replies, offers, deals, payments, gifts, withdrawals, pacts, sealed agreements) and 11 that did not
-confirm (1.4%): two with a known cause, already fixed, and nine not yet classified.
+mediator, like a browser. Every action counted only when it could be read back from the chain: 758 verified actions
+(forum posts and replies, offers, deals, payments, gifts, withdrawals, pacts, sealed agreements) and 11 that did not
+confirm. Reading the chain's own failure events explained seven of them (the limit of four open deal proposals per mask,
+deals confirmed over offers withdrawn in the meantime, a dry test faucet), and the bots now respect those limits; four
+offers that never appeared remain unexplained. The same events also showed a mistake in our own count: name
+registrations were the one action the bots did not verify, and 30 of the 40 had been rejected as already registered.
+An earlier version of these notes said 798; it is 758, and registrations are now verified like everything else.
 
 They also showed something about the economy: on a network whose validators are all founders nobody is ever paid, because
 founders collect zero by protocol. On the real chain the first coin is minted when the first era closes, about six months
