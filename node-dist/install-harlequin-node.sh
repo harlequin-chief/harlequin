@@ -80,9 +80,9 @@ BIND_SHA_aarch64="c93d07598cf8a06998203494665249f9f1bfeb36e4b829cd1d133534f02860
 # harlequin-heartbeat (2026-10-02, hosting reward E1): the daily beat that gets a node BOUND to a mask paid for hosting.
 # Empty sha = this release does not ship it yet: the installer skips the beat (never downloads an unpinned file).
 HB_URL_x86_64="$DIST_BASE/dist/harlequin-heartbeat"
-HB_SHA_x86_64=""
+HB_SHA_x86_64="e0be017e113277dfcca3fa9c3122bd3c1cfb36942e89a5a9a3058994f31bd6c9"  # launch candidate 6 tree, node/build-heartbeat.sh (2026-10-09)
 HB_URL_aarch64="$DIST_BASE/dist/harlequin-heartbeat-arm64"
-HB_SHA_aarch64=""
+HB_SHA_aarch64="9ba3eadf843e43896c7730a75365ab9f2595f85aceda7819c36d781c05e52daa"
 SVC="harlequin-node"
 
 # Weak-subjectivity checkpoint (M1) — re-pinned on EVERY release, next to the sha256 pins above.
