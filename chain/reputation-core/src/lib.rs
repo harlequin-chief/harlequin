@@ -530,7 +530,13 @@ impl TrustGraph {
 }
 
 /// Pre-trust p per dimension: normalised objective evidence (§1.3a) + genesis seed (§1.4).
-/// Falls back to uniform among unique humans if there is no anchor at all (degenerate, avoids /0).
+///
+/// No anchor at all (the dimension's total evidence + seed is 0) → NOBODY is pre-trusted in it: the dimension
+/// is empty until someone earns evidence there. 10-oct-2026: this used to fall back to UNIFORM among all
+/// participants, so once a suit's evidence had decayed to 0 (seen on the test chain, where it takes hours),
+/// a mask vouched for in commerce alone got the same judicial and governance share as a founder — the
+/// opposite of «a new mask starts at 0». The chain never sets `genesis` on its agents, so nothing seeded
+/// that fallback away.
 fn pretrust(agents: &[Agent], dim: &str, genesis_weight: f64) -> BTreeMap<String, f64> {
     let mut raw: BTreeMap<String, f64> = BTreeMap::new();
     for a in agents {
@@ -539,15 +545,7 @@ fn pretrust(agents: &[Agent], dim: &str, genesis_weight: f64) -> BTreeMap<String
     }
     let total: f64 = raw.values().sum();
     if total <= 0.0 {
-        let humans: Vec<&Agent> = agents.iter().filter(|a| a.unique_human).collect();
-        if humans.is_empty() {
-            return agents.iter().map(|a| (a.id.clone(), 0.0)).collect();
-        }
-        let u = 1.0 / humans.len() as f64;
-        return agents
-            .iter()
-            .map(|a| (a.id.clone(), if a.unique_human { u } else { 0.0 }))
-            .collect();
+        return agents.iter().map(|a| (a.id.clone(), 0.0)).collect();
     }
     raw.into_iter().map(|(k, v)| (k, v / total)).collect()
 }
@@ -757,7 +755,7 @@ pub fn reputation_dimension_fully_fixed_fp(
     let row_sum_fp: BTreeMap<String, i128> =
         nodes.iter().map(|i| (i.clone(), c_fp[i].values().sum())).collect();
 
-    // Index-based iteration (2026-10-01, matrix 4.6). Same arithmetic as the String-keyed loop it replaces, term
+    // Index-based iteration (, matrix 4.6). Same arithmetic as the String-keyed loop it replaces, term
     // by term; every term is truncated on its own and i128 addition is exact, so summation order cannot change
     // the result — bit-identical (pinned by `indexed_iteration_is_bit_identical_to_the_keyed_one`), and far
     // cheaper, which is what lets the per-epoch recompute scale with the society.
@@ -1354,6 +1352,27 @@ mod tests {
         g.attest("q", "n", "commerce", 1.0);
         let stranger = g.independence("p", "q", "commerce", 4.0, 4.0);
         assert!(stranger > 0.9, "stranger vouch should stay near 1, was {stranger}");
+    }
+
+    #[test]
+    fn empty_dimension_trusts_nobody() {
+        // 10-oct-2026: a dimension with NO evidence anywhere used to fall back to uniform among the
+        // participants — a mask vouched for in commerce alone then held the same judicial share as the
+        // others. No anchor → nobody is trusted in that dimension, vouched or not; the vouched dimension
+        // itself still works.
+        let agents = vec![
+            Agent::new("f0").with_evidence("commerce", 5.0),
+            Agent::new("f1").with_evidence("commerce", 5.0),
+            Agent::new("new"),
+        ];
+        let mut g = TrustGraph::new();
+        g.attest("f0", "new", "commerce", 1.0); // the graph edge a vouch becomes
+        let judicial = reputation_dimension(&agents, &g, "judicial", &Params::default());
+        assert!(judicial.values().all(|v| *v == 0.0), "empty dimension must trust nobody: {judicial:?}");
+        let fixed = reputation_dimension_fully_fixed_fp(&agents, &g, "judicial", &Params::default());
+        assert!(fixed.values().all(|v| *v == 0), "same on the chain's fixed-point path: {fixed:?}");
+        let commerce = reputation_dimension(&agents, &g, "commerce", &Params::default());
+        assert!(commerce["new"] > 0.0, "a vouch in commerce still counts in commerce");
     }
 
     #[test]

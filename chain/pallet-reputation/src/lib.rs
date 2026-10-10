@@ -464,6 +464,13 @@ pub mod pallet {
             // session pubkey (two members sharing one hot key → the reverse map would silently collide),
             // or a session pubkey that equals some committee account id (an alias that could let one key
             // double-count). Belt-and-suspenders with the re-bake verification.
+            // 10-oct-2026: only accounts with a bound node may sit in the finality committee, so a genesis with
+            // reputable founders and NO vote keys would never finalize a block — silently. Refuse to build it
+            // (e.g. the raw `launch` preset booted without the ceremony step that wires the vote keys).
+            assert!(
+                self.evidence.is_empty() || !self.vote_keys.is_empty(),
+                "genesis has reputable founders but no vote_keys: finality could never start (bind the founders' nodes)"
+            );
             let mut seen_accounts = alloc::collections::BTreeSet::<&T::AccountId>::new();
             let mut seen_pubkeys = alloc::collections::BTreeSet::<[u8; 32]>::new();
             for (who, session_pubkey) in &self.vote_keys {
@@ -1781,7 +1788,7 @@ mod tests {
 
     #[test]
     fn vouch_quota_keeps_the_hard_min_on_purpose() {
-        // SPEC 1.2c decision (2026-10-01): POWER uses the concave aggregate, the vouch QUOTA keeps the hard MIN.
+        // SPEC 1.2c decision (): POWER uses the concave aggregate, the vouch QUOTA keeps the hard MIN.
         // A balanced member can sponsor more than a specialist whose concave aggregate is HIGHER: vouching exposes
         // the sponsor to the cascade, so it asks for trust in all four suits. Change this only by deciding it.
         new_test_ext().execute_with(|| {
@@ -2208,7 +2215,7 @@ mod tests {
             system: Default::default(),
             reputation: pallet_reputation::GenesisConfig {
                 evidence: vec![(1u64, Suit::Commerce, 5), (2u64, Suit::Governance, 3)],
-                vote_keys: vec![],
+                vote_keys: vec![(1u64, [9u8; 32])], // a founder with a bound node (empty is refused since 10-oct)
             },
         }
         .build_storage()

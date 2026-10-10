@@ -46,7 +46,7 @@ use scale_info::TypeInfo;
 /// node-side provider.
 pub const INHERENT_IDENTIFIER: [u8; 8] = *b"hlqpartp";
 
-/// #851 (audit 2026-07-07; design `DESIGN-PARTICIPATION-VOTE-CAP.md`): at most this many finality votes of
+/// #851 (audit; design `DESIGN-PARTICIPATION-VOTE-CAP.md`): at most this many finality votes of
 /// ONE record reach the sr25519 check. `finality_votes` is bounded only by block length (~38k votes), and a
 /// malicious author padding it with junk signatures of REAL committee keys would make every importing node
 /// verify them all (~2 s of CPU per block). It is a SOFT cap: past it the rest is ignored and the block stays
@@ -62,7 +62,7 @@ pub const MAX_VOTES_CHECKED_PER_RECORD: u32 = 4096;
 pub struct SignedVote {
     /// The voter's reputation account = the sr25519 public key that signed (contract (a)).
     pub signer: [u8; 32],
-    /// sr25519 signature over `signed_message(height, block_hash)`.
+    /// sr25519 signature over `signed_message(genesis, height, block_hash)` (C-MED3 v2).
     pub sig: [u8; 64],
     /// Height of the finalized block this vote is for. **u64** — matches `finality.rs` `Vote.height`.
     pub height: u64,
@@ -70,11 +70,27 @@ pub struct SignedVote {
     pub block_hash: [u8; 32],
 }
 
-/// The exact bytes a committee vote signs. Matches the node's `finality.rs` signing payload byte-for-byte
-/// (confirmed w/ the reviewer): `height` as **u64 little-endian (8 bytes)** ‖ `block_hash` (32 bytes) = 40 bytes,
-/// no domain/prefix. The pallet re-derives this and checks the sr25519 signature against it.
-pub fn signed_message(height: u64, block_hash: &[u8; 32]) -> alloc::vec::Vec<u8> {
-    let mut m = alloc::vec::Vec::with_capacity(8 + 32);
+/// Domain tag of a finality vote signature — the node's `finality.rs` `VOTE_DOMAIN_V2`, byte for byte.
+pub const VOTE_DOMAIN_V2: &[u8; 16] = b"hlq-finality:v2:";
+/// Build flavor bound into every vote (mainnet = 1 / testnet = 0) — the node's `VOTE_FLAVOR` under the same flag.
+#[cfg(feature = "mainnet")]
+pub const VOTE_FLAVOR: u8 = 1;
+#[cfg(not(feature = "mainnet"))]
+pub const VOTE_FLAVOR: u8 = 0;
+
+/// The exact bytes a committee vote signs: the node's C-MED3 v2 payload
+/// `"hlq-finality:v2:" ‖ flavor (1 byte) ‖ genesis (32) ‖ height (u64 LE) ‖ block_hash (32)` = 89 bytes.
+///
+/// 10-oct-2026 fix: this used to rebuild the PRE-C-MED3 payload (`height ‖ block_hash`). The node moved to v2
+/// and this side was never updated, so EVERY finality vote failed verification here and was dropped: no
+/// finality service was ever credited, on the rehearsal chains or the test chain (measured on real
+/// justifications: v2 verifies 4/4, the old payload 0/4). The launch chain is born on v2, so no legacy
+/// payload is accepted.
+pub fn signed_message(genesis: &[u8; 32], height: u64, block_hash: &[u8; 32]) -> alloc::vec::Vec<u8> {
+    let mut m = alloc::vec::Vec::with_capacity(16 + 1 + 32 + 8 + 32);
+    m.extend_from_slice(VOTE_DOMAIN_V2);
+    m.push(VOTE_FLAVOR);
+    m.extend_from_slice(genesis);
     m.extend_from_slice(&height.to_le_bytes());
     m.extend_from_slice(block_hash);
     m
@@ -119,6 +135,10 @@ pub trait CommitteeInputs {
     /// Resolve a HOT session signing key to its COLD committee account (the vote-key delegation,
     /// `pallet-reputation::VoteKeys` reversed). `None` → the signer votes as itself (direct path).
     fn vote_key_owner(hot: &[u8; 32]) -> Option<[u8; 32]>;
+    /// COLD accounts with a node bound to them (`pallet-reputation::VoteKeys` owners) — the only ones that may
+    /// sit in the finality committee (10-oct-2026: node-less reputable masks froze finality). MUST be the
+    /// same list the node passes (`vote_keys` runtime API, first element).
+    fn bound_accounts() -> alloc::vec::Vec<[u8; 32]>;
 }
 
 /// COMMITTEE epoch length (blocks): the committee is re-drawn every this-many blocks. Governs the committee
@@ -410,6 +430,15 @@ pub mod pallet {
             // On-chain cursor: credit ONLY heights strictly above the last credited one, then advance to the
             // max valid height seen. Exactly-once per height, dup-proof, deterministic across proposers.
             let cursor = LastCreditedHeight::<T>::get();
+            // This chain's genesis hash, bound into every v2 vote (frame_system never prunes block 0's hash).
+            let genesis: [u8; 32] = {
+                let h = frame_system::Pallet::<T>::block_hash(BlockNumberFor::<T>::zero());
+                let b = h.as_ref();
+                let mut g = [0u8; 32];
+                let n = core::cmp::min(32, b.len());
+                g[..n].copy_from_slice(&b[..n]);
+                g
+            };
             let mut max_h = cursor;
             let mut counted: u32 = 0;
             let mut sig_checks: u32 = 0;
@@ -440,7 +469,7 @@ pub mod pallet {
                     continue;
                 }
                 sig_checks = sig_checks.saturating_add(1);
-                let msg = super::signed_message(v.height, &v.block_hash);
+                let msg = super::signed_message(&genesis, v.height, &v.block_hash);
                 if !Self::verify_vote(&v.signer, &v.sig, &msg) {
                     continue; // forged / invalid signature
                 }
@@ -520,6 +549,7 @@ pub mod pallet {
                 .collect();
             let elected = consensus_core::elect_finality_committee(
                 &onchain,
+                &T::Committee::bound_accounts(),
                 &T::Committee::beacon_committed_keys(),
                 &T::Committee::beacon_seed(),
                 epoch as u32,
@@ -663,7 +693,7 @@ mod tests {
     use crate::{
         author_message, signed_message, AuthoredInEpoch, BlockAuthor, CommitteeForEpoch,
         CommitteeInputs, ConsecutiveEras, ConsensusReputation, EraServiceAccumulator,
-        FinalityVotesInEpoch, LastCreditedHeight, ParticipationRecord, SignedVote,
+        FinalityVotesInEpoch, LastCreditedHeight, NotedThisBlock, ParticipationRecord, SignedVote,
     };
     use frame::deps::sp_core::{sr25519, Pair};
     use frame::testing_prelude::*;
@@ -701,6 +731,9 @@ mod tests {
         }
         fn vote_key_owner(_hot: &[u8; 32]) -> Option<[u8; 32]> {
             None
+        }
+        fn bound_accounts() -> alloc::vec::Vec<[u8; 32]> {
+            Default::default() // the tests seat committees directly (CommitteeForEpoch), not through the draw
         }
     }
 
@@ -764,8 +797,15 @@ mod tests {
     /// Build a valid signed committee vote for `height` from `pair`.
     fn vote(pair: &sr25519::Pair, height: u64) -> SignedVote {
         let block_hash = [9u8; 32];
-        let sig = pair.sign(&signed_message(height, &block_hash)).0;
+        let sig = pair.sign(&signed_message(&test_genesis(), height, &block_hash)).0;
         SignedVote { signer: pair.public().0, sig, height, block_hash }
+    }
+    /// The mock chain's genesis hash as the pallet reads it (frame_system's BlockHash(0)).
+    fn test_genesis() -> [u8; 32] {
+        let h = frame_system::Pallet::<Test>::block_hash(0u64);
+        let mut g = [0u8; 32];
+        g.copy_from_slice(h.as_ref());
+        g
     }
     fn record_with_votes(votes: alloc::vec::Vec<SignedVote>, at: u64) -> ParticipationRecord {
         // Junk author (soft-dropped): these tests target the VOTE path only.
@@ -813,6 +853,34 @@ mod tests {
             assert_ok!(Participation::note_participation(RuntimeOrigin::none(), rec));
             let who = acct_of(&pair.public().0);
             assert_eq!(FinalityVotesInEpoch::<Test>::get(0, who), 1, "replayed vote must credit ONCE");
+            assert_eq!(LastCreditedHeight::<Test>::get(), 1);
+        });
+    }
+
+    #[test]
+    fn only_v2_votes_for_this_chain_are_credited() {
+        // 10-oct-2026: the node signs C-MED3 v2 (`tag ‖ flavor ‖ genesis ‖ height ‖ hash`); this pallet verified
+        // the old bare `height ‖ hash`, so every real vote was dropped and no finality service was ever
+        // credited. Now: v2 for THIS genesis credits; the old payload and a vote for another chain do not.
+        new_test_ext().execute_with(|| {
+            System::set_block_number(1);
+            let pair = sr25519::Pair::from_seed(&[12u8; 32]);
+            seat(1, pair.public().0);
+            let who = acct_of(&pair.public().0);
+            let block_hash = [9u8; 32];
+            let mut legacy = alloc::vec::Vec::new();
+            legacy.extend_from_slice(&1u64.to_le_bytes());
+            legacy.extend_from_slice(&block_hash);
+            let old = SignedVote { signer: pair.public().0, sig: pair.sign(&legacy).0, height: 1, block_hash };
+            let foreign = SignedVote {
+                signer: pair.public().0, sig: pair.sign(&signed_message(&[1u8; 32], 1, &block_hash)).0, height: 1, block_hash };
+            assert_ok!(Participation::note_participation(RuntimeOrigin::none(), record_with_votes(alloc::vec![old, foreign], 1)));
+            assert_eq!(FinalityVotesInEpoch::<Test>::get(0, who), 0, "old payload / other chain must NOT credit");
+            assert_eq!(LastCreditedHeight::<Test>::get(), 0);
+            System::set_block_number(2); // one participation record per block (AlreadyNoted otherwise):
+            NotedThisBlock::<Test>::kill(); // what the block boundary hook clears
+            assert_ok!(Participation::note_participation(RuntimeOrigin::none(), record_with_votes(alloc::vec![vote(&pair, 1)], 2)));
+            assert_eq!(FinalityVotesInEpoch::<Test>::get(0, who), 1, "a v2 vote for this genesis must credit");
             assert_eq!(LastCreditedHeight::<Test>::get(), 1);
         });
     }

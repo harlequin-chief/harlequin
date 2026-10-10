@@ -220,10 +220,16 @@ pub const FINALITY_COMMITTEE_SEED: &str = "hlq-finality-committee";
 /// - beacon populated → only accounts WITH a committed key are eligible, keyed by that committed key
 ///   (§2.1 anti-grinding: the sortition key is the secret committed an epoch earlier, not a chosen
 ///   id), seed `"{seed_prefix}-{hex(beacon_seed)}"`.
+/// - `bound` (10-oct-2026): ONLY accounts with a node bound to them (`VoteKeys` owners: they can actually vote)
+///   may sit, in BOTH paths. A reputable mask without a node used to be eligible in the fallback and received seats
+///   that never vote — enough of them froze finality network-wide (measured on the test chain, 10-oct-2026:
+///   two node-less reputable masks stopped finality for good). An EMPTY `bound` means an EMPTY committee, never «everyone».
+///   Direct signers (no `VoteKeys` entry) are therefore never seated: every validator binds a hot vote key.
 /// Returns the elected COLD accounts. Hot→cold vote-key resolution stays OUTSIDE (resolve the signer
 /// to its account first, then test membership here). All inputs by parameter — zero I/O, `no_std`.
 pub fn elect_finality_committee(
     reputation: &[([u8; 32], i128)],
+    bound: &[[u8; 32]],
     committed_keys: &[([u8; 32], String)],
     beacon_seed: &[u8; 32],
     epoch: u32,
@@ -233,6 +239,10 @@ pub fn elect_finality_committee(
 ) -> alloc::collections::BTreeSet<[u8; 32]> {
     use alloc::format;
     let hex = crate::beacon::hex;
+    let bound: alloc::collections::BTreeSet<[u8; 32]> = bound.iter().copied().collect();
+    let reputation: alloc::vec::Vec<([u8; 32], i128)> =
+        reputation.iter().filter(|(acc, _)| bound.contains(acc)).copied().collect();
+    let reputation = &reputation[..];
     if halted || reputation.is_empty() {
         return alloc::collections::BTreeSet::new();
     }
@@ -318,13 +328,45 @@ mod finality_committee_tests {
     fn acc(n: u8) -> [u8; 32] {
         [n; 32]
     }
+    /// Every account in `reputation` has a node bound (what all pre-10-oct tests assumed implicitly).
+    fn all_bound(reputation: &[([u8; 32], i128)]) -> alloc::vec::Vec<[u8; 32]> {
+        reputation.iter().map(|(a, _)| *a).collect()
+    }
+
+    #[test]
+    fn a_reputable_mask_without_a_node_never_sits() {
+        // 10-oct-2026 (test chain: finality froze at #5624): reputable masks with NO bound node got seats in the
+        // fallback draw and never voted. Over many epochs, in BOTH paths, only bound accounts may be elected.
+        let reputation = alloc::vec![
+            (acc(1), 100i128), (acc(2), 100), (acc(3), 100), (acc(4), 100),
+            (acc(8), 900), (acc(9), 900), // big reputation, no node
+        ];
+        let bound = alloc::vec![acc(1), acc(2), acc(3), acc(4)];
+        let committed: alloc::vec::Vec<([u8; 32], String)> =
+            reputation.iter().map(|(a, _)| (*a, format!("k-{}", a[0]))).collect();
+        for epoch in 0..200u32 {
+            for c in [&[][..], &committed[..]] {
+                let got = elect_finality_committee(&reputation, &bound, c, &[epoch as u8; 32], epoch, 4, "hlq-finality-committee", false);
+                assert!(!got.is_empty(), "epoch {epoch}: bound members exist, the committee must not starve");
+                assert!(got.iter().all(|m| bound.contains(m)), "epoch {epoch}: a mask without a node was seated: {got:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn nobody_bound_means_an_empty_committee_not_everyone() {
+        // An empty list must never open the door to everyone (the fallback that caused the freeze).
+        let reputation = alloc::vec![(acc(1), 100i128), (acc(2), 100), (acc(3), 100), (acc(4), 100)];
+        let got = elect_finality_committee(&reputation, &[], &[], &[0u8; 32], 3, 4, "hlq-finality-committee", false);
+        assert!(got.is_empty(), "no bound node → no committee: {got:?}");
+    }
 
     #[test]
     fn fallback_path_is_byte_identical_to_the_node_draw() {
         // The pure fn must reproduce EXACTLY what finality.rs::committee_for_height computed inline:
         // ids = hex(acc), keys = "sk-{id}", seed = "{prefix}-{epoch}".
         let reputation = alloc::vec![(acc(1), 100i128), (acc(2), 100), (acc(3), 100)];
-        let got = elect_finality_committee(&reputation, &[], &[0u8; 32], 7, 4, "hlq-finality-committee", false);
+        let got = elect_finality_committee(&reputation, &all_bound(&reputation), &[], &[0u8; 32], 7, 4, "hlq-finality-committee", false);
         // manual reconstruction, the node's original code shape
         let mut rep_map = BTreeMap::new();
         let mut keys = BTreeMap::new();
@@ -372,7 +414,7 @@ mod finality_committee_tests {
         // reputable set), so acc2 is still eligible and no lone committer captures finality.
         let reputation = alloc::vec![(acc(1), 100i128), (acc(2), 100)];
         let committed = alloc::vec![(acc(1), "committed-secret-1".to_string())];
-        let got = elect_finality_committee(&reputation, &committed, &[9u8; 32], 3, 8, "hlq-finality-committee", false);
+        let got = elect_finality_committee(&reputation, &all_bound(&reputation), &committed, &[9u8; 32], 3, 8, "hlq-finality-committee", false);
         assert!(!got.is_empty(), "fallback seats the reputable set rather than starving");
         // 1 committer < floor of 2 → beacon deferred → both reputable accounts remain eligible.
     }
@@ -392,7 +434,7 @@ mod finality_committee_tests {
         ];
         let attacker = alloc::vec![(acc(9), "evil-committed-key".to_string())];
         let got =
-            elect_finality_committee(&reputation, &attacker, &[7u8; 32], 4, 4, "hlq-finality-committee", false);
+            elect_finality_committee(&reputation, &all_bound(&reputation), &attacker, &[7u8; 32], 4, 4, "hlq-finality-committee", false);
         assert!(!got.is_empty(), "a lone zero-rep committer must not empty the committee");
         assert!(!got.contains(&acc(9)), "the zero-rep attacker is never seated");
         assert!(
@@ -420,7 +462,7 @@ mod finality_committee_tests {
             (acc(4), "k4".to_string()),
         ];
         let got =
-            elect_finality_committee(&reputation, &committed, &[7u8; 32], 4, 8, "hlq-finality-committee", false);
+            elect_finality_committee(&reputation, &all_bound(&reputation), &committed, &[7u8; 32], 4, 8, "hlq-finality-committee", false);
         assert!(!got.contains(&acc(5)), "acc(5) did not commit → not eligible in beacon mode");
         assert!(!got.is_empty(), "beacon mode still seats the committed reputable accounts");
     }
@@ -428,7 +470,7 @@ mod finality_committee_tests {
     #[test]
     fn halted_guard_seats_nobody() {
         let reputation = alloc::vec![(acc(1), 100i128)];
-        let got = elect_finality_committee(&reputation, &[], &[0u8; 32], 1, 4, "x", true);
+        let got = elect_finality_committee(&reputation, &all_bound(&reputation), &[], &[0u8; 32], 1, 4, "x", true);
         assert!(got.is_empty(), "entrenchment halt → empty committee, finality freezes");
     }
 
@@ -470,14 +512,12 @@ mod finality_committee_tests {
 
         // 2. the floored election seats ≥ min(4, eligible) (salted re-draw) → finality cannot
         //    wedge on an empty epoch NOR on a size-3 committee that tolerates zero faults (I1).
-        let got = elect_finality_committee(
-            &reputation, &[], &[0u8; 32], 4, 4, "hlq-finality-committee", false,
+        let got = elect_finality_committee(&reputation, &all_bound(&reputation), &[], &[0u8; 32], 4, 4, "hlq-finality-committee", false,
         );
         assert!(got.len() >= 4, "size floor: ≥ min(4, eligible) so 1 member down never stalls");
 
         // 3. determinism: two computations agree (every node/pallet must draw identically).
-        let again = elect_finality_committee(
-            &reputation, &[], &[0u8; 32], 4, 4, "hlq-finality-committee", false,
+        let again = elect_finality_committee(&reputation, &all_bound(&reputation), &[], &[0u8; 32], 4, 4, "hlq-finality-committee", false,
         );
         assert_eq!(got, again);
     }

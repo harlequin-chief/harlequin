@@ -493,6 +493,25 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
                         .runtime_api()
                         .consensus_reputation(at)
                         .unwrap_or_default();
+                    // 10-oct-2026: only accounts with a node bound (VoteKeys owners) may LEAD a slot — the same
+                    // rule as the finality committee. A reputable mask without a node won slots it could never
+                    // fill: on the test chain three such masks stretched blocks from ~12 s to ~40 s. Authoring is
+                    // not checked on import, so this is a local, author-side rule all upgraded nodes share.
+                    let bound: std::collections::BTreeSet<[u8; 32]> = api_client
+                        .runtime_api()
+                        .vote_keys(at)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|(acc, _hot)| acc)
+                        .collect();
+                    let had_reputation = !onchain.is_empty();
+                    let onchain: Vec<([u8; 32], i128)> =
+                        onchain.into_iter().filter(|(acc, _)| bound.contains(acc)).collect();
+                    if had_reputation && onchain.is_empty() {
+                        // Reputation exists but no bound node is visible (or vote_keys failed): skip the slot.
+                        // Falling through would take the lone-dev-node path below, where EVERY node authors.
+                        continue;
+                    }
 
                     let mut reputation: BTreeMap<String, i128> = BTreeMap::new();
                     let mut keys: BTreeMap<String, String> = BTreeMap::new();

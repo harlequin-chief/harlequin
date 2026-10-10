@@ -43,7 +43,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     // 3 = the open door (26-Jul-2026). An upgrade that doesn't bump this number is NOT an upgrade:
     // nodes can't tell it apart from the previous one and the startup coherence guard has nothing to
     // compare against. It's bumped HERE, in the candidate, never on the live chain.
-    spec_version: 4,
+    spec_version: 5, // 10-oct-2026: votes v2 in participation, empty suit trusts nobody, committee/leaders need a bound node
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -230,7 +230,7 @@ impl HlqTxPayment {
                 | RuntimeCall::Reputation(pallet_reputation::Call::set_vote_key { .. })
                 | RuntimeCall::Forum(pallet_forum::Call::post { .. })
                 | RuntimeCall::Market(pallet_market::Call::publish { .. })
-                // PROPOSAL (unratified, 2026-09-27): closing a deal and withdrawing one's own offer ride
+                // PROPOSAL (unratified): closing a deal and withdrawing one's own offer ride
                 // the same rationed lane — a newcomer who could publish but not close, or not take an
                 // offer down, was measured on 23-sep (withdraw charged a fee a new mask cannot have).
                 | RuntimeCall::Market(pallet_market::Call::withdraw { .. })
@@ -238,7 +238,7 @@ impl HlqTxPayment {
                 | RuntimeCall::Market(pallet_market::Call::confirm_deal { .. })
                 | RuntimeCall::Market(pallet_market::Call::cancel_deal { .. })
                 | RuntimeCall::Market(pallet_market::Call::reap_deal { .. })
-                // Pacts (2026-10-01): a newborn mask with no coins must be able to sign a private contract.
+                // Pacts (): a newborn mask with no coins must be able to sign a private contract.
                 // Same rationed lane: per-mask budget per epoch + per-block count ceiling.
                 | RuntimeCall::Pacts(pallet_pacts::Call::propose { .. })
                 | RuntimeCall::Pacts(pallet_pacts::Call::sign { .. })
@@ -498,7 +498,7 @@ impl pallet_market::Config for Runtime {
     /// v1 anti-spam = the per-mask active-offer cap alone (no-op gate): a newcomer's first listing is never
     /// gated behind holding HLQ (open entry). Swap to the B6 micro-fee here if real spam appears.
     type Postage = ();
-    /// A closed deal grants NO reputation by itself (2026-10-01): two masks of one person could manufacture
+    /// A closed deal grants NO reputation by itself (): two masks of one person could manufacture
     /// commerce standing by closing deals with each other. Commerce reputation keeps coming from counterparty
     /// attestation (`attest_evidence`, four anti-Sybil layers); a closed deal is what such an attestation and
     /// a justice case can cite.
@@ -512,7 +512,7 @@ impl pallet_market::Config for Runtime {
     type MaxPerMask = ConstU32<32>;
 }
 
-/// Pacts: private contracts signed on chain (design/PACTOS-CONTRATOS-PRIVADOS-2026-10-01.md). The chain holds a
+/// Pacts: private contracts signed on chain (design/PACTOS-CONTRATOS-PRIVADOS-.md). The chain holds a
 /// salted commitment, never the text. Bounds keep free accounts from growing eternal state.
 impl pallet_pacts::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
@@ -605,7 +605,7 @@ impl pallet_tokens::Config for Runtime {
     /// boundary to build the reward split. NOT a Root-gated call (Root is compiled out on mainnet), so
     /// emission mints without a king. Confers NO power, only a claim on the reward pool.
     type ServiceSource = ParticipationEraServiceFeed;
-    /// E1 hosting pool (2026-10-02, design/COBRO-POR-HOSPEDAR-E1-2026-10-02.md): masks whose bound node beat every day
+    /// E1 hosting pool (, design/COBRO-POR-HOSPEDAR-E1-.md): masks whose bound node beat every day
     /// share 10 % of each era's HLQ tranche by days present — the ceiling of what fake hosts could ever take.
     type HostingSource = HostingFeed;
     type HostingShareBps = ConstU16<1000>;
@@ -684,6 +684,10 @@ impl pallet_participation::CommitteeInputs for CommitteeInputsAdapter {
     }
     fn entrenchment_halted() -> bool {
         pallet_reputation::Pallet::<Runtime>::entrenchment_halted()
+    }
+    fn bound_accounts() -> Vec<[u8; 32]> {
+        // VoteKeys owners = masks with a node bound (10-oct-2026): the same list the node reads via `vote_keys`.
+        pallet_reputation::Pallet::<Runtime>::vote_keys().into_iter().map(|(acc, _hot)| acc.into()).collect()
     }
     fn vote_key_owner(hot: &[u8; 32]) -> Option<[u8; 32]> {
         // Reverse lookup over the (small: delegating members only) VoteKeys map: account → hot key.
@@ -1096,6 +1100,27 @@ mod genesis_config_presets {
                 }
             }
             let evidence = ev.join(",");
+            // Each dev founder votes with its OWN hot key `//<Name>//vote` (10-oct-2026): only masks with a bound
+            // node may sit in the finality committee, so the dev chain exercises the real delegated path. Run the
+            // dev nodes with `--vote-as //<Name>//vote`. (Genesis forbids a hot key equal to its account.)
+            let hot: [(usize, &str); 6] = [
+                (0, "c2757cbec87dbbab4797478efb6ef4029106d062638bdfca8dbdc5631b710f09"), // //Alice//vote
+                (1, "a6235ea9eaddf4efa562ceb6965a0a2e8f20047e859f945d40e7a6d8b15ecc35"), // //Bob//vote
+                (2, "740f8de12f82263b3bc2837002792e5f9fb204255f8b51884e8d6e3299e37466"), // //Charlie//vote
+                (3, "662540b4e44fe48481523c94890cfcccefe9104d4a815326f6ab64db3b309513"), // //Dave//vote
+                (4, "90e0c91e37a26959f09d44bee3caac60984207cd8d86edc18152c0309fab0245"), // //Eve//vote
+                (5, "5c258b8623567751384ecd1c827fb221277889308feb81bb99294f953ce45f79"), // //Ferdie//vote
+            ];
+            let vote_keys = hot
+                .iter()
+                .map(|(i, h)| {
+                    let bytes: Vec<alloc::string::String> = (0..32)
+                        .map(|k| alloc::format!("{}", u8::from_str_radix(&h[2 * k..2 * k + 2], 16).unwrap_or(0)))
+                        .collect();
+                    alloc::format!("[\"{}\",[{}]]", founders[*i], bytes.join(","))
+                })
+                .collect::<Vec<_>>()
+                .join(",");
 
             // --- Dev-only: fund the founders and make Alice sudo, so a dev/test node can drive the
             // root-gated calls (advance_epoch, submit_evidence) to exercise the engine. NONE of this is in
@@ -1139,7 +1164,7 @@ sealed into genesis at the freeze, after the adversarial audit (Art. XII, Perman
             let dev_custody = founders[4];
             let json = alloc::format!(
                 "{{\"balances\":{{\"balances\":[{bal}]}},{sudo_part}\
-\"reputation\":{{\"evidence\":[{evidence}]}},\"manifesto\":{{\"text\":[{bytes}]}},\
+\"reputation\":{{\"evidence\":[{evidence}],\"voteKeys\":[{vote_keys}]}},\"manifesto\":{{\"text\":[{bytes}]}},\
 \"tokens\":{{\"balances\":[{hlq}]}},\"multisigUpgrade\":{{\"signers\":[{seats}],\"custody\":\"{dev_custody}\"}}}}"
             );
             Some(json.into_bytes())

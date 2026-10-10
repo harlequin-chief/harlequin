@@ -153,8 +153,11 @@ const VOTE_FLAVOR: u8 = 0;
 /// legacy dies for good. Mainnet: the live chain is at ~#20.3k () and the v2 rollout rides
 /// the #918 coordinated upgrade — 150_000 (~9 days of blocks) is a wide margin for that ceremony; every
 /// real pre-rollout justification sits far below it. Testnet: 0 — devnets are born on v2, no legacy ever.
+// 10-oct-2026: the 27-nov chain is born on v2 (no legacy justification can exist) and the participation pallet
+// only accepts v2, so the old grace window is closed on mainnet too: a legacy vote would verify here and be dropped
+// there. The constant stays (and the code path) for documentation of the format; it admits nothing above genesis.
 #[cfg(feature = "mainnet")]
-const LEGACY_VOTE_CUTOFF: u64 = 150_000;
+const LEGACY_VOTE_CUTOFF: u64 = 0;
 #[cfg(not(feature = "mainnet"))]
 const LEGACY_VOTE_CUTOFF: u64 = 0;
 
@@ -290,7 +293,7 @@ fn vote_horizon(client: &Arc<FullClient>) -> u64 {
 
 /// Keep both gossip validators in step with THIS node's finality, whoever finalised it.
 ///
-/// 2026-09-28, found in the dress rehearsal on the real network: the watermark only moved when this node
+///, found in the dress rehearsal on the real network: the watermark only moved when this node
 /// finalised BY VOTING (and the proof one only when it applied a proof). A node that follows finality by
 /// importing proofs — every newcomer, every follower, a validator back from downtime — kept its watermark
 /// at the height it started with (0 on a new chain), so it stored every vote and proof it ever heard and
@@ -801,8 +804,20 @@ fn committee_for_height(client: &Arc<FullClient>, height: u32, at: Hash) -> BTre
         log::warn!(target: "woven-trust", "committee@{at:?}: beacon_seed API error: {e:?} — treating as zero");
         Default::default()
     });
+    // 10-oct-2026: only masks WITH a bound node (VoteKeys owners) may sit — read at the SAME pinned block, so
+    // node and pallet see the identical list. An API error is logged
+    // and yields an EMPTY list → empty committee → the tick waits; never «everyone».
+    let bound: Vec<[u8; 32]> = client
+        .runtime_api()
+        .vote_keys(at)
+        .map(|v| v.into_iter().map(|(account, _hot)| account).collect())
+        .unwrap_or_else(|e| {
+            log::warn!(target: "woven-trust", "committee@{at:?}: vote_keys API error: {e:?} — no bound nodes (no finality this tick)");
+            Default::default()
+        });
     consensus_core::elect_finality_committee(
         &onchain,
+        &bound,
         &committed,
         &beacon_seed,
         epoch,
