@@ -50,14 +50,14 @@ SPEC_URL="$DIST_BASE/dist/mainnet-raw.json"
 # Empty on purpose while no mirror is published. Empty means "there is no second place", and the
 # installer SAYS SO when the first one fails, instead of pretending it tried.
 MIRROR_BASE=""
-SPEC_SHA256="be8082320c5f54900c284616846e5ab15f3fd8adabf66b93b436dc53cc4fa1bc"  # REHEARSAL chainspec 2 (genesis 0xecdaa7d3, 2026-10-08): the second dress rehearsal of the 27-Nov launch, built from launch candidate 6; the launch itself gets a new ceremony and a new spec
+SPEC_SHA256="d346ed19abb8592175d4b9e5f01958868e271bfd76b2a0fe1d956ee1b7806372"  # REHEARSAL chainspec 3 (genesis 0xe6f67e52, launch candidate 7):
 
 BIN_URL_x86_64="$DIST_BASE/dist/harlequin-node"
-BIN_SHA_x86_64="4b5d471504dbe9bdab14068de6b3736386f7143e97b26892c7b29068d75ebcf6" # launch candidate 6 (tag candidato-6-20261007: pacts, market deals, hosting reward, light profile): reproduced bit for bit in two cold builds
+BIN_SHA_x86_64="df4f2283dca937bd3ca83bc98285490b9f4d893037ad6ed4c385931d8d36a863" # launch candidate 7 (tag candidato-7-20261010: earnable reputation, committee and slot leaders only with a bound node)
 BIN_URL_aarch64="$DIST_BASE/dist/harlequin-node-arm64"
 # Phones, tablets and Raspberry Pi get the SAME release as ordinary PCs: built from the same tag,
 # checked the same way.
-BIN_SHA_aarch64="ede44f0f2a62ba8f3a708b5b84856edc75bef767d15a1d8928fa98e58e868f48" # launch candidate 6 aarch64, cross-built from the same tag; its runtime is the same wasm as the x86 one
+BIN_SHA_aarch64="08bbdf422029138a671864aa81ffe53e51647a0a659a7b8997df011ffa033fbf" # launch candidate 7 aarch64, cross-built from the same tag
 
 # Baked into the spec too; passed explicitly in portable mode for first-dial robustness.
 # THREE DOORS, NOT ONE (2026-07-26). Until today the installer handed out a single address, so every
@@ -94,7 +94,7 @@ SVC="harlequin-node"
 # operator you already trust. If the sources disagree — STOP, do not join.
 # F4 NOTE: values below pin the LAUNCH chain at genesis. At the relaunch ceremony (F4) they are
 # re-pinned to a fresh finalized checkpoint, and on every release thereafter.
-# 2026-10-08: REHEARSAL CHAIN 2 (2026-09-28 was rehearsal 1). A brand-new chain has one block nobody can dispute: its genesis. Until
+# 2026-10-10: REHEARSAL CHAIN 3 (rehearsal 2 was 2026-10-08, rehearsal 1 2026-09-28). A brand-new chain has one block nobody can dispute: its genesis. Until
 # the chain has settled, the pin is the genesis itself (height 0); it moves to a settled finalized
 # block at the next release. The history below is the previous chain's.
 # Re-pinned 2026-08-14 to block #188805, finalized and then left to settle: it sits roughly a thousand
@@ -104,9 +104,9 @@ SVC="harlequin-node"
 # height and by hash, agreeing exactly — and the previous pin (#79830, 2026-07-29) was verified the
 # same way.
 CHECKPOINT_HEIGHT="0"
-CHECKPOINT_HASH="0xecdaa7d302af9f0e8a071c780460bf55faa164f8a9fb30df64b36aeab9c13aef"
+CHECKPOINT_HASH="0xe6f67e52a1449fb46c7006457cbdf36a066b8abf5b2e741fb903dbf78029f138"
 CHECKPOINT_CHAIN="Harlequin Launch (cold-start)"  # system_chain name (spec id: hlq_launch)
-CHECKPOINT_PINNED_AT="2026-10-08"  # re-pin to a fresher finalized block before each public release
+CHECKPOINT_PINNED_AT="2026-10-10"  # re-pin to a fresher finalized block before each public release
 RPC_URL="http://127.0.0.1:9944"   # node RPC is local-only by default; the check runs on YOUR box
 # ─────────────────────────────────────────────────────────────────────────────
 
