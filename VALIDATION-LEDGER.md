@@ -279,6 +279,7 @@
 | 45 | Only masks with a bound node sit in the finality committee or lead block slots | 200-epoch unit test, both draw paths + test network | — | ✅ old binary: two node-less reputable masks froze finality; first fix: finality held but blocks slowed to ~40 s; candidate 7: three node-less masks with reputation in all four suits, 28 min at 12 s/block, finality ≤ 8 blocks behind |
 | 46 | Earning reputation from the site: claim a testimony, testify, vouch, testify for a closed deal | browser, test network | — | ✅ claiming raises the mask's evidence on chain; testify and vouch follow the chain's rules (a testimony that would weigh 0 is not sent; vouching needs all four suits) |
 | 47 | Rehearsal chain 3 (genesis `0xe6f67e52…`, candidate 7) on the four live validators | live network | — | ✅ first finality at block #15; citizen walk 13/13; map 14/14; a stranger installs on a clean machine and links the node to a new mask 21/21; Raspberry Pi 3 in step with the aarch64 build |
+| 48 | Reproducible build of candidate 7 from the PUBLIC source archive (`harlequin-src-candidato-7.tar.gz`, `271969f0…`) | cold rebuild | — | ✅ built from scratch on a separate machine at the canonical path (all caches removed) → `.dist` `df4f2283dca937bd3ca83bc98285490b9f4d893037ad6ed4c385931d8d36a863`, identical to the published binary; `RESULT=CLEAN` |
 
 
 **Current relaunch note (honest).** An internal audit found the finality-vote **gossip layer relayed
