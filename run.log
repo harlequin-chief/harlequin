@@ -1,0 +1,3001 @@
+Unable to find image 'debian:trixie@sha256:2dc419c6d7fe3dad0a2f9fd469c34cc90b0f9ba642d8fde837fe3d7d34a0e7f1' locally
+docker.io/library/debian@sha256:2dc419c6d7fe3dad0a2f9fd469c34cc90b0f9ba642d8fde837fe3d7d34a0e7f1: Pulling from library/debian
+a1d156b0aab5: Pulling fs layer
+a1d156b0aab5: Verifying Checksum
+a1d156b0aab5: Download complete
+a1d156b0aab5: Pull complete
+Digest: sha256:2dc419c6d7fe3dad0a2f9fd469c34cc90b0f9ba642d8fde837fe3d7d34a0e7f1
+Status: Downloaded newer image for debian@sha256:2dc419c6d7fe3dad0a2f9fd469c34cc90b0f9ba642d8fde837fe3d7d34a0e7f1
+info: syncing channel updates for '1.90.0-x86_64-unknown-linux-gnu'
+info: latest update on 2025-09-18, rust version 1.90.0 (1159e78c4 2025-09-14)
+info: downloading component 'cargo'
+info: downloading component 'rust-src'
+info: downloading component 'rust-std' for 'wasm32v1-none'
+info: downloading component 'rust-std'
+info: downloading component 'rustc'
+info: installing component 'cargo'
+info: installing component 'rust-src'
+info: installing component 'rust-std' for 'wasm32v1-none'
+info: installing component 'rust-std'
+info: installing component 'rustc'
+
+  1.90.0-x86_64-unknown-linux-gnu installed - rustc 1.90.0 (1159e78c4 2025-09-14)
+
+info: default toolchain set to '1.90.0-x86_64-unknown-linux-gnu'
+info: self-update is disabled for this build of rustup
+info: any updates to rustup will need to be fetched with your system package manager
+info: syncing channel updates for '1.91.0-x86_64-unknown-linux-gnu'
+info: latest update on 2025-10-30, rust version 1.91.0 (f8297e351 2025-10-28)
+info: downloading component 'cargo'
+info: downloading component 'rust-src'
+info: downloading component 'rust-std' for 'wasm32v1-none'
+info: downloading component 'rust-std'
+info: downloading component 'rustc'
+info: installing component 'cargo'
+info: installing component 'rust-src'
+info: installing component 'rust-std' for 'wasm32v1-none'
+info: installing component 'rust-std'
+info: installing component 'rustc'
+
+  1.91.0-x86_64-unknown-linux-gnu installed - rustc 1.91.0 (f8297e351 2025-10-28)
+
+info: self-update is disabled for this build of rustup
+info: any updates to rustup will need to be fetched with your system package manager
+info: using existing install for '1.91.0-x86_64-unknown-linux-gnu'
+info: default toolchain set to '1.91.0-x86_64-unknown-linux-gnu'
+debian: 13.7
+rustc 1.91.0 (f8297e351 2025-10-28)
+cargo 1.91.0 (ea2d97820 2025-10-10)
+build-essential 12.12
+clang 1:19.0-63
+libclang-dev 1:19.0-63
+llvm 1:19.0-63
+protobuf-compiler 3.21.12-11+deb13u1
+rustup 1.27.1-3+b1
+   Compiling consensus-core v0.1.0 (/hlq-build/harlequin/consensus-core)
+   Compiling reputation-core v0.1.0 (/hlq-build/harlequin/reputation-core)
+   Compiling tokens-core v0.1.0 (/hlq-build/harlequin/tokens-core)
+   Compiling content-id v0.1.0 (/hlq-build/harlequin/content-id)
+   Compiling protocol-core v0.1.0 (/hlq-build/harlequin/protocol-core)
+   Compiling composition v0.1.0 (/hlq-build/harlequin/composition)
+   Compiling forum-core v0.1.0 (/hlq-build/harlequin/forum-core)
+   Compiling manifesto-core v0.1.0 (/hlq-build/harlequin/manifesto-core)
+   Compiling sphinx-core v0.1.0 (/hlq-build/harlequin/sphinx-core)
+   Compiling sim-cluster-599 v0.1.0 (/hlq-build/harlequin/sim-cluster-599)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.27s
+     Running unittests src/lib.rs (/hlq-build/test-target/debug/deps/composition-f000738434c5e151)
+
+running 1 test
+test tests::power_is_earned_reputation_not_number_nor_collusion ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/main.rs (/hlq-build/test-target/debug/deps/composition-495c1bd3fec32ca6)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (/hlq-build/test-target/debug/deps/consensus_core-13734906d0dfffd5)
+
+running 62 tests
+test beacon::tests::commitment_binds_and_opens ... ok
+test beacon::tests::committed_value_matches_plain_vrf_over_hex ... ok
+test beacon::tests::deferred_seed_is_deterministic_order_independent_and_sensitive ... ok
+test beacon::tests::pipeline_beacon_advances_with_reveals ... ok
+test beacon::tests::pipeline_commit_then_reveal_next_epoch_activates_key ... ok
+test beacon::tests::pipeline_draw_is_committed_and_drops_non_revealers ... ok
+test beacon::tests::end_to_end_drops_non_revealers_and_elects ... ok
+test beacon::tests::pipeline_one_commitment_per_node ... ok
+test beacon::tests::zero_reputation_wins_nothing_even_committed ... ok
+test finality::tests::decided_round_is_frozen ... ok
+test finality::tests::flips_to_overwhelming_competitor ... ok
+test finality::tests::quorum_guard_blocks_finalisation_under_partition ... ok
+test finality::tests::reduces_to_snowball_on_binary_case ... ok
+test finality::tests::split_below_quorum_resets_streak ... ok
+test finality::tests::unanimous_finalises_after_beta ... ok
+test sha256::tests::matches_standard_vectors ... ok
+test beacon::tests::average_draw_is_fair_under_commitment ... ok
+test beacon::tests::beacon_kills_post_seed_grinding ... ok
+test sim::tests::epoch_honest_only_is_safe ... ok
+test sim::tests::epoch_reputation_majority_captures ... ok
+test sim::tests::epoch_low_reputation_adversary_is_mostly_safe ... ok
+test sim::tests::epoch_sortition_excludes_sybils ... ok
+test sim::tests::independence_protects_from_correlated_bloc ... ok
+test sim::tests::adaptive_adversary_does_not_capture ... ok
+test sim::tests::no_adversary_is_safe ... ok
+test sim::tests::partition_long_forks_without_mitigation ... ok
+test sim::tests::loss_above_bound_stalls_without_capture ... ok
+test sim::tests::independence_yields_if_adversary_fragments_enough ... ok
+test sim::tests::reputation_majority_captures ... ok
+test sim::tests::partition_quorum_preserves_safety ... ok
+test sim::tests::threshold_is_reputation_not_nodes ... ok
+test sim::tests::uniform_sybil_fails ... ok
+test snowball::tests::below_quorum_resets_streak ... ok
+test snowball::tests::decided_node_is_frozen ... ok
+test snowball::tests::defaults_match_test_rig ... ok
+test snowball::tests::flips_to_adversary_colour_when_overwhelmed ... ok
+test snowball::tests::quorum_guard_blocks_finalisation_under_partition ... ok
+test snowball::tests::unanimous_legitimate_decides_zero_after_beta ... ok
+test sim::tests::weighted_sybil_is_safe ... ok
+test sortition_fp::finality_committee_tests::beacon_engages_once_enough_reputable_accounts_commit ... ok
+test sortition_fp::finality_committee_tests::empty_draw_liveness_floor_devnet_epoch_4 ... ok
+test sortition_fp::finality_committee_tests::fallback_path_is_byte_identical_to_the_node_draw ... ok
+test sortition_fp::finality_committee_tests::halted_guard_seats_nobody ... ok
+test sortition_fp::finality_committee_tests::a_reputable_mask_without_a_node_never_sits ... ok
+test sortition_fp::finality_committee_tests::lone_zero_rep_committer_cannot_empty_the_committee ... ok
+test sortition_fp::finality_committee_tests::nobody_bound_means_an_empty_committee_not_everyone ... ok
+test sortition_fp::finality_committee_tests::too_few_committers_fall_back_instead_of_starving ... ok
+test sortition_fp::finality_committee_tests::liveness_floor_seats_the_bound_nodes_when_none_of_them_is_reputable ... ok
+test sortition_fp::tests::deterministic_across_runs ... ok
+test sortition_fp::tests::exp_neg_matches_f64 ... ok
+test sortition_fp::tests::keyless_reputable_node_is_skipped_not_panicked ... ok
+test sortition_fp::tests::known_defect_vrf_is_grindable_but_reputation_anchor_holds ... ok
+test sortition_fp::tests::committee_excludes_sybils_and_sizes_to_tau ... ok
+test sortition_fp::tests::poisson_cdf_matches_f64 ... ok
+test sortition_fp::tests::large_lam_no_longer_collapses_to_the_seat_cap ... ok
+test sortition_fp::tests::sortition_seats_matches_f64 ... ok
+test vrf::tests::committee_is_reputation_weighted_and_excludes_sybils ... ok
+test vrf::tests::committee_rotates_across_epochs ... ok
+test vrf::tests::vrf_verifiable_and_grind_resistant ... ok
+test sortition_fp::tests::sortition_matches_f64_across_the_full_lam_range ... ok
+test sim::tests::message_loss_preserves_safety ... ok
+test sim::tests::safety_property_below_threshold_sweep ... ok
+
+test result: ok. 62 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.23s
+
+     Running unittests src/lib.rs (/hlq-build/test-target/debug/deps/content_id-785fa59f92ccab07)
+
+running 7 tests
+test tests::cid_length_is_fixed ... ok
+test tests::digest_from_cid_accepts_canonical_only ... ok
+test tests::digest_matches_onchain_field ... ok
+test tests::cid_roundtrips_to_digest ... ok
+test tests::rejects_malformed_cid ... ok
+test vectors::known_ipfs_raw_vectors ... ok
+test tests::raw_cid_has_canonical_prefix ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (/hlq-build/test-target/debug/deps/forum_core-03a407ee90c58fc3)
+
+running 9 tests
+test conformance_vector::forum_body_ground_truth ... ok
+test tests::empty_and_whitespace_rejected ... ok
+test tests::roundtrip_prepare_then_verify ... ok
+test tests::serialize_is_canonical_and_versioned ... ok
+test tests::cid_matches_onchain_digest ... ok
+test tests::non_utf8_is_malformed ... ok
+test tests::tampered_body_is_rejected ... ok
+test tests::wrong_version_is_malformed ... ok
+test tests::too_long_rejected ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (/hlq-build/test-target/debug/deps/manifesto_core-e2ff533ef7b1b75e)
+
+running 5 tests
+test tests::any_tampering_is_detected ... ok
+test tests::hex_matches_known_empty_vector ... ok
+test tests::from_hash_reconstructs_the_same_seal ... ok
+test tests::seal_is_deterministic ... ok
+test tests::seal_then_verify_roundtrips ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (/hlq-build/test-target/debug/deps/protocol_core-1638889fcd7cabad)
+
+running 11 tests
+test tests::epoch_report_serialises_finalized ... ok
+test tests::dominant_node_rotates_instead_of_pinning_at_the_cap ... ok
+test tests::committee_is_deterministic_across_runs ... ok
+test tests::genesis_then_epoch_elects_a_committee ... ok
+test tests::json_escape_neutralises_hostile_member_ids ... ok
+test tests::committee_rotates_across_epochs ... ok
+test tests::reputation_is_deterministic_across_runs ... ok
+test tests::telemetry_json_has_the_schema ... ok
+test tests::gini_rises_with_concentration ... ok
+test tests::funnelled_concentration_does_not_reach_the_sortition_collapse_band ... ok
+test tests::sybils_without_evidence_or_vouches_are_excluded ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running unittests src/lib.rs (/hlq-build/test-target/debug/deps/reputation_core-139386e1b874d53b)
+
+running 40 tests
+test tests::checkpoint_escalates_soft_then_hard_not_instant ... ok
+test tests::cluster_share_catches_the_split_ring ... ok
+test tests::concave_aggregate_resists_single_suit_zeroing_but_punishes_imbalance ... ok
+test tests::community_suspicion_fp_matches_f64 ... ok
+test tests::decay_evaporates_inactive ... ok
+test tests::community_crushes_collusion_ring_matches_python ... ok
+test tests::bribed_whale_vouch_does_not_buy_global_authority ... ok
+test tests::cross_community_collusion_without_evidence_gets_nothing ... ok
+test tests::empty_dimension_trusts_nobody ... ok
+test tests::fixed_point_matches_f64 ... ok
+test tests::fixed_point_is_deterministic ... ok
+test tests::in_concentration_cuts_funnel_matches_python ... ok
+test tests::fully_fixed_matches_f64_with_all_defenses ... ok
+test tests::independence_fp_matches_f64 ... ok
+test tests::in_concentration_fp_matches_f64 ... ok
+test tests::independence_penalises_inbreeding ... ok
+test tests::isolated_nodes_are_labelled_so_the_suspicion_pass_cannot_panic ... ok
+test tests::fully_fixed_is_invariant_to_input_ordering ... ok
+test tests::matches_python_prototype ... ok
+test tests::mass_is_conserved ... ok
+test tests::mutual_vouch_amplification_is_damped ... ok
+test tests::funnel_detector_cannot_be_evaded_by_atomizing_the_feeders ... ok
+test tests::puppet_master_does_not_amplify_through_evidenceless_puppets ... ok
+test tests::single_entity_share_and_entrenchment_guard ... ok
+test vouch::tests::cascade_is_cycle_safe_each_sponsor_slashed_once ... ok
+test vouch::tests::cascade_is_proportional_decaying_and_consent_scoped ... ok
+test vouch::tests::cascade_slashing_fp_matches_f64 ... ok
+test vouch::tests::cascade_slashing_matches_python ... ok
+test vouch::tests::depth2_ring_evades_depth1_but_is_visible_at_depth2 ... ok
+test vouch::tests::graduation_frees_quota_keeps_liability ... ok
+test vouch::tests::log2_fp_matches_f64 ... ok
+test vouch::tests::max_visit_bounds_the_search_anti_dos ... ok
+test vouch::tests::mentor_dividend_fp_matches_f64 ... ok
+test vouch::tests::nearest_party_distance_picks_the_closest_party ... ok
+test vouch::tests::quota_is_sublinear ... ok
+test vouch::tests::vouch_distance_is_undirected_and_capped ... ok
+test vouch::tests::vouch_quota_fp_matches_f64 ... ok
+test tests::sybil_without_evidence_or_vouches_has_no_power ... ok
+test tests::suit_coverage_collusion_does_not_lift_the_conservative_min ... ok
+test tests::indexed_iteration_is_bit_identical_to_the_keyed_one ... ok
+
+test result: ok. 40 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+     Running unittests src/main.rs (/hlq-build/test-target/debug/deps/sim_cluster_599-26a434ed2885cec1)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (/hlq-build/test-target/debug/deps/sphinx_core-7fcb93f5c3b883af)
+
+running 15 tests
+test call::tests::gated_session_cannot_even_start ... ok
+test call::tests::peer_binding_delivered_to_handshake_both_sides ... ok
+test call::tests::seal_before_complete_is_rejected ... ok
+test call::tests::three_message_handshake_reaches_connected_both_sides ... ok
+test packet::tests::base32_matches_known_vector ... ok
+test packet::handle_vector::alice_652_ground_truth ... ok
+test packet::tests::handle_string_shape ... ok
+test relay::tests::relay_holds_no_state ... ok
+test route::tests::deterministic_for_same_seed ... ok
+test route::tests::not_enough_positive_candidates ... ok
+test packet::tests::wire_len_is_constant ... ok
+test route::tests::picks_k_distinct ... ok
+test route::tests::zero_reputation_never_selected ... ok
+test session::tests::gated_until_637 ... ok
+test route::tests::high_reputation_dominates_distribution ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (/hlq-build/test-target/debug/deps/tokens_core-b392c0dbbe9835ab)
+
+running 15 tests
+test tests::burn_amount_floor_and_clamp ... ok
+test tests::emission_respects_hard_cap ... ok
+test tests::coins_are_independent ... ok
+test tests::emission_is_monotonic_non_increasing ... ok
+test tests::fee_burn_splits_and_deflates ... ok
+test tests::fee_is_a_transfer_no_mint ... ok
+test tests::mint_amount_matches_ledger ... ok
+test tests::flat_curve_when_era_zero_or_num_eq_den ... ok
+test tests::rational_decay_is_flatter_than_halving ... ok
+test tests::only_emission_increases_supply ... ok
+test tests::service_split_remainder_to_top_weight ... ok
+test tests::service_split_is_proportional_and_exact ... ok
+test tests::transfer_moves_and_conserves ... ok
+test tests::service_split_zero_pool_or_weights ... ok
+test tests::transfer_rejects_insufficient_self_and_zero ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests composition
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests consensus_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests content_id
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests forum_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests manifesto_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests protocol_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests reputation_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests sphinx_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests tokens_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+=== pallet-beacon
+    Updating crates.io index
+ Downloading crates ...
+  Downloaded addr2line v0.25.1
+  Downloaded Inflector v0.11.4
+  Downloaded aead v0.5.2
+  Downloaded adler2 v2.0.1
+  Downloaded fixed-hash v0.8.0
+  Downloaded ahash v0.8.12
+  Downloaded ark-serialize-derive v0.5.0
+  Downloaded block-buffer v0.10.4
+  Downloaded block-buffer v0.9.0
+  Downloaded base16ct v0.2.0
+  Downloaded fnv v1.0.7
+  Downloaded foldhash v0.2.0
+  Downloaded ark-transcript v0.0.3
+  Downloaded ark-serialize v0.4.2
+  Downloaded dyn-clone v1.0.20
+  Downloaded foldhash v0.1.5
+  Downloaded frame-executive v47.0.0
+  Downloaded file-guard v0.2.0
+  Downloaded cfg-if v1.0.4
+  Downloaded getrandom_or_panic v0.0.3
+  Downloaded opaque-debug v0.3.1
+  Downloaded funty v2.0.0
+  Downloaded ff v0.13.1
+  Downloaded keccak v0.1.6
+  Downloaded pbkdf2 v0.12.2
+  Downloaded primitive-types v0.13.1
+  Downloaded parity-scale-codec-derive v3.7.5
+  Downloaded proc-macro-warning v1.84.1
+  Downloaded rand_chacha v0.3.1
+  Downloaded polkadot-sdk-frame v0.17.0
+  Downloaded sec1 v0.7.3
+  Downloaded sp-consensus-slots v0.48.0
+  Downloaded sp-panic-handler v13.0.2
+  Downloaded thiserror v1.0.69
+  Downloaded tinyvec v1.11.0
+  Downloaded tinyvec_macros v0.1.1
+  Downloaded unicode-ident v1.0.24
+  Downloaded twox-hash v1.6.3
+  Downloaded zeroize_derive v1.5.0
+  Downloaded zmij v1.0.21
+  Downloaded zeroize v1.9.0
+  Downloaded trie-root v0.18.0
+  Downloaded tuplex v0.1.2
+  Downloaded sp-core v41.0.0
+  Downloaded walkdir v2.5.0
+  Downloaded wyz v0.5.1
+  Downloaded version_check v0.9.5
+  Downloaded w3f-ring-proof v0.0.8
+  Downloaded w3f-plonk-common v0.0.7
+  Downloaded sp-trie v44.0.0
+  Downloaded sp-state-machine v0.51.0
+  Downloaded w3f-bls v0.1.9
+  Downloaded sha3 v0.10.9
+  Downloaded toml_edit v0.25.12+spec-1.1.0
+  Downloaded time v0.3.49
+  Downloaded sp-runtime v47.0.0
+  Downloaded secp256k1-sys v0.9.2
+  Downloaded typenum v1.20.1
+  Downloaded tracing v0.1.44
+  Downloaded winnow v1.0.3
+  Downloaded syn v2.0.118
+  Downloaded tokio-util v0.7.18
+  Downloaded syn v1.0.109
+  Downloaded zerocopy v0.8.52
+  Downloaded sp-weights v34.0.0
+  Downloaded sp-transaction-pool v42.0.0
+  Downloaded winnow v0.7.15
+  Downloaded wide v0.7.33
+  Downloaded toml_edit v0.22.27
+  Downloaded frame-system-benchmarking v48.0.0
+  Downloaded w3f-pcs v0.0.5
+  Downloaded unicode-xid v0.2.6
+  Downloaded tt-call v1.0.9
+  Downloaded tokio v1.52.3
+  Downloaded tracing-log v0.2.0
+  Downloaded tracing-core v0.1.36
+  Downloaded trie-db v0.31.0
+  Downloaded tracing-subscriber v0.3.23
+  Downloaded serde_json v1.0.150
+  Downloaded unicode-normalization v0.1.25
+  Downloaded serde v1.0.228
+  Downloaded secp256k1 v0.28.2
+  Downloaded libc v0.2.186
+  Downloaded toml_datetime v1.1.1+spec-1.1.0
+  Downloaded toml_datetime v0.6.11
+  Downloaded toml v0.8.23
+  Downloaded schnorrkel v0.11.5
+  Downloaded safe_arch v0.7.4
+  Downloaded regex v1.12.4
+  Downloaded uint v0.10.0
+  Downloaded tracing-attributes v0.1.31
+  Downloaded toml_write v0.1.2
+  Downloaded toml_parser v1.1.2+spec-1.1.0
+  Downloaded substrate-bip39 v0.6.1
+  Downloaded regex-syntax v0.8.11
+  Downloaded regex-automata v0.4.14
+  Downloaded time-macros v0.2.29
+  Downloaded thread_local v1.1.9
+  Downloaded thiserror-impl v1.0.69
+  Downloaded nalgebra v0.33.3
+  Downloaded gimli v0.32.3
+  Downloaded frame-support v47.0.0
+  Downloaded frame-metadata v23.0.1
+  Downloaded tiny-keccak v2.0.2
+  Downloaded time-core v0.1.9
+  Downloaded termcolor v1.4.1
+  Downloaded strum_macros v0.26.4
+  Downloaded static_assertions v1.1.0
+  Downloaded ss58-registry v1.51.0
+  Downloaded spki v0.7.3
+  Downloaded sp-wasm-interface v25.0.0
+  Downloaded sp-tracing v19.0.0
+  Downloaded sp-timestamp v42.0.0
+  Downloaded sp-storage v23.0.0
+  Downloaded sp-std v14.0.0
+  Downloaded sp-staking v44.0.0
+  Downloaded sp-session v44.0.0
+  Downloaded sp-runtime-interface-proc-macro v21.0.0
+  Downloaded sp-runtime-interface v35.0.0
+  Downloaded sp-inherents v42.0.0
+  Downloaded sp-genesis-builder v0.23.0
+  Downloaded sp-externalities v0.32.0
+  Downloaded sp-debug-derive v15.0.0
+  Downloaded sp-crypto-hashing-proc-macro v0.1.0
+  Downloaded sp-crypto-hashing v0.1.0
+  Downloaded prometheus v0.13.4
+  Downloaded hashbrown v0.17.1
+  Downloaded aquamarine v0.5.0
+  Downloaded tap v1.0.1
+  Downloaded subtle v2.6.1
+  Downloaded substrate-prometheus-endpoint v0.17.7
+  Downloaded strum v0.26.3
+  Downloaded sp-version-proc-macro v15.0.0
+  Downloaded sp-version v45.0.0
+  Downloaded sp-keystore v0.47.0
+  Downloaded sp-keyring v47.0.0
+  Downloaded sp-io v46.0.0
+  Downloaded socket2 v0.6.4
+  Downloaded smallvec v1.15.2
+  Downloaded slab v0.4.12
+  Downloaded simple-mermaid v0.1.1
+  Downloaded simba v0.9.1
+  Downloaded itertools v0.13.0
+  Downloaded itertools v0.11.0
+  Downloaded hyper v1.10.1
+  Downloaded hashbrown v0.16.1
+  Downloaded hashbrown v0.15.5
+[…]
+  Downloaded glob v0.3.3
+  Downloaded icu_provider v2.2.0
+  Downloaded is_terminal_polyfill v1.70.2
+  Downloaded lz4 v1.28.1
+  Downloaded mockall v0.13.1
+  Downloaded pallet-authority-discovery v48.0.0
+  Downloaded pallet-bridge-relayers v0.28.0
+  Downloaded pallet-psm v0.3.0
+  Downloaded pallet-vesting-precompiles v0.4.0
+  Downloaded pallet-whitelist v47.0.0
+  Downloaded polkadot-erasure-coding v25.0.0
+  Downloaded piper v0.2.5
+  Downloaded pulley-macros v36.0.11
+  Downloaded rand_xorshift v0.4.0
+  Downloaded rand_pcg v0.3.1
+  Downloaded rustc_version v0.3.3
+  Downloaded sc-block-builder v0.50.0
+  Downloaded sc-allocator v37.0.0
+  Downloaded sc-consensus-grandpa-rpc v0.43.0
+  Downloaded sc-tracing-proc-macro v11.1.1
+  Downloaded scrypt v0.11.0
+  Downloaded sp-dap v0.2.0
+  Downloaded spinning_top v0.3.0
+  Downloaded subtle-ng v2.5.0
+  Downloaded tokio-macros v2.7.0
+  Downloaded thousands v0.2.0
+  Downloaded try-lock v0.2.5
+  Downloaded wait-timeout v0.2.1
+  Downloaded want v0.3.1
+  Downloaded wasmtime-internal-cache v36.0.11
+  Downloaded zerofrom-derive v0.1.7
+  Downloaded yoke v0.8.3
+  Downloaded zstd-safe v7.2.4
+  Downloaded writeable v0.6.3
+  Downloaded zerovec-derive v0.11.3
+  Downloaded yasna v0.5.2
+  Downloaded zerofrom v0.1.8
+  Downloaded xcm-runtime-apis v0.15.0
+  Downloaded tracing-subscriber v0.3.19
+  Downloaded wasmparser v0.236.1
+  Downloaded wasmi v0.32.3
+  Downloaded staging-chain-spec-builder v18.0.0
+  Downloaded snow v0.9.6
+  Downloaded smoldot v0.19.4
+  Downloaded wasmi_core v0.32.3
+  Downloaded wasmtime-environ v36.0.11
+  Downloaded wasmparser-nostd v0.100.2
+  Downloaded wasm-encoder v0.236.1
+  Downloaded sc-executor v0.49.0
+  Downloaded url v2.5.8
+  Downloaded vcpkg v0.2.15
+  Downloaded tracing-subscriber v0.2.25
+  Downloaded wasmtime v36.0.11
+  Downloaded wasmi v0.40.0
+  Downloaded yap v0.12.0
+  Downloaded xcm-emulator v0.30.0
+  Downloaded x25519-dalek v2.0.1
+  Downloaded winch-codegen v36.0.11
+  Downloaded wasmparser v0.221.3
+  Downloaded webpki-roots v0.25.4
+  Downloaded schnorrkel v0.10.2
+  Downloaded x509-parser v0.17.0
+  Downloaded tikv-jemalloc-sys v0.6.1+5.3.0-1-ge13ca993e8ccb9ba9847cc330696e02839f328f7
+  Downloaded web-time v1.1.0
+  Downloaded zerovec v0.11.6
+  Downloaded wasmi_collections v0.40.0
+  Downloaded x509-parser v0.16.0
+  Downloaded tower v0.4.13
+  Downloaded sysinfo v0.30.13
+  Downloaded yamux v0.12.1
+  Downloaded xmltree v0.10.3
+  Downloaded xcm-simulator v28.0.0
+  Downloaded westend-runtime-constants v29.0.0
+  Downloaded zerotrie v0.2.4
+  Downloaded w3f-ring-proof v0.0.2
+  Downloaded tungstenite v0.27.0
+  Downloaded sha3 v0.11.0
+  Downloaded wasmtime-internal-math v36.0.11
+  Downloaded wasmi_ir v0.40.0
+  Downloaded zstd v0.13.3
+  Downloaded yoke-derive v0.8.2
+  Downloaded utf8parse v0.2.2
+  Downloaded unicode-segmentation v1.13.3
+  Downloaded tower-http v0.5.2
+  Downloaded tokio-stream v0.1.18
+  Downloaded subxt-core v0.44.3
+  Downloaded secp256k1-sys v0.11.0
+  Downloaded subxt v0.44.3
+  Downloaded smol v2.0.2
+  Downloaded xml-rs v0.8.28
+  Downloaded wasmtime-internal-unwinder v36.0.11
+  Downloaded wasmtime-internal-jit-debug v36.0.11
+  Downloaded wasmtime-internal-fiber v36.0.11
+  Downloaded wasmprinter v0.236.1
+  Downloaded wasm-timer v0.2.5
+  Downloaded unsigned-varint v0.7.2
+  Downloaded uint v0.9.5
+  Downloaded twox-hash v2.1.2
+  Downloaded tracing-gum v25.0.0
+  Downloaded toml v0.5.11
+  Downloaded tokio-rustls v0.26.4
+  Downloaded substrate-state-trie-migration-rpc v51.0.0
+  Downloaded staging-xcm-builder v28.0.0
+  Downloaded secp256k1-sys v0.8.2
+  Downloaded wasmtime-internal-cranelift v36.0.11
+  Downloaded smoldot-light v0.17.2
+  Downloaded sha3-asm v0.1.8
+  Downloaded secp256k1-sys v0.10.1
+  Downloaded yamux v0.13.10
+  Downloaded xcm-procedural v11.0.2
+  Downloaded wasmtime-internal-winch v36.0.11
+  Downloaded wasmtime-internal-versioned-export-macros v36.0.11
+  Downloaded wasmtime-internal-slab v36.0.11
+  Downloaded wasmtime-internal-jit-icache-coherence v36.0.11
+  Downloaded wasmtime-internal-asm-macros v36.0.11
+  Downloaded wasmi_collections v0.32.3
+  Downloaded w3f-pcs v0.0.2
+  Downloaded unsigned-varint v0.8.0
+  Downloaded universal-hash v0.5.1
+  Downloaded tinystr v0.8.3
+  Downloaded termtree v0.5.1
+  Downloaded staging-xcm-executor v27.0.0
+  Downloaded staging-node-inspect v0.36.0
+  Downloaded wasmi_core v0.40.0
+  Downloaded wasm-instrument v0.4.0
+  Downloaded uuid v1.23.3
+  Downloaded utf-8 v0.7.6
+  Downloaded untrusted v0.7.1
+  Downloaded unarray v0.1.4
+  Downloaded tower-layer v0.3.3
+  Downloaded threadpool v1.8.1
+  Downloaded subkey v33.0.0
+  Downloaded staging-xcm v23.0.1
+  Downloaded w3f-plonk-common v0.0.2
+  Downloaded void v1.0.2
+  Downloaded utf8_iter v1.0.4
+  Downloaded ring v0.16.20
+  Downloaded untrusted v0.9.0
+  Downloaded tracing-futures v0.2.5
+  Downloaded subxt-signer v0.44.3
+  Downloaded subxt-metadata v0.44.3
+  Downloaded static_init v1.0.4
+  Downloaded ucd-trie v0.1.7
+  Downloaded thiserror v2.0.18
+  Downloaded subxt-utils-fetchmetadata v0.44.3
+  Downloaded subxt-macro v0.44.3
+  Downloaded serde_with v3.21.0
+  Downloaded tracing-gum-proc-macro v5.0.0
+  Downloaded tower-service v0.3.3
+  Downloaded tokio-tungstenite v0.27.0
+  Downloaded tikv-jemalloc-ctl v0.6.1
+  Downloaded thiserror-impl v2.0.18
+  Downloaded synstructure v0.12.6
+  Downloaded substrate-frame-rpc-support v53.0.0
+  Downloaded schemars v1.2.1
+  Downloaded testnet-parachains-constants v22.0.0
+  Downloaded terminal_size v0.4.4
+  Downloaded target-lexicon v0.13.5
+  Downloaded tagptr v0.2.0
+  Downloaded sha2-const-stable v0.1.0
+  Downloaded synstructure v0.13.2
+  Downloaded librocksdb-sys v0.17.3+10.4.2
+  Downloaded substrate-rpc-client v0.57.0
+  Downloaded ring v0.17.14
+  Downloaded syn-solidity v1.6.0
+  Downloaded subxt-rpcs v0.44.3
+  Downloaded subxt-lightclient v0.44.3
+  Downloaded subxt-codegen v0.44.3
+  Downloaded substrate-frame-rpc-system v52.0.0
+  Downloaded substrate-bn v0.6.0
+  Downloaded string-interner v0.17.0
+  Downloaded static_init_macro v1.0.4
+  Downloaded staging-tracking-allocator v2.0.0
+  Downloaded sp-statement-store v27.0.0
+  Downloaded sp-npos-elections v42.0.0
+  Downloaded sp-blockchain v45.0.0
+  Downloaded secp256k1 v0.31.1
+  Downloaded seccompiler v0.4.0
+  Downloaded sc-transaction-pool v46.0.0
+  Downloaded sc-network v0.57.0
+  Downloaded subtle v1.0.0
+  Downloaded substrate-build-script-utils v11.0.1
+  Downloaded staging-parachain-info v0.27.0
+  Downloaded sp-rpc v39.0.0
+  Downloaded sp-consensus-beefy v30.0.0
+  Downloaded soketto v0.8.1
+  Downloaded socket2 v0.5.10
+  Downloaded snap v1.1.1
+  Downloaded serde_with_macros v3.21.0
+  Downloaded sc-statement-store v29.0.0
+  Downloaded spinners v4.2.0
+  Downloaded spin v0.9.8
+  Downloaded spin v0.5.2
+  Downloaded sphinx-packet v0.6.0
+  Downloaded sp-virtualization-test-fixture v0.2.0
+  Downloaded sp-virtualization v0.2.0
+  Downloaded sp-transaction-storage-proof v42.0.1
+  Downloaded sp-mmr-primitives v42.0.0
+  Downloaded sp-mixnet v0.20.0
+  Downloaded sp-hop v0.2.0
+  Downloaded sp-database v10.0.1
+  Downloaded sp-crypto-ec-utils v0.21.1
+  Downloaded polkadot-service v35.0.0
+  Downloaded pallet-election-provider-support-benchmarking v47.0.0
+  Downloaded sp-consensus-babe v0.48.0
+  Downloaded sp-consensus v0.48.0
+  Downloaded sp-authority-discovery v42.0.0
+  Downloaded snowbridge-core v0.21.0
+  Downloaded simple-dns v0.11.3
+  Downloaded signal-hook-registry v1.4.8
+  Downloaded sha1 v0.10.6
+  Downloaded semver-parser v0.10.3
+  Downloaded semver v0.11.0
+  Downloaded semver v0.9.0
+  Downloaded secrecy v0.10.3
+  Downloaded secp256k1 v0.30.0
+  Downloaded secp256k1 v0.27.0
+  Downloaded scale-typegen v0.11.1
+  Downloaded sc-rpc v53.0.0
+  Downloaded sc-offchain v52.0.0
+  Downloaded sc-network-statement v0.40.0
+  Downloaded sc-network-gossip v0.57.0
+  Downloaded sc-mixnet v0.27.0
+  Downloaded sp-core-hashing-proc-macro v16.0.0
+  Downloaded sp-core-hashing v16.0.0
+  Downloaded sp-consensus-pow v0.48.0
+  Downloaded slotmap v1.1.1
+  Downloaded slot-range-helper v23.0.0
+  Downloaded siphasher v1.0.3
+  Downloaded siphasher v0.3.11
+  Downloaded scale-value v0.18.2
+  Downloaded scale-type-resolver v0.2.0
+  Downloaded scale-encode-derive v0.10.1
+  Downloaded scale-decode-derive v0.16.2
+  Downloaded sc-utils v21.0.0
+  Downloaded sc-service v0.59.0
+  Downloaded sc-rpc-spec-v2 v0.58.0
+  Downloaded sc-rpc-server v30.0.0
+  Downloaded sc-rpc-api v0.57.0
+  Downloaded sc-consensus-grandpa v0.42.0
+  Downloaded sc-consensus-beefy v36.0.0
+  Downloaded sc-consensus-babe v0.57.0
+  Downloaded sc-client-db v0.53.1
+  Downloaded sc-cli v0.60.0
+  Downloaded rustls-webpki v0.101.7
+  Downloaded rustls v0.23.40
+  Downloaded rustix v0.38.44
+  Downloaded ruint v1.18.0
+  Downloaded rug v1.30.0
+  Downloaded rocksdb v0.24.0
+  Downloaded regex-syntax v0.6.29
+  Downloaded proptest v1.11.0
+  Downloaded polkadot-runtime-parachains v27.0.0
+  Downloaded polkadot-collator-protocol v31.0.0
+  Downloaded scale-encode v0.10.1
+  Downloaded scale-decode v0.16.2
+  Downloaded scale-bits v0.7.0
+  Downloaded verifiable v0.1.0
+  Downloaded sc-transaction-pool-api v45.0.0
+  Downloaded pallet-scored-pool v47.0.0
+  Downloaded sc-tracing v46.0.0
+  Downloaded sc-telemetry v31.0.0
+  Downloaded sc-network-light v0.56.0
+  Downloaded sc-sysinfo v48.0.0
+  Downloaded sc-sync-state-rpc v0.57.0
+  Downloaded sc-storage-monitor v0.29.0
+  Downloaded sc-runtime-utilities v0.9.0
+  Downloaded sc-network-types v0.20.3
+  Downloaded sc-network-transactions v0.56.0
+  Downloaded sc-informant v0.56.0
+  Downloaded sc-executor-wasmtime v0.45.0
+  Downloaded sc-executor-polkavm v0.42.0
+  Downloaded sc-consensus-slots v0.56.0
+  Downloaded sc-consensus-pow v0.56.0
+  Downloaded sc-consensus-manual-seal v0.58.0
+  Downloaded sc-chain-spec v50.0.0
+  Downloaded ruzstd v0.8.3
+  Downloaded regex-automata v0.1.10
+  Downloaded regalloc2 v0.12.2
+  Downloaded rayon v1.12.0
+  Downloaded raw-cpuid v11.6.0
+  Downloaded polkavm-linker v0.30.0
+  Downloaded polkavm v0.33.1
+  Downloaded polkadot-statement-distribution v31.0.0
+  Downloaded polkadot-sdk v2604.2.0
+  Downloaded polkadot-runtime-common v28.0.0
+  Downloaded polkadot-omni-node-lib v0.17.0
+  Downloaded polkadot-node-subsystem-util v31.0.0
+  Downloaded polkadot-node-core-approval-voting v31.0.0
+  Downloaded polkadot-cli v35.0.0
+  Downloaded sc-state-db v0.43.0
+  Downloaded sc-proposer-metrics v0.20.0
+  Downloaded sc-network-common v0.54.0
+  Downloaded sc-keystore v41.0.0
+  Downloaded sc-executor-common v0.45.0
+  Downloaded sc-consensus-beefy-rpc v37.0.0
+  Downloaded sc-consensus-babe-rpc v0.58.0
+  Downloaded sc-client-api v46.0.0
+  Downloaded sc-authority-discovery v0.58.0
+  Downloaded rustls-webpki v0.103.13
+  Downloaded rtnetlink v0.20.0
+  Downloaded revm-database v7.0.5
+  Downloaded revm-context v8.0.4
+  Downloaded revm v27.1.0
+  Downloaded rcgen v0.11.3
+  Downloaded rayon-core v1.13.0
+  Downloaded rapidhash v4.4.1
+  Downloaded pulley-interpreter v36.0.11
+  Downloaded prost-types v0.14.4
+  Downloaded prost v0.14.4
+  Downloaded prometheus-client v0.22.3
+  Downloaded polkavm-common v0.30.0
+  Downloaded polkadot-rpc v33.0.0
+  Downloaded polkadot-primitives v24.0.0
+  Downloaded polkadot-overseer v31.0.0
+  Downloaded polkadot-node-subsystem-types v31.0.0
+  Downloaded polkadot-node-subsystem v31.0.0
+  Downloaded polkadot-node-primitives v25.0.0
+  Downloaded polkadot-node-network-protocol v31.0.0
+  Downloaded polkadot-node-core-chain-api v31.0.0
+  Downloaded polkadot-node-core-bitfield-signing v31.0.0
+  Downloaded polkadot-node-core-backing v31.0.0
+  Downloaded polkadot-network-bridge v31.0.0
+  Downloaded polkadot-dispute-distribution v31.0.0
+  Downloaded polkadot-availability-recovery v31.0.0
+  Downloaded polkadot-availability-distribution v31.0.0
+  Downloaded sc-consensus-epochs v0.56.0
+  Downloaded sc-consensus-aura v0.57.0
+  Downloaded sc-consensus v0.56.0
+  Downloaded sc-chain-spec-derive v12.0.0
+  Downloaded sc-basic-authorship v0.55.0
+  Downloaded rustls-platform-verifier v0.5.3
+  Downloaded rustls-pki-types v1.14.1
+  Downloaded rtoolbox v0.0.5
+  Downloaded rpassword v7.5.4
+  Downloaded rococo-runtime-constants v29.0.0
+  Downloaded rlp v0.6.1
+  Downloaded ripemd v0.1.3
+  Downloaded revm-precompile v25.0.0
+  Downloaded revm-interpreter v24.0.0
+  Downloaded revm-inspector v8.1.0
+  Downloaded revm-context-interface v9.0.0
+  Downloaded revm-bytecode v6.2.2
+  Downloaded resolv-conf v0.7.6
+  Downloaded reed-solomon-novelpoly v2.0.0
+  Downloaded rand v0.9.4
+  Downloaded quinn-proto v0.11.14
+  Downloaded quinn v0.11.9
+  Downloaded quick-protobuf v0.8.1
+  Downloaded prost-build v0.13.5
+  Downloaded prost v0.12.6
+  Downloaded polkavm-linux-raw v0.33.0
+  Downloaded polkadot-node-core-provisioner v31.0.0
+  Downloaded polkadot-gossip-support v31.0.0
+  Downloaded safe-mix v1.0.1
+  Downloaded ruint-macro v1.2.1
+  Downloaded route-recognizer v0.3.1
+  Downloaded prost-types v0.13.5
+  Downloaded prost-derive v0.14.4
+  Downloaded prost-derive v0.12.6
+  Downloaded prost-build v0.14.4
+  Downloaded predicates v3.1.4
+  Downloaded polkavm-assembler v0.33.0
+  Downloaded polkadot-node-core-approval-voting-parallel v0.14.0
+  Downloaded petgraph v0.7.1
+  Downloaded salsa20 v0.10.2
+  Downloaded rw-stream-sink v0.4.0
+  Downloaded rusty-fork v0.3.1
+  Downloaded rustls-native-certs v0.8.4
+  Downloaded rusticata-macros v4.1.0
+  Downloaded rustc_version v0.2.3
+  Downloaded rustc-hash v2.1.2
+  Downloaded prost v0.13.5
+  Downloaded prioritized-metered-channel v0.6.1
+  Downloaded primitive-types v0.12.2
+  Downloaded primeorder v0.13.6
+  Downloaded portable-atomic v1.13.1
+  Downloaded polkadot-primitives-test-helpers v0.4.0
+  Downloaded polkadot-parachain-primitives v22.0.0
+  Downloaded polkadot-node-core-candidate-validation v31.0.0
+  Downloaded polkadot-node-core-av-store v31.0.0
+  Downloaded polkadot-availability-bitfield-distribution v31.0.0
+  Downloaded petgraph v0.6.5
+  Downloaded rlp v0.5.2
+  Downloaded revm-state v7.0.5
+  Downloaded revm-primitives v20.2.1
+  Downloaded revm-handler v8.1.0
+  Downloaded revm-database-interface v7.0.5
+  Downloaded prost-derive v0.13.5
+  Downloaded proc-macro-error2 v2.0.1
+  Downloaded proc-macro-error-attr2 v2.0.0
+  Downloaded predicates-core v1.0.10
+  Downloaded polkadot-statement-table v25.0.0
+  Downloaded polkadot-node-metrics v31.0.0
+  Downloaded polkadot-node-core-pvf-checker v31.0.0
+  Downloaded polkadot-node-core-pvf v31.0.0
+  Downloaded polkadot-node-core-prospective-parachains v30.0.0
+  Downloaded polkadot-node-core-parachains-inherent v31.0.0
+  Downloaded polkadot-node-core-dispute-coordinator v31.0.0
+  Downloaded polkadot-node-core-chain-selection v31.0.0
+  Downloaded polkadot-core-primitives v23.0.0
+  Downloaded polkadot-approval-distribution v31.0.0
+  Downloaded petgraph v0.8.3
+  Downloaded pest v2.8.6
+  Downloaded parity-db v0.4.13
+  Downloaded rand_distr v0.4.3
+  Downloaded rand_core v0.9.5
+  Downloaded rand_chacha v0.9.0
+  Downloaded quinn-udp v0.5.14
+  Downloaded quick-protobuf-codec v0.3.1
+  Downloaded quanta v0.12.6
+  Downloaded proc-macro-crate v1.1.3
+  Downloaded postcard v1.1.3
+  Downloaded polkadot-runtime-metrics v28.0.0
+  Downloaded polkadot-node-core-runtime-api v31.0.0
+  Downloaded polkadot-ckb-merkle-mountain-range v0.8.2
+  Downloaded pallet-xcm v28.0.0
+  Downloaded pallet-revive v0.18.0
+  Downloaded gmp-mpfr-sys v1.7.1
+  Downloaded quick-error v1.2.3
+  Downloaded polling v3.11.0
+  Downloaded polkadot-node-collation-generation v31.0.0
+  Downloaded pest_meta v2.8.6
+  Downloaded pallet-staking-async v0.13.0
+  Downloaded pallet-staking v48.0.0
+  Downloaded pallet-society v48.0.0
+  Downloaded pallet-revive-fixtures v0.12.0
+  Downloaded prometheus-client-derive-encode v0.4.2
+  Downloaded predicates-tree v1.0.13
+  Downloaded potential_utf v0.1.5
+  Downloaded polyval v0.6.2
+  Downloaded poly1305 v0.8.0
+  Downloaded polkadot-node-core-pvf-common v26.0.0
+  Downloaded phf_shared v0.11.3
+  Downloaded phf_macros v0.11.3
+  Downloaded phf_generator v0.11.3
+  Downloaded phf v0.11.3
+  Downloaded pest_generator v2.8.6
+  Downloaded percent-encoding v2.3.2
+  Downloaded parking_lot_core v0.8.6
+  Downloaded parking_lot v0.11.2
+  Downloaded parachains-runtimes-test-utils v32.0.0
+  Downloaded parachains-common-types v0.3.0
+  Downloaded pallet-xcm-precompiles v0.8.0
+  Downloaded pallet-xcm-bridge-hub-router v0.26.0
+  Downloaded pallet-xcm-bridge-hub v0.24.0
+  Downloaded pallet-xcm-benchmarks v28.0.0
+  Downloaded pallet-state-trie-migration v54.0.0
+  Downloaded pallet-people v0.9.0
+  Downloaded pallet-election-provider-multi-phase v48.0.0
+  Downloaded pin-utils v0.1.0
+  Downloaded pin-project-internal v1.1.13
+  Downloaded pin-project v1.1.13
+  Downloaded pest_derive v2.8.6
+  Downloaded partial_sort v0.2.0
+  Downloaded parking v2.2.1
+  Downloaded parachains-common v31.0.0
+  Downloaded pallet-tips v47.0.0
+  Downloaded pallet-nomination-pools v46.0.0
+  Downloaded pallet-message-queue v51.0.0
+  Downloaded pallet-contracts v48.0.0
+  Downloaded linux-raw-sys v0.4.15
+  Downloaded pem v3.0.6
+  Downloaded pallet-uniques v48.0.0
+  Downloaded pallet-transaction-payment-rpc v51.0.0
+  Downloaded pallet-statement v30.0.0
+  Downloaded pallet-staking-runtime-api v32.0.0
+  Downloaded pallet-staking-reward-fn v24.0.1
+  Downloaded pallet-staking-async-runtime-api v0.7.0
+  Downloaded pallet-staking-async-rc-client v0.10.0
+  Downloaded pallet-staking-async-ah-client v0.10.0
+  Downloaded pallet-skip-feeless-payment v22.0.0
+  Downloaded pallet-session-benchmarking v48.0.0
+  Downloaded pallet-session v48.0.0
+  Downloaded pallet-scheduler v49.0.0
+  Downloaded pallet-safe-mode v29.0.0
+  Downloaded pallet-root-testing v23.0.0
+  Downloaded pallet-root-offences v46.0.0
+  Downloaded pallet-revive-uapi v0.13.0
+  Downloaded pallet-revive-proc-macro v0.8.0
+  Downloaded pallet-remark v48.0.0
+  Downloaded pallet-referenda v48.0.0
+  Downloaded pallet-nfts v42.0.0
+  Downloaded pallet-identity v48.0.0
+  Downloaded pallet-vesting v48.0.0
+  Downloaded pallet-verify-signature v0.11.0
+  Downloaded pallet-utility v48.0.0
+  Downloaded pallet-tx-pause v29.0.0
+  Downloaded pallet-treasury v47.0.0
+  Downloaded pallet-transaction-storage v47.0.0
+  Downloaded pallet-salary v33.0.0
+  Downloaded pallet-recovery v48.0.0
+  Downloaded pallet-parameters v0.19.0
+  Downloaded pallet-paged-list v0.26.0
+  Downloaded pallet-origin-restriction v0.9.0
+  Downloaded pallet-nis v48.0.0
+  Downloaded pallet-indices v48.0.0
+  Downloaded pallet-im-online v47.0.0
+  Downloaded pallet-grandpa v48.0.0
+  Downloaded pallet-election-provider-multi-block v0.10.0
+  Downloaded pallet-democracy v48.0.0
+  Downloaded pallet-broker v0.27.0
+  Downloaded pallet-bridge-messages v0.28.0
+  Downloaded litep2p v0.13.3
+  Downloaded pallet-ranked-collective v48.0.0
+  Downloaded pallet-proxy v48.0.0
+  Downloaded pallet-preimage v48.0.0
+  Downloaded pallet-oracle v0.5.0
+  Downloaded pallet-offences-benchmarking v48.0.0
+  Downloaded pallet-offences v46.0.0
+  Downloaded pallet-nomination-pools-runtime-api v44.0.0
+  Downloaded pallet-nomination-pools-benchmarking v46.0.0
+  Downloaded pallet-node-authorization v48.0.0
+  Downloaded pallet-nfts-runtime-api v32.0.0
+  Downloaded pallet-nft-fractionalization v32.0.0
+  Downloaded pallet-multisig v48.0.0
+  Downloaded pallet-multi-asset-bounties v0.5.0
+  Downloaded pallet-mmr v48.0.0
+  Downloaded pallet-mixnet v0.24.0
+  Downloaded pallet-migrations v18.0.0
+  Downloaded pallet-meta-tx v0.10.0
+  Downloaded pallet-membership v48.0.0
+  Downloaded pallet-lottery v48.0.0
+  Downloaded pallet-glutton v34.0.0
+  Downloaded pallet-assets v51.0.0
+  Downloaded nom v8.0.0
+  Downloaded nom v7.1.3
+  Downloaded nix v0.30.1
+  Downloaded nix v0.29.0
+  Downloaded netlink-packet-route v0.28.0
+  Downloaded moka v0.12.15
+  Downloaded pallet-pgas-allowance v0.3.0
+  Downloaded pallet-oracle-runtime-api v0.4.0
+  Downloaded pallet-insecure-randomness-collective-flip v36.0.0
+  Downloaded pallet-fast-unstake v47.0.0
+  Downloaded pallet-elections-phragmen v49.0.0
+  Downloaded pallet-dummy-dim v0.9.0
+  Downloaded pallet-dev-mode v30.0.0
+  Downloaded pallet-derivatives v0.6.0
+  Downloaded pallet-delegated-staking v14.0.0
+  Downloaded pallet-dap v0.5.0
+  Downloaded pallet-core-fellowship v32.0.0
+  Downloaded pallet-conviction-voting v48.0.0
+  Downloaded pallet-contracts-uapi v14.0.0
+  Downloaded pallet-contracts-proc-macro v23.0.3
+  Downloaded pallet-contracts-mock-network v26.0.0
+  Downloaded pallet-collective-content v0.26.0
+  Downloaded pallet-collective v48.0.0
+  Downloaded pallet-collator-selection v29.0.0
+  Downloaded pallet-child-bounties v47.0.0
+  Downloaded pallet-babe v48.0.0
+  Downloaded pallet-aura v47.0.0
+  Downloaded pallet-assets-precompiles v0.9.0
+  Downloaded pallet-asset-tx-payment v48.0.0
+  Downloaded pallet-asset-conversion v30.0.0
+  Downloaded minimal-lexical v0.2.1
+  Downloaded lz4-sys v1.11.1+lz4-1.10.0
+  Downloaded libz-sys v1.1.29
+  Downloaded libp2p-swarm v0.45.1
+  Downloaded frame-remote-externalities v0.59.0
+  Downloaded pallet-bridge-parachains v0.28.0
+  Downloaded pallet-bridge-grandpa v0.28.0
+  Downloaded pallet-bounties v47.0.0
+  Downloaded pallet-beefy-mmr v49.0.1
+  Downloaded pallet-beefy v49.0.0
+  Downloaded pallet-bags-list v47.0.0
+  Downloaded pallet-authorship v47.0.0
+  Downloaded pallet-atomic-swap v48.0.0
+  Downloaded pallet-assets-holder v0.11.0
+  Downloaded pallet-assets-freezer v0.16.0
+  Downloaded pallet-asset-rewards v0.10.0
+  Downloaded pallet-asset-rate v27.0.0
+  Downloaded pallet-asset-conversion-tx-payment v30.0.0
+  Downloaded pallet-asset-conversion-ops v0.16.0
+  Downloaded pallet-accumulate-and-forward v0.3.0
+  Downloaded p256 v0.13.2
+  Downloaded orchestra-proc-macro v0.4.1
+  Downloaded orchestra v0.4.1
+  Downloaded opaque-debug v0.2.3
+  Downloaded oid-registry v0.8.1
+  Downloaded num v0.4.3
+  Downloaded nonempty v0.7.0
+  Downloaded no-std-compat v0.4.1
+  Downloaded netlink-sys v0.8.8
+  Downloaded netlink-proto v0.12.0
+  Downloaded netlink-packet-core v0.8.1
+  Downloaded multistream-select v0.13.0
+  Downloaded multimap v0.10.1
+  Downloaded libm v0.2.16
+  Downloaded ittapi-sys v0.4.0
+  Downloaded itertools v0.12.1
+  Downloaded c-kzg v2.1.7
+  Downloaded pallet-asset-conversion-precompiles v0.4.0
+  Downloaded pallet-alliance v47.0.0
+  Downloaded overload v0.1.1
+  Downloaded openssl-probe v0.2.1
+  Downloaded oid-registry v0.7.1
+  Downloaded nybbles v0.4.8
+  Downloaded number_prefix v0.4.0
+  Downloaded num_enum_derive v0.7.6
+  Downloaded num_enum v0.7.6
+  Downloaded num_cpus v1.17.0
+  Downloaded num-iter v0.1.45
+  Downloaded num-derive v0.4.2
+  Downloaded nu-ansi-term v0.46.0
+  Downloaded nonzero_ext v0.3.0
+  Downloaded nodrop v0.1.14
+  Downloaded network-interface v2.0.5
+  Downloaded nanorand v0.7.0
+  Downloaded names v0.14.0
+  Downloaded multihash-derive v0.8.1
+  Downloaded multihash v0.19.5
+  Downloaded multihash v0.17.0
+  Downloaded multibase v0.9.2
+  Downloaded multiaddr v0.18.2
+  Downloaded multiaddr v0.17.1
+  Downloaded multi-stash v0.2.0
+  Downloaded mockall_derive v0.13.1
+  Downloaded mmr-rpc v46.0.0
+  Downloaded mmr-gadget v52.0.0
+  Downloaded memmap2 v0.5.10
+  Downloaded matchers v0.1.0
+  Downloaded match-lookup v0.1.2
+  Downloaded lru-cache v0.1.2
+  Downloaded lru v0.7.8
+  Downloaded lioness v0.1.2
+  Downloaded linked_hash_set v0.1.6
+  Downloaded libp2p-metrics v0.15.0
+  Downloaded libp2p-kad v0.46.2
+  Downloaded libp2p-core v0.42.0
+  Downloaded libp2p-allow-block-list v0.4.0
+  Downloaded libp2p v0.54.1
+  Downloaded landlock v0.3.1
+  Downloaded kvdb v0.13.0
+  Downloaded jsonrpsee-server v0.24.11
+  Downloaded indicatif v0.17.11
+  Downloaded idna v1.1.0
+  Downloaded icu_locale_core v2.2.0
+  Downloaded hyper v0.14.32
+  Downloaded hickory-proto v0.24.4
+  Downloaded cranelift-codegen v0.123.11
+  Downloaded mixnet v0.7.0
+  Downloaded memmap2 v0.9.10
+  Downloaded memfd v0.6.5
+  Downloaded maplit v1.0.2
+  Downloaded macro-string v0.2.0
+  Downloaded lru-slab v0.1.2
+  Downloaded lru v0.12.5
+  Downloaded litemap v0.8.2
+  Downloaded libp2p-tls v0.5.0
+  Downloaded libp2p-swarm-derive v0.35.0
+  Downloaded libp2p-request-response v0.27.0
+  Downloaded libp2p-ping v0.45.0
+  Downloaded libp2p-noise v0.45.0
+  Downloaded libp2p-mdns v0.46.0
+  Downloaded libp2p-identity v0.2.14
+  Downloaded libp2p-identify v0.45.0
+  Downloaded libp2p-connection-limits v0.4.0
+  Downloaded kvdb-rocksdb v0.21.0
+  Downloaded keystream v1.0.0
+  Downloaded keccak-hash v0.11.0
+  Downloaded keccak-asm v0.1.8
+  Downloaded keccak v0.2.0
+  Downloaded jsonrpsee-types v0.24.11
+  Downloaded jsonrpsee-proc-macros v0.24.11
+  Downloaded jsonrpsee-http-client v0.24.11
+  Downloaded is-terminal v0.4.17
+  Downloaded icu_properties_data v2.2.0
+  Downloaded icu_normalizer_data v2.2.0
+  Downloaded icu_collections v2.2.0
+  Downloaded http v0.2.12
+  Downloaded hkdf v0.12.4
+  Downloaded hickory-resolver v0.25.2
+  Downloaded hickory-resolver v0.24.4
+  Downloaded hickory-proto v0.25.2
+  Downloaded frame-decode v0.9.0
+  Downloaded bzip2-sys v0.1.13+1.0.8
+  Downloaded linked-hash-map v0.5.6
+  Downloaded libp2p-yamux v0.46.0
+  Downloaded libp2p-websocket v0.44.0
+  Downloaded libp2p-upnp v0.3.0
+  Downloaded libp2p-tcp v0.42.0
+  Downloaded libp2p-quic v0.11.1
+  Downloaded libp2p-dns v0.42.0
+  Downloaded leb128fmt v0.1.0
+  Downloaded kvdb-memorydb v0.13.0
+  Downloaded keccak-const v0.2.0
+  Downloaded jsonrpsee-ws-client v0.24.11
+  Downloaded jsonrpsee-core v0.24.11
+  Downloaded jsonrpsee-client-transport v0.24.11
+  Downloaded jsonrpsee v0.24.11
+  Downloaded ittapi v0.4.0
+  Downloaded is_executable v1.0.6
+  Downloaded ipnet v2.12.0
+  Downloaded ip_network v0.4.1
+  Downloaded instant v0.1.13
+  Downloaded impl-rlp v0.4.0
+  Downloaded impl-codec v0.6.0
+  Downloaded igd-next v0.14.3
+  Downloaded if-watch v3.2.2
+  Downloaded idna_adapter v1.2.2
+  Downloaded icu_normalizer v2.2.0
+  Downloaded humantime v2.3.0
+  Downloaded handlebars v5.1.2
+  Downloaded h2 v0.3.27
+  Downloaded governor v0.6.3
+  Downloaded emulated-integration-tests-common v33.0.0
+  Downloaded cumulus-pallet-parachain-system v0.28.0
+  Downloaded cumulus-client-consensus-relay-chain v0.31.0
+  Downloaded cumulus-client-consensus-common v0.31.0
+  Downloaded cumulus-client-consensus-aura v0.31.0
+  Downloaded cranelift-isle v0.123.11
+  Downloaded inout v0.1.4
+  Downloaded indexmap-nostd v0.4.0
+  Downloaded ident_case v1.0.1
+  Downloaded hyper-rustls v0.27.9
+  Downloaded hybrid-array v0.4.12
+  Downloaded humantime-serde v1.1.1
+  Downloaded hmac-drbg v0.3.0
+  Downloaded hmac v0.8.1
+  Downloaded ghash v0.5.1
+  Downloaded futures-lite v2.6.1
+  Downloaded frame-metadata-hash-extension v0.15.0
+  Downloaded frame-election-provider-support v47.0.0
+  Downloaded cumulus-relay-chain-rpc-interface v0.31.0
+  Downloaded cumulus-relay-chain-minimal-node v0.35.0
+  Downloaded cumulus-relay-chain-interface v0.31.0
+  Downloaded cumulus-relay-chain-inprocess-interface v0.35.0
+  Downloaded cumulus-pallet-xcmp-queue v0.29.0
+  Downloaded cumulus-client-service v0.35.0
+  Downloaded cumulus-client-pov-recovery v0.31.0
+  Downloaded cumulus-client-parachain-inherent v0.25.0
+  Downloaded cumulus-client-network v0.31.0
+  Downloaded cumulus-client-collator v0.31.0
+  Downloaded cumulus-client-cli v0.31.0
+  Downloaded cumulus-client-bootnodes v0.10.0
+  Downloaded crossbeam-channel v0.5.15
+  Downloaded cranelift-frontend v0.123.11
+  Downloaded cranelift-codegen-meta v0.123.11
+  Downloaded cpp_demangle v0.4.5
+  Downloaded comfy-table v7.2.2
+  Downloaded chacha20poly1305 v0.10.1
+  Downloaded bridge-hub-test-utils v0.33.0
+  Downloaded icu_properties v2.2.0
+  Downloaded http-body v0.4.6
+  Downloaded hex-literal v0.4.1
+  Downloaded generate-bags v48.0.0
+  Downloaded fxprof-processed-profile v0.6.0
+  Downloaded fxhash v0.2.1
+  Downloaded futures-rustls v0.26.0
+  Downloaded fs4 v0.7.0
+  Downloaded fs2 v0.4.3
+  Downloaded frame-election-provider-solution-type v16.1.1
+  Downloaded frame-benchmarking-cli v57.0.0
+  Downloaded cumulus-primitives-timestamp v0.26.0
+  Downloaded cumulus-primitives-storage-weight-reclaim v19.0.0
+  Downloaded cumulus-primitives-parachain-inherent v0.25.0
+  Downloaded cumulus-ping v0.27.0
+  Downloaded cumulus-pallet-weight-reclaim v0.10.0
+  Downloaded cumulus-pallet-session-benchmarking v29.0.0
+  Downloaded cumulus-pallet-dmp-queue v0.28.0
+  Downloaded cumulus-pallet-aura-ext v0.28.0
+  Downloaded cumulus-client-proof-size-recording v0.2.0
+  Downloaded crossbeam-epoch v0.9.18
+  Downloaded crossbeam-deque v0.8.6
+  Downloaded crc-catalog v2.5.0
+  Downloaded cranelift-bforest v0.123.11
+  Downloaded cranelift-assembler-x64-meta v0.123.11
+  Downloaded convert_case v0.10.0
+  Downloaded const-str v0.4.3
+  Downloaded const-hex v1.19.1
+  Downloaded const-crypto v0.3.0
+  Downloaded clap_derive v4.6.1
+  Downloaded clang-sys v1.8.1
+  Downloaded cid v0.11.3
+  Downloaded bp-runtime v0.27.1
+  Downloaded getrandom v0.4.2
+  Downloaded generic-array v0.14.7
+  Downloaded futures-bounded v0.2.4
+  Downloaded frame-storage-access-test-runtime v0.9.0
+  Downloaded ethereum-types v0.15.1
+  Downloaded derive_more-impl v2.1.1
+  Downloaded cumulus-primitives-utility v0.29.0
+  Downloaded cumulus-primitives-core v0.25.0
+  Downloaded cumulus-primitives-aura v0.23.0
+  Downloaded cumulus-pallet-xcm v0.26.0
+  Downloaded ctr v0.9.2
+  Downloaded crypto-common v0.1.7
+  Downloaded crossbeam-utils v0.8.21
+  Downloaded critical-section v1.2.0
+  Downloaded crc32fast v1.5.0
+  Downloaded cranelift-assembler-x64 v0.123.11
+  Downloaded convert_case v0.6.0
+  Downloaded colorchoice v1.0.5
+  Downloaded cobs v0.3.0
+  Downloaded chacha20 v0.9.1
+  Downloaded chacha v0.3.0
+  Downloaded bp-xcm-bridge-hub v0.13.0
+  Downloaded gethostname v0.2.3
+  Downloaded generic-array v0.12.4
+  Downloaded frame-benchmarking-pallet-pov v38.0.0
+  Downloaded fdlimit v0.3.0
+  Downloaded fatality v0.1.1
+  Downloaded fastrlp v0.3.1
+  Downloaded exit-future v0.2.0
+  Downloaded event-listener-strategy v0.5.4
+  Downloaded derive_more v2.1.1
+  Downloaded der-parser v10.0.0
+  Downloaded cumulus-primitives-proof-size-hostfunction v0.18.0
+  Downloaded cumulus-pallet-solo-to-para v0.28.0
+  Downloaded cumulus-pallet-parachain-system-proc-macro v0.8.0
+  Downloaded crypto_secretbox v0.1.1
+  Downloaded crypto-common v0.2.2
+  Downloaded crossbeam-queue v0.3.12
+  Downloaded crc v3.4.0
+  Downloaded cranelift-srcgen v0.123.11
+  Downloaded cranelift-entity v0.123.11
+  Downloaded cpu-time v1.0.0
+  Downloaded constant_time_eq v0.1.5
+  Downloaded cipher v0.2.5
+  Downloaded cfg_aliases v0.1.1
+  Downloaded bridge-runtime-common v0.29.0
+  Downloaded forwarded-header-value v0.1.1
+  Downloaded form_urlencoded v1.2.2
+  Downloaded fork-tree v13.0.1
+  Downloaded fixedbitset v0.5.7
+  Downloaded fixedbitset v0.4.2
+  Downloaded fatality-proc-macro v0.1.1
+  Downloaded fastrlp v0.4.0
+  Downloaded fastbloom v0.17.0
+  Downloaded event-listener v5.4.1
+  Downloaded event-listener v2.5.3
+  Downloaded ethereum-standards v0.1.3
+  Downloaded ethbloom v0.14.1
+  Downloaded env_filter v0.1.4
+  Downloaded enumn v0.1.14
+  Downloaded enumflags2_derive v0.7.12
+  Downloaded enumflags2 v0.7.12
+  Downloaded enum-display-macro v0.1.4
+  Downloaded enum-display v0.1.4
+  Downloaded enum-as-inner v0.6.1
+  Downloaded embedded-io v0.6.1
+  Downloaded embedded-io v0.4.0
+  Downloaded dyn-clonable-impl v0.9.2
+  Downloaded dyn-clonable v0.9.2
+  Downloaded dunce v1.0.5
+  Downloaded downcast-rs v1.2.1
+  Downloaded displaydoc v0.2.6
+  Downloaded darling_core v0.23.0
+  Downloaded darling_core v0.20.11
+  Downloaded curve25519-dalek-ng v4.1.1
+  Downloaded cranelift-codegen-shared v0.123.11
+  Downloaded concurrent-queue v2.5.0
+  Downloaded color-print-proc-macro v0.3.7
+  Downloaded cipher v0.4.4
+  Downloaded cexpr v0.6.0
+  Downloaded bp-test-utils v0.27.0
+  Downloaded blst v0.3.16
+  Downloaded ark-vrf v0.1.1
+  Downloaded ark-bls12-381-ext v0.5.2
+  Downloaded alloy-eips v1.8.3
+  Downloaded downcast v0.11.0
+  Downloaded dirs-sys-next v0.1.2
+  Downloaded directories-next v2.0.0
+  Downloaded directories v5.0.1
+  Downloaded digest v0.11.3
+  Downloaded digest v0.8.1
+  Downloaded derive_more v0.99.20
+  Downloaded der-parser v9.0.0
+  Downloaded debugid v0.8.0
+  Downloaded crypto-mac v0.8.0
+  Downloaded cranelift-control v0.123.11
+  Downloaded cpufeatures v0.3.0
+  Downloaded color-print v0.3.7
+  Downloaded coarsetime v0.1.37
+  Downloaded c2-chacha v0.3.3
+  Downloaded bp-xcm-bridge-hub-router v0.24.0
+  Downloaded blake3 v1.8.5
+  Downloaded bindgen v0.72.1
+  Downloaded alloy-primitives v1.6.0
+  Downloaded data-encoding-macro v0.1.20
+  Downloaded data-encoding v2.11.0
+  Downloaded dashmap v5.5.3
+  Downloaded darling_macro v0.20.11
+  Downloaded darling v0.23.0
+  Downloaded darling v0.20.11
+  Downloaded cumulus-relay-chain-streams v0.9.0
+  Downloaded borsh v1.6.1
+  Downloaded attohttpc v0.24.1
+  Downloaded async-io v2.6.0
+  Downloaded asset-test-utils v34.0.0
+  Downloaded asn1-rs v0.7.2
+  Downloaded asn1-rs v0.6.2
+  Downloaded ark-r1cs-std v0.5.0
+  Downloaded alloy-trie v0.9.5
+  Downloaded alloy-sol-types v1.6.0
+  Downloaded alloy-serde v1.8.3
+  Downloaded alloy-dyn-abi v1.6.0
+  Downloaded alloy-consensus v1.8.3
+  Downloaded aes-gcm v0.10.3
+  Downloaded cumulus-test-relay-sproof-builder v0.26.0
+  Downloaded crypto-mac v0.7.0
+  Downloaded convert_case v0.4.0
+  Downloaded cfg_aliases v0.2.1
+  Downloaded bp-relayers v0.28.0
+  Downloaded bp-polkadot-core v0.27.0
+  Downloaded bp-parachains v0.27.0
+  Downloaded bp-messages v0.27.0
+  Downloaded bp-header-chain v0.27.0
+  Downloaded borsh-derive v1.6.1
+  Downloaded blake2 v0.8.1
+  Downloaded bip32 v0.5.3
+  Downloaded az v1.3.0
+  Downloaded async-task v4.7.1
+  Downloaded async-signal v0.2.14
+  Downloaded async-lock v3.4.2
+  Downloaded assets-common v0.32.0
+  Downloaded ark-relations v0.5.1
+  Downloaded ark-ff v0.3.0
+  Downloaded ark-bls12-377 v0.5.0
+  Downloaded arbitrary v1.4.2
+  Downloaded alloy-sol-macro-expander v1.6.0
+  Downloaded alloy-json-abi v1.6.0
+  Downloaded alloy-eip7928 v0.3.7
+  Downloaded cranelift-bitset v0.123.11
+  Downloaded byte-tools v0.3.1
+  Downloaded bounded-collections v0.1.9
+  Downloaded blocking v1.6.2
+  Downloaded bit-vec v0.8.0
+  Downloaded aurora-engine-modexp v1.2.0
+  Downloaded async-process v2.5.0
+  Downloaded async-net v2.0.0
+  Downloaded async-fs v2.2.0
+  Downloaded async-executor v1.14.0
+  Downloaded async-channel v2.5.0
+  Downloaded async-channel v1.9.0
+  Downloaded arrayvec v0.4.12
+  Downloaded ark-std v0.3.0
+  Downloaded anstyle-parse v1.0.0
+  Downloaded anstream v1.0.0
+  Downloaded alloy-sol-type-parser v1.6.0
+  Downloaded alloy-sol-macro-input v1.6.0
+  Downloaded ahash v0.7.8
+  Downloaded aes v0.8.4
+  Downloaded bounded-vec v0.7.1
+  Downloaded bitcoin-io v0.1.100
+  Downloaded base58 v0.2.0
+  Downloaded base256emoji v1.0.2
+  Downloaded base-x v0.2.11
+  Downloaded auto_impl v1.3.0
+  Downloaded atomic-take v1.1.0
+  Downloaded asynchronous-codec v0.6.2
+  Downloaded asn1-rs-impl v0.2.0
+  Downloaded asn1-rs-derive v0.6.0
+  Downloaded asn1-rs-derive v0.5.1
+  Downloaded ark-pallas v0.5.0
+  Downloaded alloy-sol-macro v1.6.0
+  Downloaded blake2-rfc v0.2.18
+  Downloaded asynchronous-codec v0.7.0
+  Downloaded ark-vesta v0.5.0
+  Downloaded ark-serialize v0.3.0
+  Downloaded ark-scale v0.0.13
+  Downloaded ark-pallas-ext v0.5.2
+  Downloaded ark-ff-asm v0.3.0
+  Downloaded ark-ed-on-bls12-381-bandersnatch-ext v0.5.2
+  Downloaded ark-bw6-761-ext v0.5.2
+  Downloaded always-assert v0.1.3
+  Downloaded assert_matches v1.5.0
+  Downloaded ark-ff-macros v0.3.0
+  Downloaded ark-ed-on-bls12-377 v0.5.0
+  Downloaded ark-bw6-761 v0.5.0
+  Downloaded anstyle-query v1.1.5
+  Downloaded alloy-rlp-derive v0.3.15
+  Downloaded ark-models-ext v0.5.2
+  Downloaded ark-ed-on-bls12-377-ext v0.5.2
+  Downloaded alloy-eip2124 v0.2.0
+  Downloaded alloy-tx-macros v1.8.3
+  Downloaded alloy-rlp v0.3.15
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.45
+   Compiling proc-macro2 v1.0.106
+   Compiling cfg-if v1.0.4
+   Compiling libc v0.2.186
+   Compiling serde_core v1.0.228
+   Compiling serde v1.0.228
+   Compiling version_check v0.9.5
+   Compiling syn v2.0.118
+   Compiling equivalent v1.0.2
+   Compiling typenum v1.20.1
+   Compiling getrandom v0.2.17
+   Compiling memchr v2.8.2
+   Compiling rand_core v0.6.4
+   Compiling hashbrown v0.17.1
+   Compiling generic-array v0.14.7
+   Compiling indexmap v2.14.0
+   Compiling subtle v2.6.1
+   Compiling zerocopy v0.8.52
+   Compiling portable-atomic v1.13.1
+   Compiling const-oid v0.9.6
+   Compiling critical-section v1.2.0
+   Compiling jobserver v0.1.34
+   Compiling once_cell v1.21.4
+   Compiling find-msvc-tools v0.1.9
+   Compiling shlex v2.0.1
+   Compiling cc v1.2.64
+   Compiling arrayvec v0.7.6
+   Compiling cpufeatures v0.2.17
+   Compiling log v0.4.32
+   Compiling rustversion v1.0.22
+   Compiling serde_derive v1.0.228
+   Compiling zeroize_derive v1.5.0
+   Compiling zeroize v1.9.0
+   Compiling autocfg v1.5.1
+   Compiling winnow v1.0.3
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling digest v0.10.7
+   Compiling ppv-lite86 v0.2.21
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+   Compiling toml_parser v1.1.2+spec-1.1.0
+   Compiling unicode-xid v0.2.6
+   Compiling pin-project-lite v0.2.17
+   Compiling toml_edit v0.25.12+spec-1.1.0
+   Compiling rand_chacha v0.3.1
+   Compiling bytes v1.11.1
+   Compiling smallvec v1.15.2
+   Compiling proc-macro-crate v3.5.0
+   Compiling rand v0.8.6
+   Compiling libm v0.2.16
+   Compiling allocator-api2 v0.2.21
+   Compiling foldhash v0.2.0
+   Compiling itoa v1.0.18
+   Compiling futures-core v0.3.32
+   Compiling scopeguard v1.2.0
+   Compiling bitflags v2.13.0
+   Compiling futures-io v0.3.32
+   Compiling lock_api v0.4.14
+   Compiling futures-sink v0.3.32
+   Compiling parking_lot_core v0.9.12
+   Compiling sha2 v0.10.9
+   Compiling anyhow v1.0.102
+   Compiling num-traits v0.2.19
+   Compiling parking_lot v0.12.5
+   Compiling thiserror-impl v2.0.18
+   Compiling heck v0.5.0
+   Compiling thiserror v1.0.69
+   Compiling either v1.16.0
+   Compiling thiserror-impl v1.0.69
+   Compiling slab v0.4.12
+   Compiling radium v0.7.0
+   Compiling futures-channel v0.3.32
+   Compiling tap v1.0.1
+   Compiling wyz v0.5.1
+   Compiling futures-macro v0.3.32
+   Compiling errno v0.3.14
+   Compiling funty v2.0.0
+   Compiling futures-task v0.3.32
+   Compiling paste v1.0.15
+   Compiling static_assertions v1.1.0
+   Compiling futures-util v0.3.32
+   Compiling thiserror v2.0.18
+   Compiling byteorder v1.5.0
+   Compiling konst_macro_rules v0.2.19
+   Compiling konst v0.2.20
+   Compiling const_format_proc_macros v0.2.34
+   Compiling arrayref v0.3.9
+   Compiling impl-trait-for-tuples v0.2.3
+   Compiling byte-slice-cast v1.2.3
+   Compiling parity-scale-codec-derive v3.7.5
+   Compiling const_format v0.2.36
+   Compiling hmac v0.12.1
+   Compiling signature v2.2.0
+   Compiling tracing-core v0.1.36
+   Compiling tracing-attributes v0.1.31
+   Compiling bitvec v1.0.1
+   Compiling aho-corasick v1.1.4
+   Compiling regex-syntax v0.8.11
+   Compiling tracing v0.1.44
+   Compiling semver v1.0.28
+   Compiling getrandom v0.3.4
+   Compiling signal-hook-registry v1.4.8
+   Compiling tokio-macros v2.7.0
+   Compiling regex-automata v0.4.14
+   Compiling socket2 v0.6.4
+   Compiling mio v1.2.1
+   Compiling rustc-hash v2.1.2
+   Compiling foldhash v0.1.5
+   Compiling tokio v1.52.3
+   Compiling hashbrown v0.15.5
+   Compiling derive_more-impl v1.0.0
+   Compiling futures-executor v0.3.32
+   Compiling regex v1.12.4
+   Compiling derive_more v1.0.0
+   Compiling scale-info-derive v2.11.6
+   Compiling parity-scale-codec v3.7.5
+   Compiling zmij v1.0.21
+   Compiling futures v0.3.32
+   Compiling crossbeam-utils v0.8.21
+   Compiling der v0.7.10
+   Compiling getrandom v0.4.2
+   Compiling fnv v1.0.7
+   Compiling rustc_version v0.4.1
+   Compiling base16ct v0.2.0
+   Compiling serdect v0.2.0
+   Compiling spki v0.7.3
+   Compiling ff v0.13.1
+   Compiling group v0.13.0
+   Compiling pkcs8 v0.10.2
+   Compiling sec1 v0.7.3
+   Compiling crypto-bigint v0.5.5
+   Compiling curve25519-dalek v4.1.3
+   Compiling rfc6979 v0.4.0
+   Compiling tokio-util v0.7.18
+   Compiling elliptic-curve v0.13.8
+   Compiling curve25519-dalek-derive v0.1.1
+   Compiling ahash v0.8.12
+   Compiling ecdsa v0.16.9
+   Compiling hex v0.4.3
+   Compiling scale-info v2.11.6
+   Compiling termcolor v1.4.1
+   Compiling constant_time_eq v0.4.2
+   Compiling crunchy v0.2.4
+   Compiling k256 v0.13.4
+   Compiling crossbeam-epoch v0.9.18
+   Compiling keccak v0.1.6
+   Compiling bs58 v0.5.1
+   Compiling ed25519 v2.2.3
+   Compiling rayon-core v1.13.0
+   Compiling prettyplease v0.2.37
+   Compiling crossbeam-deque v0.8.6
+   Compiling pkg-config v0.3.33
+   Compiling winnow v0.7.15
+   Compiling toml_write v0.1.2
+   Compiling zstd-sys v2.0.16+zstd.1.5.7
+   Compiling rayon v1.12.0
+   Compiling serde_json v1.0.150
+   Compiling integer-sqrt v0.1.5
+   Compiling impl-serde v0.5.0
+   Compiling rustc-hex v2.1.0
+   Compiling base64 v0.22.1
+   Compiling uint v0.10.0
+   Compiling http v1.4.2
+   Compiling rlp v0.6.1
+   Compiling tinyvec_macros v0.1.1
+   Compiling rustc-demangle v0.1.27
+   Compiling tinyvec v1.11.0
+   Compiling impl-rlp v0.4.0
+   Compiling fixed-hash v0.8.0
+   Compiling impl-codec v0.7.1
+   Compiling impl-num-traits v0.2.0
+   Compiling sha3 v0.10.9
+   Compiling blake2b_simd v1.0.4
+   Compiling spin v0.9.8
+   Compiling primitive-types v0.13.1
+   Compiling lazy_static v1.5.0
+   Compiling httparse v1.10.1
+   Compiling Inflector v0.11.4
+   Compiling cranelift-srcgen v0.123.11
+   Compiling rustix v1.1.4
+   Compiling cranelift-assembler-x64-meta v0.123.11
+   Compiling proc-macro-warning v1.84.1
+   Compiling linux-raw-sys v0.12.1
+   Compiling crc32fast v1.5.0
+   Compiling ed25519-dalek v2.2.0
+   Compiling gimli v0.32.3
+   Compiling twox-hash v1.6.3
+   Compiling fs-err v2.11.0
+   Compiling pulley-macros v36.0.11
+   Compiling sp-crypto-hashing v0.1.0
+   Compiling cranelift-bitset v0.123.11
+   Compiling blake2 v0.10.6
+   Compiling object v0.37.3
+   Compiling ref-cast v1.0.25
+   Compiling cranelift-isle v0.123.11
+   Compiling pulley-interpreter v36.0.11
+   Compiling sp-debug-derive v15.0.0
+   Compiling digest v0.9.0
+   Compiling serde_spanned v0.6.9
+   Compiling toml_datetime v0.6.11
+   Compiling ref-cast-impl v1.0.25
+   Compiling target-lexicon v0.13.5
+   Compiling same-file v1.0.6
+   Compiling cranelift-codegen-shared v0.123.11
+   Compiling walkdir v2.5.0
+   Compiling toml_edit v0.22.27
+   Compiling libsecp256k1-core v0.3.0
+   Compiling cranelift-codegen-meta v0.123.11
+   Compiling cranelift-entity v0.123.11
+   Compiling cranelift-assembler-x64 v0.123.11
+   Compiling bitflags v1.3.2
+   Compiling opaque-debug v0.3.1
+   Compiling cranelift-codegen v0.123.11
+   Compiling toml v0.8.23
+   Compiling sp-storage v23.0.0
+   Compiling uuid v1.23.3
+   Compiling http-body v1.0.1
+   Compiling wasmtime-internal-math v36.0.11
+   Compiling bumpalo v3.20.3
+   Compiling jam-codec v0.1.1
+   Compiling wasmtime-internal-versioned-export-macros v36.0.11
+   Compiling expander v2.2.1
+   Compiling environmental v1.1.4
+   Compiling time-core v0.1.9
+   Compiling num-conv v0.2.2
+   Compiling base64ct v1.8.3
+   Compiling hash-db v0.16.0
+   Compiling arbitrary v1.4.2
+   Compiling time-macros v0.2.29
+   Compiling sp-externalities v0.32.0
+   Compiling password-hash v0.5.0
+   Compiling cranelift-control v0.123.11
+   Compiling regalloc2 v0.12.2
+   Compiling cranelift-bforest v0.123.11
+   Compiling libsecp256k1-gen-ecmult v0.3.0
+   Compiling libsecp256k1-gen-genmult v0.3.0
+   Compiling merlin v3.0.0
+   Compiling getrandom_or_panic v0.0.3
+   Compiling jam-codec-derive v0.1.1
+   Compiling secp256k1-sys v0.9.2
+   Compiling hex-conservative v0.2.2
+   Compiling file-guard v0.2.0
+   Compiling serde_bytes v0.11.19
+   Compiling powerfmt v0.2.0
+   Compiling wasmparser v0.236.1
+   Compiling sp-std v14.0.0
+   Compiling deranged v0.5.8
+   Compiling schnorrkel v0.11.5
+   Compiling time v0.3.49
+   Compiling bitcoin_hashes v0.14.100
+   Compiling libsecp256k1 v0.7.2
+   Compiling pbkdf2 v0.12.2
+   Compiling ss58-registry v1.51.0
+   Compiling unicode-normalization v0.1.25
+   Compiling cobs v0.3.0
+   Compiling block-buffer v0.9.0
+   Compiling dyn-clone v1.0.20
+   Compiling cpp_demangle v0.4.5
+   Compiling zstd-safe v7.2.4
+   Compiling wasm-encoder v0.236.1
+   Compiling sha2 v0.9.9
+   Compiling postcard v1.1.3
+   Compiling bip39 v2.2.2
+   Compiling bounded-collections v0.3.2
+   Compiling addr2line v0.25.1
+   Compiling hashbrown v0.16.1
+   Compiling num-format v0.4.4
+   Compiling ittapi-sys v0.4.0
+   Compiling ahash v0.7.8
+   Compiling leb128fmt v0.1.0
+   Compiling ed25519-zebra v4.2.0
+   Compiling secp256k1 v0.28.2
+   Compiling wasmprinter v0.236.1
+   Compiling substrate-bip39 v0.6.1
+   Compiling wasmtime-internal-jit-debug v36.0.11
+   Compiling http-body-util v0.1.3
+   Compiling hash256-std-hasher v0.15.2
+   Compiling itertools v0.11.0
+   Compiling secrecy v0.8.0
+   Compiling derive-syn-parse v0.2.0
+   Compiling dirs-sys-next v0.1.2
+   Compiling wasmtime-internal-cache v36.0.11
+   Compiling atomic-waker v1.1.2
+   Compiling try-lock v0.2.5
+   Compiling array-bytes v6.2.3
+   Compiling wasmtime-internal-unwinder v36.0.11
+   Compiling tower-service v0.3.3
+   Compiling sp-core v41.0.0
+   Compiling want v0.3.1
+   Compiling h2 v0.4.15
+   Compiling directories-next v2.0.0
+   Compiling wasmtime-environ v36.0.11
+   Compiling zstd v0.13.3
+   Compiling wasmtime v36.0.11
+   Compiling debugid v0.8.0
+   Compiling fxhash v0.2.1
+   Compiling itertools v0.14.0
+   Compiling httpdate v1.0.3
+   Compiling hyper v1.10.1
+   Compiling fxprof-processed-profile v0.6.0
+   Compiling cranelift-frontend v0.123.11
+   Compiling cranelift-native v0.123.11
+   Compiling wasmtime-internal-cranelift v36.0.11
+   Compiling hashbrown v0.12.3
+   Compiling ittapi v0.4.0
+   Compiling memfd v0.6.5
+   Compiling wasmtime-internal-jit-icache-coherence v36.0.11
+   Compiling wasmtime-internal-asm-macros v36.0.11
+   Compiling nohash-hasher v0.2.0
+   Compiling regex-syntax v0.6.29
+   Compiling wasmtime-internal-slab v36.0.11
+   Compiling regex-automata v0.1.10
+   Compiling lru v0.7.8
+   Compiling hyper-util v0.1.20
+   Compiling prometheus v0.13.4
+   Compiling overload v0.1.1
+   Compiling nu-ansi-term v0.46.0
+   Compiling tracing-log v0.2.0
+   Compiling matchers v0.1.0
+   Compiling sharded-slab v0.1.7
+   Compiling strum_macros v0.26.4
+   Compiling thread_local v1.1.9
+   Compiling common-path v1.0.0
+   Compiling docify_macros v0.2.9
+   Compiling sp-wasm-interface v25.0.0
+   Compiling strum v0.26.3
+   Compiling tracing-subscriber v0.3.19
+   Compiling hashbrown v0.13.2
+   Compiling sp-tracing v19.0.0
+   Compiling docify v0.2.9
+   Compiling sp-runtime-interface-proc-macro v21.0.0
+   Compiling substrate-prometheus-endpoint v0.17.7
+   Compiling sp-runtime-interface v35.0.0
+   Compiling adler2 v2.0.1
+   Compiling miniz_oxide v0.8.9
+   Compiling schnellru v0.2.4
+   Compiling trie-db v0.31.0
+   Compiling trie-root v0.18.0
+   Compiling memory-db v0.34.0
+   Compiling backtrace v0.3.76
+   Compiling sp-trie v44.0.0
+   Compiling sp-panic-handler v13.0.2
+   Compiling sp-arithmetic v28.0.1
+   Compiling sp-io v46.0.0
+   Compiling sp-state-machine v0.51.0
+   Compiling sp-keystore v0.47.0
+   Compiling parity-wasm v0.45.0
+   Compiling sp-weights v34.0.0
+   Compiling binary-merkle-tree v16.1.1
+   Compiling tuplex v0.1.2
+   Compiling simple-mermaid v0.1.1
+   Compiling derive-where v1.6.1
+   Compiling frame-metadata v23.0.1
+   Compiling sp-application-crypto v46.0.0
+   Compiling sp-runtime v47.0.0
+   Compiling async-trait v0.1.89
+   Compiling sp-crypto-hashing-proc-macro v0.1.0
+   Compiling sp-version-proc-macro v15.0.0
+   Compiling sp-metadata-ir v0.13.0
+   Compiling sp-api-proc-macro v27.0.0
+   Compiling syn v1.0.109
+   Compiling proc-macro-error-attr v1.0.4
+   Compiling proc-macro-error v1.0.4
+   Compiling tiny-keccak v2.0.2
+   Compiling macro_magic_core_macros v0.5.1
+   Compiling const-random-macro v0.1.16
+   Compiling sp-version v45.0.0
+   Compiling sp-api v42.0.0
+   Compiling sp-inherents v42.0.0
+   Compiling sp-staking v44.0.0
+   Compiling const-random v0.1.18
+   Compiling macro_magic_core v0.5.1
+   Compiling sp-genesis-builder v0.23.0
+   Compiling macro_magic_macros v0.5.1
+   Compiling frame-support-procedural-tools-derive v12.0.0
+   Compiling include_dir_macros v0.7.4
+   Compiling frame-support-procedural-tools v13.0.1
+   Compiling macro_magic v0.5.1
+   Compiling include_dir v0.7.4
+   Compiling cfg-expr v0.15.8
+   Compiling itertools v0.10.5
+   Compiling futures-timer v3.0.4
+   Compiling frame-support-procedural v38.0.0
+   Compiling tt-call v1.0.9
+   Compiling stable_deref_trait v1.2.1
+   Compiling num-integer v0.1.46
+   Compiling synstructure v0.13.2
+   Compiling num-bigint v0.4.6
+   Compiling zerofrom-derive v0.1.7
+   Compiling aquamarine v0.5.0
+   Compiling displaydoc v0.2.6
+   Compiling zerofrom v0.1.8
+   Compiling yoke-derive v0.8.2
+   Compiling zerovec-derive v0.11.3
+   Compiling yoke v0.8.3
+   Compiling writeable v0.6.3
+   Compiling zerovec v0.11.6
+   Compiling litemap v0.8.2
+   Compiling zerotrie v0.2.4
+   Compiling utf8_iter v1.0.4
+   Compiling tinystr v0.8.3
+   Compiling potential_utf v0.1.5
+   Compiling icu_normalizer_data v2.2.0
+   Compiling icu_properties_data v2.2.0
+   Compiling icu_locale_core v2.2.0
+   Compiling icu_collections v2.2.0
+   Compiling unicode-segmentation v1.13.3
+   Compiling percent-encoding v2.3.2
+   Compiling form_urlencoded v1.2.2
+   Compiling pin-project-internal v1.1.13
+   Compiling icu_provider v2.2.0
+   Compiling icu_properties v2.2.0
+   Compiling icu_normalizer v2.2.0
+   Compiling pin-project v1.1.13
+   Compiling picosimd v0.9.6
+   Compiling data-encoding v2.11.0
+   Compiling idna_adapter v1.2.2
+   Compiling idna v1.1.0
+   Compiling fastrand v2.4.1
+   Compiling strsim v0.11.1
+   Compiling zstd-safe v6.0.6
+   Compiling url v2.5.8
+   Compiling minimal-lexical v0.2.1
+   Compiling shlex v1.3.0
+   Compiling nom v7.1.3
+   Compiling prost-derive v0.14.4
+   Compiling ring v0.17.14
+   Compiling ident_case v1.0.1
+   Compiling tempfile v3.27.0
+   Compiling num_enum_derive v0.7.6
+   Compiling frame-support v47.0.0
+   Compiling num_enum v0.7.6
+   Compiling unsigned-varint v0.8.0
+   Compiling data-encoding-macro-internal v0.1.18
+   Compiling match-lookup v0.1.2
+   Compiling const-str v0.4.3
+   Compiling data-encoding-macro v0.1.20
+   Compiling base256emoji v1.0.2
+   Compiling asynchronous-codec v0.6.2
+   Compiling untrusted v0.9.0
+   Compiling base-x v0.2.11
+   Compiling unsigned-varint v0.7.2
+   Compiling multibase v0.9.2
+   Compiling multihash v0.19.5
+   Compiling hkdf v0.12.4
+   Compiling sp-timestamp v42.0.0
+   Compiling rustls-pki-types v1.14.1
+   Compiling blake3 v1.8.5
+   Compiling glob v0.3.3
+   Compiling web-time v1.1.0
+   Compiling clang-sys v1.8.1
+   Compiling prost v0.14.4
+   Compiling rustls v0.23.40
+   Compiling cpufeatures v0.3.0
+   Compiling libp2p-identity v0.2.14
+   Compiling quick-protobuf v0.8.1
+   Compiling polkavm-assembler v0.33.0
+   Compiling polkavm-common v0.33.0
+   Compiling multiaddr v0.18.2
+   Compiling multistream-select v0.13.0
+   Compiling rw-stream-sink v0.4.0
+   Compiling void v1.0.2
+   Compiling bindgen v0.72.1
+   Compiling rustls-webpki v0.103.13
+   Compiling libp2p-core v0.42.0
+   Compiling cexpr v0.6.0
+   Compiling itertools v0.13.0
+   Compiling fixedbitset v0.5.7
+   Compiling polkavm-linux-raw v0.33.0
+   Compiling cfg_aliases v0.2.1
+   Compiling polkavm v0.33.1
+   Compiling prost-derive v0.13.5
+   Compiling sha1 v0.10.6
+   Compiling multimap v0.10.1
+   Compiling zstd v0.12.4
+   Compiling sp-maybe-compressed-blob v11.1.0
+   Compiling sp-consensus-slots v0.48.0
+   Compiling rand_core v0.9.5
+   Compiling kvdb v0.13.0
+   Compiling num_cpus v1.17.0
+   Compiling librocksdb-sys v0.17.3+10.4.2
+   Compiling ipnet v2.12.0
+   Compiling rand_chacha v0.9.0
+   Compiling lru v0.12.5
+   Compiling libp2p-swarm-derive v0.35.0
+   Compiling rand v0.9.4
+   Compiling libp2p-swarm v0.45.1
+   Compiling darling_core v0.23.0
+   Compiling enum-as-inner v0.6.1
+   Compiling openssl-probe v0.2.1
+   Compiling rustls-native-certs v0.8.4
+   Compiling darling_macro v0.23.0
+   Compiling sp-consensus v0.48.0
+   Compiling wasm-instrument v0.4.0
+   Compiling sc-allocator v37.0.0
+   Compiling tokio-stream v0.1.18
+   Compiling socket2 v0.5.10
+   Compiling sc-executor-common v0.45.0
+   Compiling darling v0.23.0
+   Compiling tokio-rustls v0.26.4
+   Compiling concurrent-queue v2.5.0
+   Compiling event-listener v2.5.3
+   Compiling sc-executor-wasmtime v0.45.0
+   Compiling async-channel v1.9.0
+   Compiling sp-virtualization v0.2.0
+   Compiling x25519-dalek v2.0.1
+   Compiling snow v0.9.6
+   Compiling asynchronous-codec v0.7.0
+   Compiling resolv-conf v0.7.6
+   Compiling sc-utils v21.0.0
+   Compiling sc-executor-polkavm v0.42.0
+   Compiling serde_with_macros v3.21.0
+   Compiling soketto v0.8.1
+   Compiling futures-bounded v0.2.4
+   Compiling anstyle v1.0.14
+   Compiling serde_with v3.21.0
+   Compiling sc-executor v0.49.0
+   Compiling quick-protobuf-codec v0.3.1
+   Compiling yamux v0.13.10
+   Compiling nix v0.30.1
+   Compiling netlink-packet-core v0.8.1
+   Compiling linked-hash-map v0.5.6
+   Compiling rusticata-macros v4.1.0
+   Compiling asn1-rs-derive v0.6.0
+   Compiling uint v0.9.5
+   Compiling netlink-sys v0.8.8
+   Compiling toml v0.5.11
+   Compiling asn1-rs-impl v0.2.0
+   Compiling netlink-proto v0.12.0
+   Compiling asn1-rs v0.7.2
+   Compiling libp2p-kad v0.46.2
+   Compiling proc-macro-crate v1.1.3
+   Compiling prost-types v0.14.4
+   Compiling petgraph v0.8.3
+   Compiling netlink-packet-route v0.28.0
+   Compiling prost v0.13.5
+   Compiling sp-session v44.0.0
+   Compiling synstructure v0.12.6
+   Compiling mockall_derive v0.13.1
+   Compiling oid-registry v0.8.1
+   Compiling convert_case v0.4.0
+   Compiling predicates-core v1.0.10
+   Compiling derive_more v0.99.20
+   Compiling multihash-derive v0.8.1
+   Compiling prost-types v0.13.5
+   Compiling prost-build v0.14.4
+   Compiling hickory-proto v0.24.4
+   Compiling rtnetlink v0.20.0
+   Compiling petgraph v0.7.1
+   Compiling convert_case v0.6.0
+   Compiling crossbeam-channel v0.5.15
+   Compiling network-interface v2.0.5
+   Compiling core2 v0.4.0 (https://github.com/bbqsrc/core2?rev=545e84b#545e84bc)
+   Compiling tagptr v0.2.0
+   Compiling parking_lot_core v0.8.6
+   Compiling termtree v0.5.1
+   Compiling utf-8 v0.7.6
+   Compiling predicates-tree v1.0.13
+   Compiling tungstenite v0.27.0
+   Compiling moka v0.12.15
+   Compiling multihash v0.17.0
+   Compiling prost-build v0.13.5
+   Compiling enum-display-macro v0.1.4
+   Compiling if-watch v3.2.2
+   Compiling litep2p v0.13.3
+   Compiling predicates v3.1.4
+   Compiling der-parser v10.0.0
+   Compiling lru-cache v0.1.2
+   Compiling hickory-proto v0.25.2
+   Compiling fragile v2.1.0
+   Compiling instant v0.1.13
+   Compiling downcast v0.11.0
+   Compiling x509-parser v0.17.0
+   Compiling mockall v0.13.1
+   Compiling hickory-resolver v0.24.4
+   Compiling hickory-resolver v0.25.2
+   Compiling enum-display v0.1.4
+   Compiling tokio-tungstenite v0.27.0
+   Compiling multiaddr v0.17.1
+   Compiling futures-rustls v0.26.0
+   Compiling cid v0.11.3
+   Compiling yamux v0.12.1
+   Compiling simple-dns v0.11.3
+   Compiling ip_network v0.4.1
+   Compiling yasna v0.5.2
+   Compiling webpki-roots v0.25.4
+   Compiling libp2p-websocket v0.44.0
+   Compiling libp2p-yamux v0.46.0
+   Compiling libp2p-dns v0.42.0
+   Compiling parking_lot v0.11.2
+   Compiling libp2p-mdns v0.46.0
+   Compiling libp2p-tcp v0.42.0
+   Compiling libp2p-identify v0.45.0
+   Compiling libp2p-noise v0.45.0
+   Compiling libp2p-request-response v0.27.0
+   Compiling libp2p-ping v0.45.0
+   Compiling libp2p-allow-block-list v0.4.0
+   Compiling libp2p-connection-limits v0.4.0
+   Compiling pin-utils v0.1.0
+   Compiling wasm-timer v0.2.5
+   Compiling libp2p v0.54.1
+   Compiling hashbrown v0.14.5
+   Compiling frame-system v47.0.0
+   Compiling hex-literal v0.4.1
+   Compiling unicode-width v0.2.2
+   Compiling itertools v0.12.1
+   Compiling sc-network v0.57.0
+   Compiling prost-derive v0.12.6
+   Compiling sp-block-builder v42.0.0
+   Compiling linked_hash_set v0.1.6
+   Compiling sc-network-common v0.54.0
+   Compiling prost v0.12.6
+   Compiling partial_sort v0.2.0
+   Compiling polkadot-core-primitives v23.0.0
+   Compiling iana-time-zone v0.1.65
+   Compiling polkadot-parachain-primitives v22.0.0
+   Compiling chrono v0.4.45
+   Compiling sp-authority-discovery v42.0.0
+   Compiling sc-telemetry v31.0.0
+   Compiling sp-offchain v42.0.0
+   Compiling sp-keyring v47.0.0
+   Compiling jsonrpsee-types v0.24.11
+   Compiling utf8parse v0.2.2
+   Compiling anstyle-parse v1.0.0
+   Compiling sc-network-types v0.20.3
+   Compiling jsonrpsee-core v0.24.11
+   Compiling polkadot-primitives v24.0.0
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling anstyle-query v1.1.5
+   Compiling tower-layer v0.3.3
+   Compiling colorchoice v1.0.5
+   Compiling anstream v1.0.0
+   Compiling hyper-rustls v0.27.9
+   Compiling rustls-platform-verifier v0.5.3
+   Compiling terminal_size v0.4.4
+   Compiling inout v0.1.4
+   Compiling clap_lex v1.1.0
+   Compiling cipher v0.4.4
+   Compiling clap_builder v4.6.0
+   Compiling tower v0.4.13
+   Compiling sp-consensus-babe v0.48.0
+   Compiling fork-tree v13.0.1
+   Compiling clap_derive v4.6.1
+   Compiling generic-array v0.12.4
+   Compiling clap v4.6.1
+   Compiling jsonrpsee-client-transport v0.24.11
+   Compiling universal-hash v0.5.1
+   Compiling subtle v1.0.0
+   Compiling rustc-hash v1.1.0
+   Compiling route-recognizer v0.3.1
+   Compiling crypto-mac v0.7.0
+   Compiling jsonrpsee-server v0.24.11
+   Compiling polyval v0.6.2
+   Compiling jsonrpsee-ws-client v0.24.11
+   Compiling digest v0.8.1
+   Compiling jsonrpsee-http-client v0.24.11
+   Compiling aes v0.8.4
+   Compiling ctr v0.9.2
+   Compiling sp-transaction-pool v42.0.0
+   Compiling jsonrpsee-proc-macros v0.24.11
+   Compiling sc-chain-spec-derive v12.0.0
+   Compiling memmap2 v0.9.10
+   Compiling byte-tools v0.3.1
+   Compiling keystream v1.0.0
+   Compiling option-ext v0.2.0
+   Compiling opaque-debug v0.2.3
+   Compiling chacha v0.3.0
+   Compiling blake2 v0.8.1
+   Compiling ghash v0.5.1
+   Compiling aead v0.5.2
+   Compiling jsonrpsee v0.24.11
+   Compiling aes-gcm v0.10.3
+   Compiling lioness v0.1.2
+   Compiling sc-network-sync v0.56.1 (/hlq-build/harlequin/node/vendor/sc-network-sync)
+   Compiling rand_distr v0.4.3
+   Compiling cipher v0.2.5
+   Compiling c2-chacha v0.3.3
+   Compiling sp-statement-store v27.0.0
+   Compiling sp-rpc v39.0.0
+   Compiling hashlink v0.8.4
+   Compiling mixnet v0.7.0
+   Compiling sp-mixnet v0.20.0
+   Compiling lz4-sys v1.11.1+lz4-1.10.0
+   Compiling snap v1.1.1
+   Compiling memmap2 v0.5.10
+   Compiling fs2 v0.4.3
+   Compiling siphasher v0.3.11
+   Compiling console v0.15.11
+   Compiling raw-cpuid v11.6.0
+   Compiling dashmap v5.5.3
+   Compiling sc-keystore v41.0.0
+   Compiling quanta v0.12.6
+   Compiling spinning_top v0.3.0
+   Compiling nonzero_ext v0.3.0
+   Compiling no-std-compat v0.4.1
+   Compiling siphasher v1.0.3
+   Compiling governor v0.6.3
+   Compiling fastbloom v0.17.0
+   Compiling kvdb-memorydb v0.13.0
+   Compiling sc-state-db v0.43.0
+   Compiling sysinfo v0.30.13
+   Compiling sc-tracing-proc-macro v11.1.1
+   Compiling is-terminal v0.4.17
+   Compiling cfg_aliases v0.1.1
+   Compiling static_init_macro v1.0.4
+   Compiling dirs-sys v0.4.1
+   Compiling static_init v1.0.4
+   Compiling sc-network-light v0.56.0
+   Compiling sc-sysinfo v48.0.0
+   Compiling nonempty v0.7.0
+   Compiling forwarded-header-value v0.1.1
+   Compiling tower-http v0.5.2
+   Compiling num-rational v0.4.2
+   Compiling rand_pcg v0.3.1
+   Compiling directories v5.0.1
+   Compiling tracing-futures v0.2.5
+   Compiling sp-transaction-storage-proof v42.0.1
+   Compiling exit-future v0.2.0
+   Compiling coarsetime v0.1.37
+   Compiling names v0.14.0
+   Compiling rtoolbox v0.0.5
+   Compiling rpassword v7.5.4
+   Compiling tracing-gum-proc-macro v5.0.0
+   Compiling bounded-vec v0.7.1
+   Compiling fdlimit v0.3.0
+   Compiling polkadot-node-primitives v25.0.0
+   Compiling tracing-gum v25.0.0
+   Compiling sc-authority-discovery v0.58.0
+   Compiling crossbeam-queue v0.3.12
+   Compiling orchestra-proc-macro v0.4.1
+   Compiling fixedbitset v0.4.2
+   Compiling nanorand v0.7.0
+   Compiling petgraph v0.6.5
+   Compiling prioritized-metered-channel v0.6.1
+   Compiling fatality-proc-macro v0.1.1
+   Compiling tikv-jemalloc-sys v0.6.1+5.3.0-1-ge13ca993e8ccb9ba9847cc330696e02839f328f7
+   Compiling dyn-clonable-impl v0.9.2
+   Compiling dyn-clonable v0.9.2
+   Compiling fatality v0.1.1
+   Compiling lz4 v1.28.1
+   Compiling parity-db v0.4.13
+   Compiling orchestra v0.4.1
+   Compiling polkadot-statement-table v25.0.0
+   Compiling xcm-procedural v11.0.2
+   Compiling staging-xcm v23.0.1
+   Compiling num-complex v0.4.6
+   Compiling bytemuck v1.25.0
+   Compiling safe_arch v0.7.4
+   Compiling finality-grandpa v0.16.3
+   Compiling matrixmultiply v0.3.10
+   Compiling sp-consensus-grandpa v29.0.0
+   Compiling wide v0.7.33
+   Compiling approx v0.5.1
+   Compiling rawpointer v0.2.1
+   Compiling simba v0.9.1
+   Compiling nalgebra v0.33.3
+   Compiling hybrid-array v0.4.12
+   Compiling enum-ordinalize-derive v4.3.2
+   Compiling enum-ordinalize v4.3.2
+   Compiling block-buffer v0.12.1
+   Compiling crypto-common v0.2.2
+   Compiling ark-std v0.5.0
+   Compiling ark-serialize-derive v0.5.0
+   Compiling ark-serialize v0.5.0
+   Compiling linregress v0.5.4
+   Compiling digest v0.11.3
+   Compiling ark-ff-macros v0.5.0
+   Compiling frame-benchmarking v48.0.0
+   Compiling educe v0.6.0
+   Compiling pallet-transaction-payment v48.0.0
+   Compiling alloy-rlp-derive v0.3.15
+   Compiling ark-ff-asm v0.5.0
+   Compiling keccak v0.2.0
+   Compiling ark-ff v0.5.0
+   Compiling sha3 v0.11.0
+   Compiling alloy-rlp v0.3.15
+   Compiling cumulus-primitives-core v0.25.0
+   Compiling pallet-timestamp v47.0.0
+   Compiling pallet-balances v49.0.0
+   Compiling convert_case v0.10.0
+   Compiling ruint-macro v1.2.1
+   Compiling ruint v1.18.0
+   Compiling ark-poly v0.5.0
+   Compiling derive_more-impl v2.1.1
+   Compiling reed-solomon-novelpoly v2.0.0
+   Compiling ark-ec v0.5.0
+   Compiling derive_more v2.1.1
+   Compiling sp-consensus-aura v0.48.0
+   Compiling const-hex v1.19.1
+   Compiling alloy-primitives v1.6.0
+   Compiling scratch v1.0.9
+   Compiling polkadot-erasure-coding v25.0.0
+   Compiling pallet-session v48.0.0
+   Compiling staging-xcm-executor v27.0.0
+   Compiling sp-npos-elections v42.0.0
+   Compiling frame-election-provider-solution-type v16.1.1
+   Compiling link-cplusplus v1.0.12
+   Compiling frame-election-provider-support v47.0.0
+   Compiling pallet-authorship v47.0.0
+   Compiling codespan-reporting v0.13.1
+   Compiling cxxbridge-flags v1.0.194
+   Compiling cxx v1.0.194
+   Compiling cxx-build v1.0.194
+   Compiling pallet-asset-conversion v30.0.0
+   Compiling pallet-accumulate-and-forward v0.3.0
+   Compiling darling_core v0.20.11
+   Compiling darling_macro v0.20.11
+   Compiling darling v0.20.11
+   Compiling wasm-opt-sys v0.116.0
+   Compiling pallet-staking v48.0.0
+   Compiling frame-system-rpc-runtime-api v42.0.0
+   Compiling heck v0.4.1
+   Compiling strum_macros v0.24.3
+   Compiling staging-xcm-builder v28.0.0
+   Compiling pallet-babe v48.0.0
+   Compiling pallet-authority-discovery v48.0.0
+   Compiling polkadot-runtime-metrics v28.0.0
+   Compiling pallet-message-queue v51.0.0
+   Compiling pallet-broker v0.27.0
+   Compiling cxxbridge-macro v1.0.194
+   Compiling camino v1.2.2
+   Compiling polkadot-runtime-parachains v27.0.0
+   Compiling tikv-jemalloc-ctl v0.6.1
+   Compiling wasm-opt-cxx-sys v0.116.0
+   Compiling ark-bls12-381 v0.5.0
+   Compiling scale-type-resolver v0.2.0
+   Compiling enumflags2_derive v0.7.12
+   Compiling object v0.36.7
+   Compiling slice-group-by v0.3.1
+   Compiling sc-consensus-slots v0.56.0
+   Compiling enumflags2 v0.7.12
+   Compiling scale-bits v0.7.0
+   Compiling proc-macro-error-attr2 v2.0.0
+   Compiling proc-macro-error2 v2.0.1
+   Compiling scale-decode-derive v0.16.2
+   Compiling scale-encode-derive v0.10.1
+   Compiling gimli v0.31.1
+   Compiling semver-parser v0.7.0
+   Compiling semver v0.6.0
+   Compiling scale-encode v0.10.1
+   Compiling scale-decode v0.16.2
+   Compiling regalloc2 v0.9.3
+   Compiling dirs v5.0.1
+   Compiling build-helper v0.1.1
+   Compiling cargo-platform v0.1.9
+   Compiling ripemd v0.1.3
+   Compiling strum v0.24.1
+   Compiling polkavm-linker v0.33.0
+   Compiling cargo_metadata v0.15.4
+   Compiling frame-decode v0.9.0
+   Compiling frame-try-runtime v0.53.0
+   Compiling filetime v0.2.29
+   Compiling yap v0.12.0
+   Compiling base58 v0.2.0
+   Compiling scale-value v0.18.2
+   Compiling frame-executive v47.0.0
+   Compiling subxt-metadata v0.44.3
+   Compiling keccak-hash v0.11.0
+   Compiling revm-primitives v20.2.1
+   Compiling cumulus-primitives-parachain-inherent v0.25.0
+   Compiling secp256k1-sys v0.10.1
+   Compiling subxt-core v0.44.3
+   Compiling polkadot-sdk-frame v0.17.0
+   Compiling xcm-runtime-apis v0.15.0
+   Compiling derivative v2.2.0
+   Compiling auto_impl v1.3.0
+   Compiling ark-models-ext v0.5.2
+   Compiling polkadot-ckb-merkle-mountain-range v0.8.2
+   Compiling revm-bytecode v6.2.2
+   Compiling cumulus-test-relay-sproof-builder v0.26.0
+   Compiling bp-runtime v0.27.1
+   Compiling cumulus-primitives-proof-size-hostfunction v0.18.0
+   Compiling cumulus-pallet-parachain-system-proc-macro v0.8.0
+   Compiling cumulus-pallet-parachain-system v0.28.0
+   Compiling bp-header-chain v0.27.0
+   Compiling revm-state v7.0.5
+   Compiling sp-mmr-primitives v42.0.0
+   Compiling secp256k1 v0.30.0
+   Compiling bip32 v0.5.3
+   Compiling alloy-eip2930 v0.2.3
+   Compiling alloy-eip7702 v0.6.3
+   Compiling ark-pallas v0.5.0
+   Compiling secrecy v0.10.3
+   Compiling subxt-signer v0.44.3
+   Compiling revm-database-interface v7.0.5
+   Compiling bp-messages v0.27.0
+   Compiling syn-solidity v1.6.0
+   Compiling macro-string v0.2.0
+   Compiling ucd-trie v0.1.7
+   Compiling dunce v1.0.5
+   Compiling pest v2.8.6
+   Compiling alloy-sol-macro-input v1.6.0
+   Compiling ark-vesta v0.5.0
+   Compiling sp-consensus-beefy v30.0.0
+   Compiling ark-ed-on-bls12-381-bandersnatch v0.5.0
+   Compiling nix v0.29.0
+   Compiling num-iter v0.1.45
+   Compiling enumn v0.1.14
+   Compiling num v0.4.3
+   Compiling ark-ed-on-bls12-381-bandersnatch-ext v0.5.2
+   Compiling slot-range-helper v23.0.0
+   Compiling ark-vesta-ext v0.5.2
+   Compiling alloy-sol-macro-expander v1.6.0
+   Compiling pest_meta v2.8.6
+   Compiling revm-context-interface v9.0.0
+   Compiling ark-pallas-ext v0.5.2
+   Compiling ark-bls12-381-ext v0.5.2
+   Compiling scale-typegen v0.11.1
+   Compiling pallet-identity v48.0.0
+   Compiling pallet-fast-unstake v47.0.0
+   Compiling pallet-election-provider-multi-phase v48.0.0
+   Compiling ark-scale v0.0.13
+   Compiling pallet-treasury v47.0.0
+   Compiling pallet-vesting v48.0.0
+   Compiling pallet-staking-reward-fn v24.0.1
+   Compiling primeorder v0.13.6
+   Compiling slotmap v1.1.1
+   Compiling polkadot-runtime-common v28.0.0
+   Compiling subxt-utils-fetchmetadata v0.44.3
+   Compiling p256 v0.13.2
+   Compiling sp-crypto-ec-utils v0.21.1
+   Compiling subxt-codegen v0.44.3
+   Compiling alloy-sol-macro v1.6.0
+   Compiling pest_generator v2.8.6
+   Compiling aurora-engine-modexp v1.2.0
+   Compiling landlock v0.3.1
+   Compiling ark-bn254 v0.5.0
+   Compiling pallet-transaction-payment-rpc-runtime-api v48.0.0
+   Compiling seccompiler v0.4.0
+   Compiling cpu-time v1.0.0
+   Compiling always-assert v0.1.3
+   Compiling crc-catalog v2.5.0
+   Compiling polkadot-node-core-pvf v31.0.0
+   Compiling crc v3.4.0
+   Compiling polkadot-node-core-pvf-common v26.0.0
+   Compiling revm-precompile v25.0.0
+   Compiling pest_derive v2.8.6
+   Compiling alloy-sol-types v1.6.0
+   Compiling subxt-macro v0.44.3
+   Compiling revm-interpreter v24.0.0
+   Compiling revm-context v8.0.4
+   Compiling pallet-xcm v28.0.0
+   Compiling subxt-rpcs v0.44.3
+   Compiling parachains-common-types v0.3.0
+   Compiling pallet-assets v51.0.0
+   Compiling threadpool v1.8.1
+   Compiling rustix v0.38.44
+   Compiling frame-benchmarking-cli v57.0.0
+   Compiling subxt v0.44.3
+   Compiling revm-handler v8.1.0
+   Compiling alloy-core v1.6.0
+   Compiling handlebars v5.1.2
+   Compiling alloy-eip2124 v0.2.0
+   Compiling cumulus-primitives-utility v0.29.0
+   Compiling bp-polkadot-core v0.27.0
+   Compiling pallet-collator-selection v29.0.0
+   Compiling alloy-eip7928 v0.3.7
+   Compiling alloy-serde v1.8.3
+   Compiling nybbles v0.4.8
+   Compiling staging-parachain-info v0.27.0
+   Compiling pallet-asset-tx-payment v48.0.0
+   Compiling pallet-multi-asset-bounties v0.5.0
+   Compiling comfy-table v7.2.2
+   Compiling sc-runtime-utilities v0.9.0
+   Compiling sc-proposer-metrics v0.20.0
+   Compiling env_filter v0.1.4
+   Compiling gethostname v0.2.3
+   Compiling thousands v0.2.0
+   Compiling linux-raw-sys v0.4.15
+   Compiling keccak-const v0.2.0
+   Compiling sha2-const-stable v0.1.0
+   Compiling const-crypto v0.3.0
+   Compiling parachains-common v31.0.0
+   Compiling alloy-trie v0.9.5
+   Compiling alloy-eips v1.8.3
+   Compiling bp-parachains v0.27.0
+   Compiling revm-inspector v8.1.0
+   Compiling revm-database v7.0.5
+   Compiling ethbloom v0.14.1
+   Compiling cumulus-client-bootnodes v0.10.0
+   Compiling alloy-tx-macros v1.8.3
+   Compiling pallet-revive-proc-macro v0.8.0
+   Compiling consensus-core v0.1.0 (/hlq-build/harlequin/consensus-core)
+   Compiling substrate-build-script-utils v11.0.1
+   Compiling is_executable v1.0.6
+   Compiling humantime v2.3.0
+   Compiling humantime-serde v1.1.1
+   Compiling polkadot-cli v35.0.0
+   Compiling alloy-consensus v1.8.3
+   Compiling pallet-revive-uapi v0.13.0
+   Compiling revm v27.1.0
+   Compiling ethereum-types v0.15.1
+   Compiling fs4 v0.7.0
+   Compiling ethereum-standards v0.1.3
+   Compiling polkadot-primitives-test-helpers v0.4.0
+   Compiling substrate-bn v0.6.0
+   Compiling pallet-revive v0.18.0
+   Compiling sc-storage-monitor v0.29.0
+   Compiling bp-test-utils v0.27.0
+   Compiling cumulus-pallet-xcmp-queue v0.29.0
+   Compiling pallet-bridge-messages v0.28.0
+   Compiling bp-xcm-bridge-hub-router v0.24.0
+   Compiling string-interner v0.17.0
+   Compiling indexmap-nostd v0.4.0
+   Compiling downcast-rs v1.2.1
+   Compiling wasmi_core v0.32.3
+   Compiling wasmparser-nostd v0.100.2
+   Compiling assets-common v0.32.0
+   Compiling wasmi_collections v0.32.3
+   Compiling pallet-xcm-bridge-hub-router v0.26.0
+   Compiling parachains-runtimes-test-utils v32.0.0
+   Compiling pallet-bridge-grandpa v0.28.0
+   Compiling bp-xcm-bridge-hub v0.13.0
+   Compiling xcm-simulator v28.0.0
+   Compiling pallet-utility v48.0.0
+   Compiling num-derive v0.4.2
+   Compiling pallet-contracts v48.0.0
+   Compiling multi-stash v0.2.0
+   Compiling staging-chain-spec-builder v18.0.0
+   Compiling wasmi v0.32.3
+   Compiling bp-relayers v0.28.0
+   Compiling pallet-xcm-bridge-hub v0.24.0
+   Compiling pallet-bridge-parachains v0.28.0
+   Compiling asset-test-utils v34.0.0
+   Compiling pallet-aura v47.0.0
+   Compiling cumulus-primitives-aura v0.23.0
+   Compiling sp-dap v0.2.0
+   Compiling color-print-proc-macro v0.3.7
+   Compiling pallet-contracts-uapi v14.0.0
+   Compiling pallet-contracts-proc-macro v23.0.3
+   Compiling maplit v1.0.2
+   Compiling number_prefix v0.4.0
+   Compiling spinners v4.2.0
+   Compiling indicatif v0.17.11
+   Compiling color-print v0.3.7
+   Compiling pallet-dap v0.5.0
+   Compiling xcm-emulator v0.30.0
+   Compiling pallet-bridge-relayers v0.28.0
+   Compiling manifesto-core v0.1.0 (/hlq-build/harlequin/manifesto-core)
+   Compiling pallet-whitelist v47.0.0
+   Compiling sp-consensus-pow v0.48.0
+   Compiling tokens-core v0.1.0 (/hlq-build/harlequin/tokens-core)
+   Compiling reputation-core v0.1.0 (/hlq-build/harlequin/reputation-core)
+   Compiling pallet-tokens v0.1.0 (/hlq-build/harlequin/pallet-tokens)
+warning: use of deprecated constant `pallet::RuntimeEvent::_w`: 
+                 It is deprecated to have `RuntimeEvent` associated type in the pallet config.
+                 Please instead remove it as it is redundant since associated bound gets appended automatically: 
+                 
+                 pub trait Config: frame_system::Config<RuntimeEvent: From<Event<Self>>> { }.
+         
+                 For more info see:
+                     <https://github.com/paritytech/polkadot-sdk/pull/7229>
+   --> /hlq-build/harlequin/pallet-tokens/src/lib.rs:161:14
+    |
+161 |         type RuntimeEvent: From<Event<Self>>
+    |              ^^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: `pallet-tokens` (lib) generated 1 warning
+   Compiling pallet-reputation v0.1.0 (/hlq-build/harlequin/pallet-reputation)
+warning: use of deprecated constant `pallet::RuntimeEvent::_w`: 
+                 It is deprecated to have `RuntimeEvent` associated type in the pallet config.
+                 Please instead remove it as it is redundant since associated bound gets appended automatically: 
+                 
+                 pub trait Config: frame_system::Config<RuntimeEvent: From<Event<Self>>> { }.
+         
+                 For more info see:
+                     <https://github.com/paritytech/polkadot-sdk/pull/7229>
+   --> /hlq-build/harlequin/pallet-reputation/src/lib.rs:126:14
+    |
+126 |         type RuntimeEvent: From<Event<Self>>
+    |              ^^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+   Compiling bridge-hub-test-utils v0.33.0
+warning: `pallet-reputation` (lib) generated 1 warning
+   Compiling pallet-manifesto v0.1.0 (/hlq-build/harlequin/pallet-manifesto)
+   Compiling pallet-contracts-mock-network v26.0.0
+   Compiling pallet-beacon v0.1.0 (/hlq-build/harlequin/pallet-beacon)
+warning: use of deprecated constant `pallet::RuntimeEvent::_w`: 
+                 It is deprecated to have `RuntimeEvent` associated type in the pallet config.
+                 Please instead remove it as it is redundant since associated bound gets appended automatically: 
+                 
+                 pub trait Config: frame_system::Config<RuntimeEvent: From<Event<Self>>> { }.
+         
+                 For more info see:
+                     <https://github.com/paritytech/polkadot-sdk/pull/7229>
+  --> /hlq-build/harlequin/pallet-beacon/src/lib.rs:44:14
+   |
+44 |         type RuntimeEvent: From<Event<Self>>
+   |              ^^^^^^^^^^^^
+   |
+   = note: `#[warn(deprecated)]` on by default
+
+warning: `pallet-beacon` (lib) generated 1 warning
+   Compiling pallet-justice v0.1.0 (/hlq-build/harlequin/pallet-justice)
+warning: use of deprecated constant `pallet::RuntimeEvent::_w`: 
+                 It is deprecated to have `RuntimeEvent` associated type in the pallet config.
+                 Please instead remove it as it is redundant since associated bound gets appended automatically: 
+                 
+                 pub trait Config: frame_system::Config<RuntimeEvent: From<Event<Self>>> { }.
+         
+                 For more info see:
+                     <https://github.com/paritytech/polkadot-sdk/pull/7229>
+   --> /hlq-build/harlequin/pallet-justice/src/lib.rs:185:14
+    |
+185 |         type RuntimeEvent: From<Event<Self>>
+    |              ^^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: `pallet-justice` (lib) generated 1 warning
+   Compiling pallet-participation v0.1.0 (/hlq-build/harlequin/pallet-participation)
+warning: use of deprecated constant `pallet::RuntimeEvent::_w`: 
+                 It is deprecated to have `RuntimeEvent` associated type in the pallet config.
+                 Please instead remove it as it is redundant since associated bound gets appended automatically: 
+                 
+                 pub trait Config: frame_system::Config<RuntimeEvent: From<Event<Self>>> { }.
+         
+                 For more info see:
+                     <https://github.com/paritytech/polkadot-sdk/pull/7229>
+   --> /hlq-build/harlequin/pallet-participation/src/lib.rs:214:14
+    |
+214 |         type RuntimeEvent: From<Event<Self>>
+    |              ^^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: `pallet-participation` (lib) generated 1 warning
+   Compiling pallet-directory v0.1.0 (/hlq-build/harlequin/pallet-directory)
+warning: use of deprecated constant `pallet::RuntimeEvent::_w`: 
+                 It is deprecated to have `RuntimeEvent` associated type in the pallet config.
+                 Please instead remove it as it is redundant since associated bound gets appended automatically: 
+                 
+                 pub trait Config: frame_system::Config<RuntimeEvent: From<Event<Self>>> { }.
+         
+                 For more info see:
+                     <https://github.com/paritytech/polkadot-sdk/pull/7229>
+  --> /hlq-build/harlequin/pallet-directory/src/lib.rs:41:14
+   |
+41 |         type RuntimeEvent: From<Event<Self>>
+   |              ^^^^^^^^^^^^
+   |
+   = note: `#[warn(deprecated)]` on by default
+
+warning: `pallet-directory` (lib) generated 1 warning
+   Compiling pallet-multisig-upgrade v0.1.0 (/hlq-build/harlequin/pallet-multisig-upgrade)
+warning: use of deprecated constant `pallet::RuntimeEvent::_w`: 
+                 It is deprecated to have `RuntimeEvent` associated type in the pallet config.
+                 Please instead remove it as it is redundant since associated bound gets appended automatically: 
+                 
+                 pub trait Config: frame_system::Config<RuntimeEvent: From<Event<Self>>> { }.
+         
+                 For more info see:
+                     <https://github.com/paritytech/polkadot-sdk/pull/7229>
+   --> /hlq-build/harlequin/pallet-multisig-upgrade/src/lib.rs:136:14
+    |
+136 |         type RuntimeEvent: From<Event<Self>>
+    |              ^^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: `pallet-multisig-upgrade` (lib) generated 1 warning
+   Compiling pallet-market v0.1.0 (/hlq-build/harlequin/pallet-market)
+warning: use of deprecated constant `pallet::RuntimeEvent::_w`: 
+                 It is deprecated to have `RuntimeEvent` associated type in the pallet config.
+                 Please instead remove it as it is redundant since associated bound gets appended automatically: 
+                 
+                 pub trait Config: frame_system::Config<RuntimeEvent: From<Event<Self>>> { }.
+         
+                 For more info see:
+                     <https://github.com/paritytech/polkadot-sdk/pull/7229>
+   --> /hlq-build/harlequin/pallet-market/src/lib.rs:116:14
+    |
+116 |         type RuntimeEvent: From<Event<Self>>
+    |              ^^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: `pallet-market` (lib) generated 1 warning
+   Compiling pallet-pacts v0.1.0 (/hlq-build/harlequin/pallet-pacts)
+warning: use of deprecated constant `pallet::RuntimeEvent::_w`: 
+                 It is deprecated to have `RuntimeEvent` associated type in the pallet config.
+                 Please instead remove it as it is redundant since associated bound gets appended automatically: 
+                 
+                 pub trait Config: frame_system::Config<RuntimeEvent: From<Event<Self>>> { }.
+         
+                 For more info see:
+                     <https://github.com/paritytech/polkadot-sdk/pull/7229>
+  --> /hlq-build/harlequin/pallet-pacts/src/lib.rs:69:14
+   |
+69 |         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+   |              ^^^^^^^^^^^^
+   |
+   = note: `#[warn(deprecated)]` on by default
+
+warning: `pallet-pacts` (lib) generated 1 warning
+   Compiling pallet-forum v0.1.0 (/hlq-build/harlequin/pallet-forum)
+warning: use of deprecated constant `pallet::RuntimeEvent::_w`: 
+                 It is deprecated to have `RuntimeEvent` associated type in the pallet config.
+                 Please instead remove it as it is redundant since associated bound gets appended automatically: 
+                 
+                 pub trait Config: frame_system::Config<RuntimeEvent: From<Event<Self>>> { }.
+         
+                 For more info see:
+                     <https://github.com/paritytech/polkadot-sdk/pull/7229>
+  --> /hlq-build/harlequin/pallet-forum/src/lib.rs:61:14
+   |
+61 |         type RuntimeEvent: From<Event<Self>>
+   |              ^^^^^^^^^^^^
+   |
+   = note: `#[warn(deprecated)]` on by default
+
+warning: `pallet-forum` (lib) generated 1 warning
+   Compiling pallet-hosting v0.1.0 (/hlq-build/harlequin/pallet-hosting)
+warning: use of deprecated trait `polkadot_sdk_frame::prelude::ValidateUnsigned`: `ValidateUnsigned` will be removed after April 2027. Use `#[pallet::authorize]` with `frame_system::AuthorizeCall` instead. See https://github.com/paritytech/polkadot-sdk/issues/2415
+   --> /hlq-build/harlequin/pallet-hosting/src/lib.rs:197:21
+    |
+197 |     impl<T: Config> ValidateUnsigned for Pallet<T> {
+    |                     ^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated constant `pallet::RuntimeEvent::_w`: 
+                 It is deprecated to have `RuntimeEvent` associated type in the pallet config.
+                 Please instead remove it as it is redundant since associated bound gets appended automatically: 
+                 
+                 pub trait Config: frame_system::Config<RuntimeEvent: From<Event<Self>>> { }.
+         
+                 For more info see:
+                     <https://github.com/paritytech/polkadot-sdk/pull/7229>
+  --> /hlq-build/harlequin/pallet-hosting/src/lib.rs:57:14
+   |
+57 |         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+   |              ^^^^^^^^^^^^
+
+warning: use of deprecated constant `pallet::__substrate_validate_unsigned_check::validate_unsigned_deprecation_0::_w`: 
+         #[pallet::validate_unsigned] will be removed after April 2027. Use `#[pallet::authorize]` with `frame_system::AuthorizeCall` instead.
+         
+                 For more info see:
+                     https://github.com/paritytech/polkadot-sdk/issues/2415
+   --> /hlq-build/harlequin/pallet-hosting/src/lib.rs:197:5
+    |
+197 |     impl<T: Config> ValidateUnsigned for Pallet<T> {
+    |     ^^^^
+
+warning: use of deprecated associated type `polkadot_sdk_frame::prelude::ValidateUnsigned::Call`: `ValidateUnsigned` will be removed after April 2027. Use `#[pallet::authorize]` with `frame_system::AuthorizeCall` instead. See https://github.com/paritytech/polkadot-sdk/issues/2415
+   --> /hlq-build/harlequin/pallet-hosting/src/lib.rs:199:65
+    |
+199 |         fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
+    |                                                                 ^^^^^^^^^^
+
+warning: `pallet-hosting` (lib) generated 4 warnings
+   Compiling generate-bags v48.0.0
+   Compiling pallet-sudo v48.0.0
+   Compiling harlequin-tokens-api v0.1.0 (/hlq-build/harlequin/tokens-api)
+   Compiling harlequin-consensus-api v0.1.0 (/hlq-build/harlequin/consensus-api)
+   Compiling harlequin-reputation-api v0.1.0 (/hlq-build/harlequin/reputation-api)
+   Compiling sp-core-hashing-proc-macro v16.0.0
+   Compiling sp-core-hashing v16.0.0
+   Compiling staging-tracking-allocator v2.0.0
+   Compiling sphinx-packet v0.6.0
+   Compiling wasm-opt v0.116.1
+   Compiling substrate-wasm-builder v33.0.0
+   Compiling frame-storage-access-test-runtime v0.9.0
+   Compiling sp-virtualization-test-fixture v0.2.0
+   Compiling harlequin-runtime v0.1.0 (/hlq-build/harlequin/runtime)
+warning: unused doc comment
+  --> /hlq-build/harlequin/runtime/src/lib.rs:19:1
+   |
+19 | /// The WASM runtime blob (generated by `build.rs`/wasm-builder). Exposed for the node's chain spec.
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ rustdoc does not generate documentation for macro invocations
+   |
+   = help: to document an item produced by a macro, the macro must produce the documentation as part of its expansion
+   = note: `#[warn(unused_doc_comments)]` (part of `#[warn(unused)]`) on by default
+
+warning: unexpected `cfg` condition value: `runtime-benchmarks`
+   --> /hlq-build/harlequin/runtime/src/lib.rs:366:11
+    |
+366 |     #[cfg(feature = "runtime-benchmarks")]
+    |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `default`, `mainnet`, `std`, and `substrate-wasm-builder`
+    = help: consider adding `runtime-benchmarks` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+    = note: `#[warn(unexpected_cfgs)]` on by default
+
+warning: unexpected `cfg` condition value: `runtime-benchmarks`
+   --> /hlq-build/harlequin/runtime/src/lib.rs:371:11
+    |
+371 |     #[cfg(feature = "runtime-benchmarks")]
+    |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `default`, `mainnet`, `std`, and `substrate-wasm-builder`
+    = help: consider adding `runtime-benchmarks` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: `harlequin-runtime` (lib) generated 3 warnings
+   Compiling rocksdb v0.24.0
+   Compiling kvdb-rocksdb v0.21.0
+   Compiling sp-database v10.0.1
+   Compiling sp-blockchain v45.0.0
+   Compiling sc-transaction-pool-api v45.0.0
+   Compiling sc-block-builder v0.50.0
+   Compiling mmr-rpc v46.0.0
+   Compiling pallet-transaction-payment-rpc v51.0.0
+   Compiling sc-client-api v46.0.0
+   Compiling sc-basic-authorship v0.55.0
+   Compiling sc-consensus v0.56.0
+   Compiling sc-tracing v46.0.0
+   Compiling sc-client-db v0.53.1
+   Compiling sc-transaction-pool v46.0.0
+   Compiling sc-consensus-epochs v0.56.0
+   Compiling sc-consensus-aura v0.57.0
+   Compiling sc-consensus-babe v0.57.0
+   Compiling cumulus-client-proof-size-recording v0.2.0
+   Compiling sc-consensus-pow v0.56.0
+   Compiling sc-chain-spec v50.0.0
+   Compiling sc-mixnet v0.27.0
+   Compiling sc-rpc-api v0.57.0
+   Compiling sc-offchain v52.0.0
+warning: constant `REPUTATION_REPORT` is never used
+  --> vendor/sc-network-sync/src/strategy/disconnected_peers.rs:57:11
+   |
+57 | pub const REPUTATION_REPORT: Rep = Rep::new_fatal("Peer disconnected with inflight after backoffs");
+   |           ^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+   Compiling sc-network-statement v0.40.0
+   Compiling sc-statement-store v29.0.0
+   Compiling sc-rpc-server v30.0.0
+warning: `sc-network-sync` (lib) generated 1 warning
+   Compiling sc-informant v0.56.0
+   Compiling sc-rpc v53.0.0
+   Compiling sc-network-transactions v0.56.0
+   Compiling sc-rpc-spec-v2 v0.58.0
+   Compiling sc-network-gossip v0.57.0
+   Compiling substrate-state-trie-migration-rpc v51.0.0
+   Compiling sc-consensus-grandpa v0.42.0
+   Compiling sc-consensus-beefy v36.0.0
+   Compiling substrate-frame-rpc-system v52.0.0
+   Compiling sc-consensus-babe-rpc v0.58.0
+   Compiling sc-consensus-beefy-rpc v37.0.0
+   Compiling mmr-gadget v52.0.0
+   Compiling sc-service v0.59.0
+   Compiling substrate-rpc-client v0.57.0
+   Compiling sc-consensus-manual-seal v0.58.0
+   Compiling sc-consensus-grandpa-rpc v0.43.0
+   Compiling sc-sync-state-rpc v0.57.0
+   Compiling polkadot-rpc v33.0.0
+   Compiling emulated-integration-tests-common v33.0.0
+   Compiling frame-remote-externalities v0.59.0
+   Compiling sc-cli v0.60.0
+   Compiling polkadot-node-network-protocol v31.0.0
+   Compiling polkadot-node-metrics v31.0.0
+   Compiling polkadot-node-subsystem-types v31.0.0
+   Compiling cumulus-client-cli v0.31.0
+   Compiling subkey v33.0.0
+   Compiling staging-node-inspect v0.36.0
+   Compiling polkadot-overseer v31.0.0
+   Compiling substrate-frame-rpc-support v53.0.0
+⚡ Found 4 strongly connected components which includes at least one cycle each
+cycle(001) ∈ α: DisputeCoordinator ~~{"DisputeDistributionMessage"}~~> DisputeDistribution ~~{"DisputeCoordinatorMessage"}~~>  *
+cycle(002) ∈ β: ApprovalVoting ~~{"ApprovalDistributionMessage"}~~> ApprovalDistribution ~~{"ApprovalVotingMessage"}~~>  *
+cycle(003) ∈ γ: CandidateBacking ~~{"CollatorProtocolMessage"}~~> CollatorProtocol ~~{"CandidateBackingMessage"}~~>  *
+cycle(004) ∈ δ: NetworkBridgeRx ~~{"GossipSupportMessage"}~~> GossipSupport ~~{"NetworkBridgeRxMessage"}~~>  *
+   Compiling polkadot-node-subsystem v31.0.0
+   Compiling cumulus-relay-chain-interface v0.31.0
+   Compiling polkadot-node-subsystem-util v31.0.0
+   Compiling cumulus-client-parachain-inherent v0.25.0
+   Compiling cumulus-relay-chain-streams v0.9.0
+   Compiling polkadot-node-core-approval-voting v31.0.0
+   Compiling polkadot-approval-distribution v31.0.0
+   Compiling polkadot-node-core-candidate-validation v31.0.0
+   Compiling cumulus-client-pov-recovery v0.31.0
+   Compiling polkadot-node-core-pvf-checker v31.0.0
+   Compiling polkadot-availability-bitfield-distribution v31.0.0
+   Compiling polkadot-node-core-approval-voting-parallel v0.14.0
+   Compiling polkadot-gossip-support v31.0.0
+   Compiling polkadot-availability-distribution v31.0.0
+   Compiling polkadot-node-core-dispute-coordinator v31.0.0
+   Compiling polkadot-collator-protocol v31.0.0
+   Compiling polkadot-statement-distribution v31.0.0
+   Compiling polkadot-node-core-backing v31.0.0
+   Compiling polkadot-node-core-prospective-parachains v30.0.0
+   Compiling polkadot-node-collation-generation v31.0.0
+   Compiling polkadot-node-core-av-store v31.0.0
+   Compiling polkadot-node-core-chain-selection v31.0.0
+   Compiling polkadot-node-core-bitfield-signing v31.0.0
+   Compiling polkadot-node-core-provisioner v31.0.0
+   Compiling polkadot-availability-recovery v31.0.0
+   Compiling polkadot-dispute-distribution v31.0.0
+   Compiling polkadot-node-core-parachains-inherent v31.0.0
+   Compiling polkadot-node-core-runtime-api v31.0.0
+   Compiling polkadot-network-bridge v31.0.0
+   Compiling polkadot-node-core-chain-api v31.0.0
+   Compiling cumulus-client-consensus-common v0.31.0
+   Compiling cumulus-client-network v0.31.0
+   Compiling polkadot-service v35.0.0
+   Compiling cumulus-client-collator v0.31.0
+   Compiling cumulus-relay-chain-rpc-interface v0.31.0
+   Compiling cumulus-client-consensus-aura v0.31.0
+   Compiling cumulus-client-consensus-relay-chain v0.31.0
+   Compiling cumulus-relay-chain-minimal-node v0.35.0
+   Compiling cumulus-relay-chain-inprocess-interface v0.35.0
+   Compiling cumulus-client-service v0.35.0
+   Compiling polkadot-omni-node-lib v0.17.0
+   Compiling polkadot-sdk v2604.2.0
+   Compiling harlequin-node v0.1.0 (/hlq-build/harlequin/node)
+warning: unused import: `harlequin_consensus_api::HarlequinConsensusApi`
+   --> src/service.rs:482:17
+    |
+482 |             use harlequin_consensus_api::HarlequinConsensusApi;
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `sp_api::ProvideRuntimeApi`
+   --> src/service.rs:483:17
+    |
+483 |             use sp_api::ProvideRuntimeApi;
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `self`
+  --> src/sphinx_relay.rs:35:9
+   |
+35 |         self,
+   |         ^^^^
+
+warning: unused import: `sp_blockchain::HeaderBackend`
+  --> src/authorship.rs:25:79
+   |
+25 | use polkadot_sdk::{sc_consensus::BlockImportParams, sc_consensus_manual_seal, sp_blockchain::HeaderBackend};
+   |                                                                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `harlequin-node` (bin "harlequin-node" test) generated 4 warnings (run `cargo fix --bin "harlequin-node" --tests` to apply 3 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 16m 05s
+     Running unittests src/main.rs (target/debug/deps/harlequin_node-81e0ab70158afb0c)
+
+running 27 tests
+test authorship::tests::leadership_is_me_only_for_the_bound_session_key ... ok
+test authorship::tests::claims_are_kept_per_parent_and_bounded ... ok
+test authorship::tests::slot_claim_round_trips_and_ignores_other_engines ... ok
+test cli::tests::default_consensus_matches_build ... ok
+test finality::tests::committee_rotates_each_epoch ... ok
+test cli::tests::explicit_consensus_still_wins ... ok
+test finality::tests::domain_separation_rejects_foreign_and_legacy_votes ... ok
+test finality::tests::epoch_of_partitions_heights ... ok
+test authorship::tests::seal_signs_the_pre_seal_hash_under_its_own_domain ... ok
+test finality::tests::legacy_votes_verify_at_or_below_cutoff ... ok
+test finality::tests::empty_committee_never_finalises ... ok
+test finality::tests::proof_header_rejects_malformed_layouts ... ok
+test finality::tests::below_alpha_rejected ... ok
+test finality::tests::proof_with_more_records_than_members_is_refused ... ok
+test finality::tests::outsider_signatures_dont_count ... ok
+test finality::tests::quorum_proof_verifies ... ok
+test finality::tests::tampered_signature_rejected ... ok
+test participation_inherent::tests::decodes_the_gadgets_proof_layout ... ok
+test sphinx_relay::tests::handshake_roundtrip_and_rejects_garbage ... ok
+test sphinx_relay::tests::replay_is_dropped ... ok
+test sphinx_relay::tests::three_hops_end_to_end ... ok
+test sphinx_relay::tests::wrong_key_cannot_open ... ok
+test txguard::tests::real_extrinsic_preambles_are_let_through ... ok
+test txguard::tests::the_rubbish_we_measured_is_refused ... ok
+test finality::tests::wrong_hash_or_height_rejected ... ok
+test finality::tests::session_keys_finalise_for_cold_founders ... ok
+test finality::tests::undelegated_session_key_is_impostor ... ok
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 62 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.23s
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+test result: ok. 40 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 52 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 35 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+FAILED: runtime
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
