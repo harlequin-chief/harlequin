@@ -1,0 +1,11 @@
+   Compiling heartbeat v0.1.0 (/hlq-build/harlequin/node/tools/heartbeat)
+    Finished `release` profile [optimized] target(s) in 1.08s
+   Compiling heartbeat v0.1.0 (/hlq-build/harlequin/node/tools/heartbeat)
+    Finished `release` profile [optimized] target(s) in 1.22s
+target/dist/heartbeat-x86_64: home_paths=0 hlq_build=36
+RESULT=CLEAN
+target/dist/heartbeat-aarch64: home_paths=0 hlq_build=43
+RESULT=CLEAN
+>>> reproducible heartbeat artifacts:
+e0be017e113277dfcca3fa9c3122bd3c1cfb36942e89a5a9a3058994f31bd6c9  target/dist/heartbeat-x86_64
+9ba3eadf843e43896c7730a75365ab9f2595f85aceda7819c36d781c05e52daa  target/dist/heartbeat-aarch64
