@@ -524,6 +524,14 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
                         crate::authorship::Leadership::LoneDev => true,
                         leadership => leadership.is_me(my_pub),
                     };
+                    // LAB ONLY (`rogue-author`): seal every slot regardless — what a modified binary would do. Its
+                    // blocks must be refused by every honest peer (`authorship::check_header`).
+                    #[cfg(feature = "rogue-author")]
+                    let elected = {
+                        let _ = elected;
+                        log::warn!(target: "woven-trust", "🃏 rogue-author build: sealing slot {slot} out of turn (lab only)");
+                        true
+                    };
                     if !elected {
                         continue; // not elected this slot -> do not author
                     }

@@ -8,6 +8,7 @@
 #   ci-build.sh check   → cargo check of the node workspace (fast compile feedback, no artifact)
 #   ci-build.sh x86     → ./build-node.sh --mainnet, then the reproducible .dist artifact in /hlq-build/out
 #   ci-build.sh test    → cargo test of the lean core workspace (chain/) and of every pallet workspace
+#   ci-build.sh rogue   → LAB ONLY: the node built with `rogue-author` (seals out of turn), for refusal tests
 #
 # Anyone can run the same thing on their own machine:
 #   docker run --rm -v "$PWD/chain:/hlq-build/harlequin" -v "$PWD/ops:/hlq-build/ops" \
@@ -71,6 +72,15 @@ case "$MODE" in
     ( cd "$OUT" && sha256sum harlequin-node.dist harlequin_runtime.compact.compressed.wasm 2>/dev/null > SHA256SUMS )
     python3 /hlq-build/ops/hlq-build-paths.py "$OUT/harlequin-node.dist" | sed -E 's/accounts=.*/accounts=<redacted>/' \
       | tee "$OUT/paths.txt"
+    cat "$OUT/SHA256SUMS"
+    ;;
+  rogue)
+    # LAB ONLY: the node with `rogue-author` (seals every slot) to prove that peers refuse out-of-turn blocks.
+    # Not a release artifact: it is named so, and the reproducibility rules do not apply to it.
+    cd "$TREE/node"
+    cargo build --release --features mainnet,rogue-author 2>&1 | tee "$OUT/build.log"
+    cp target/release/harlequin-node "$OUT/harlequin-node-LAB-rogue-author"
+    ( cd "$OUT" && sha256sum harlequin-node-LAB-rogue-author > SHA256SUMS )
     cat "$OUT/SHA256SUMS"
     ;;
   test)

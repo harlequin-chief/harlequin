@@ -55,6 +55,9 @@ std = ["harlequin-runtime/std", "polkadot-sdk/std"]
 # Production consensus/reputation cadence (#30) across node + runtime. Build the mainnet binary with
 # `cargo build --release --features mainnet`; the default build keeps fast testnet values for validation.
 mainnet = ["harlequin-runtime/mainnet"]
+# LAB ONLY — never in a release (build-node.sh cannot enable it). A node built with it seals in EVERY slot, out
+# of turn, to prove that honest peers refuse such blocks (L6-01: a lock that was never closed is not a lock).
+rogue-author = []
 
 [workspace]
 members = [".", "tools/devnet-driver", "tools/hlq-sigverify", "tools/apply-tool", "tools/bind-tool", "tools/encode-probe", "tools/heartbeat"]

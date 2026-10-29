@@ -16,5 +16,7 @@ mod sphinx_relay;
 mod txguard;
 
 fn main() -> polkadot_sdk::sc_cli::Result<()> {
+    #[cfg(all(feature = "rogue-author", feature = "mainnet"))]
+    eprintln!("🃏 THIS IS A LAB BUILD (rogue-author): it seals out of turn on purpose. Never run it on a real chain.");
     command::run()
 }
