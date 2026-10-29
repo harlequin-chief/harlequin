@@ -1,0 +1,9 @@
+debian: 13.7
+rustc 1.91.0 (f8297e351 2025-10-28)
+cargo 1.91.0 (ea2d97820 2025-10-10)
+build-essential 12.12
+clang 1:19.0-63
+libclang-dev 1:19.0-63
+llvm 1:19.0-63
+protobuf-compiler 3.21.12-11+deb13u1
+rustup 1.27.1-3+b1
