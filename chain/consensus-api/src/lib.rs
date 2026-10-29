@@ -64,5 +64,9 @@ sp_api::decl_runtime_apis! {
         /// is closed) and the heights above it already credited. The inherent provider carries the
         /// justifications of finalised heights above the floor that are NOT in that list.
         fn participation_open() -> (u64, Vec<u64>);
+
+        /// (candidate 9, Sybil floor) Accounts with a bound node AND some evidence in any suit: the only ones that
+        /// may sit in the finality committee or lead a slot. A bound mask with no evidence never sits.
+        fn eligible_bound() -> Vec<[u8; 32]>;
     }
 }

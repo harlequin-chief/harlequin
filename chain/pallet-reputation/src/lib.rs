@@ -959,6 +959,19 @@ pub mod pallet {
         /// All finality-vote delegations seeded at genesis: `(committee account, hot session pubkey)`.
         /// Exposed to the node through `HarlequinConsensusApi` so every node resolves a vote's signer
         /// (session key) → its committee account IDENTICALLY from on-chain state — never local config.
+        /// SYBIL FLOOR (candidate 9): the masks with a bound node that may sit in the finality committee or lead
+        /// a slot — those holding SOME evidence in any suit. Binding a key is free (a newborn mask must be able to
+        /// run its node), so without this a horde of fresh masks could bind nodes and, the day no reputable
+        /// owner has one (the liveness floor's case), be seated at equal weight. Evidence cannot be self-minted:
+        /// it comes from the proof authority, from service (which needs a seat) or from genesis — the founders
+        /// keep theirs for years through decay and earn more by serving. Reputable masks always qualify.
+        pub fn eligible_bound() -> alloc::vec::Vec<T::AccountId> {
+            VoteKeys::<T>::iter()
+                .map(|(acc, _)| acc)
+                .filter(|acc| Suit::ALL.iter().any(|s| Evidence::<T>::get(acc, *s) > 0))
+                .collect()
+        }
+
         pub fn vote_keys() -> alloc::vec::Vec<(T::AccountId, [u8; 32])> {
             VoteKeys::<T>::iter().collect()
         }
@@ -2208,6 +2221,19 @@ mod tests {
             assert_eq!(Evidence::<Test>::get(2u64, Suit::Commerce), 0); // culprit answers in full
             // sponsor SHIELDED: the vouch is within the probation window, so it is not cascaded
             assert_eq!(Evidence::<Test>::get(1u64, Suit::Commerce), 100);
+        });
+    }
+
+    #[test]
+    fn sybil_floor_a_bound_mask_without_evidence_never_sits() {
+        // Candidate 9: binding a node is free, so being bound is not enough to sit — some evidence is.
+        new_test_ext().execute_with(|| {
+            crate::VoteKeys::<Test>::insert(5u64, [5u8; 32]); // newborn mask with a node, no evidence
+            crate::VoteKeys::<Test>::insert(6u64, [6u8; 32]);
+            assert_ok!(Reputation::submit_evidence(RuntimeOrigin::root(), 6u64, Suit::Technical, 1));
+            let eligible = Reputation::eligible_bound();
+            assert!(!eligible.contains(&5u64), "bound, no evidence: not eligible");
+            assert!(eligible.contains(&6u64), "bound with evidence: eligible");
         });
     }
 

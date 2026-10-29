@@ -156,6 +156,9 @@ the state of the block's parent and refuses the block if the seal is not that le
 not come after the parent's, or if it claims a slot from the future. Until candidate 9 this rule was only
 honoured by the authors themselves; a modified binary could have sealed out of turn and reordered the
 unfinalised tip (never finality itself). Now it is enforced at import, the way Aura enforces its own rule.
+Running a node is free for anyone; sitting is not: only a node whose mask holds some evidence may lead a
+slot or sit in the committee, so a crowd of fresh masks with nodes weighs nothing even on the day no
+reputable member has a node of their own (the liveness floor's case).
 
 **Finality (voting by trust-weighted sampling).** To run on a phone and across the wide mesh, finality
 is reached by repeated sampling, in the manner of Avalanche. The own contribution: the sample is **not

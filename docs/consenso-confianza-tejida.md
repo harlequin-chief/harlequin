@@ -153,6 +153,9 @@ estado del bloque padre y lo rechaza si el sello no es de ese líder, si el turn
 padre o si reclama un turno del futuro. Hasta el candidato 9 esta regla solo la cumplían los propios
 autores; un binario modificado podía sellar fuera de turno y reordenar la punta sin finalizar (nunca la
 finalidad). Ahora se exige al importar, como hace Aura con la suya.
+Correr un nodo es libre para cualquiera; sentarse no: solo un nodo cuya máscara tenga alguna evidencia puede
+liderar un turno o sentarse en el comité, así que una multitud de máscaras recién nacidas con nodo no pesa nada,
+ni siquiera el día en que ningún miembro reputado tenga nodo propio (el caso del suelo de vivacidad).
 
 **La finalidad (voto por muestreo ponderado por confianza).** Para correr en el teléfono y en la malla
 amplia, la finalidad se alcanza por muestreo repetido, al modo de Avalanche. La aportación propia: la

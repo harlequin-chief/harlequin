@@ -30,7 +30,7 @@ use sp_runtime::{
     ConsensusEngineId, Digest, DigestItem,
 };
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc, Mutex,
@@ -99,17 +99,23 @@ pub fn slot_leader(client: &FullClient, at: H256, slot: u64) -> Leadership {
         Ok(v) => v,
         Err(_) => return Leadership::Nobody,
     };
+    let eligible: BTreeSet<[u8; 32]> = match api.eligible_bound(at) {
+        Ok(v) => v.into_iter().collect(),
+        Err(_) => return Leadership::Nobody,
+    };
     // 10-oct-2026: only accounts with a node bound (VoteKeys owners) may LEAD a slot — the same rule as the
     // finality committee. A reputable mask without a node won slots it could never fill (blocks went from
-    // ~12 s to ~40 s on the test chain).
+    // ~12 s to ~40 s on the test chain). Candidate 9: and only those with some evidence (Sybil floor).
     let session_of: BTreeMap<[u8; 32], [u8; 32]> = vote_keys.into_iter().collect();
     let had_reputation = !onchain.is_empty();
-    let mut onchain: Vec<([u8; 32], i128)> =
-        onchain.into_iter().filter(|(acc, _)| session_of.contains_key(acc)).collect();
-    if onchain.is_empty() && !session_of.is_empty() {
-        // LIVENESS FLOOR (11-oct-2026), the same rule as `elect_finality_committee`: bound nodes exist but none
-        // of their owners is reputable → they lead with EQUAL weight (skipping froze the test chain at #500).
-        onchain = session_of.keys().map(|acc| (*acc, 1i128)).collect();
+    let mut onchain: Vec<([u8; 32], i128)> = onchain
+        .into_iter()
+        .filter(|(acc, _)| eligible.contains(acc) && session_of.contains_key(acc))
+        .collect();
+    if onchain.is_empty() && !eligible.is_empty() {
+        // LIVENESS FLOOR (11-oct-2026), the same rule as `elect_finality_committee`: eligible bound nodes exist
+        // but none of their owners is reputable → they lead with EQUAL weight (skipping froze the test chain).
+        onchain = eligible.iter().filter(|a| session_of.contains_key(*a)).map(|acc| (*acc, 1i128)).collect();
     }
     if onchain.is_empty() {
         // Reputation but no bound node: nobody leads. Neither: a lone dev chain.

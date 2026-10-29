@@ -828,14 +828,11 @@ fn committee_for_height(client: &Arc<FullClient>, height: u32, at: Hash) -> BTre
     // 10-oct-2026: only masks WITH a bound node (VoteKeys owners) may sit — read at the SAME pinned block, so
     // node and pallet see the identical list. An API error is logged
     // and yields an EMPTY list → empty committee → the tick waits; never «everyone».
-    let bound: Vec<[u8; 32]> = client
-        .runtime_api()
-        .vote_keys(at)
-        .map(|v| v.into_iter().map(|(account, _hot)| account).collect())
-        .unwrap_or_else(|e| {
-            log::warn!(target: "woven-trust", "committee@{at:?}: vote_keys API error: {e:?} — no bound nodes (no finality this tick)");
-            Default::default()
-        });
+    // candidate 9: bound AND with some evidence (Sybil floor) — the same list the pallet seats.
+    let bound: Vec<[u8; 32]> = client.runtime_api().eligible_bound(at).unwrap_or_else(|e| {
+        log::warn!(target: "woven-trust", "committee@{at:?}: eligible_bound API error: {e:?} — no bound nodes (no finality this tick)");
+        Default::default()
+    });
     consensus_core::elect_finality_committee(
         &onchain,
         &bound,

@@ -686,8 +686,9 @@ impl pallet_participation::CommitteeInputs for CommitteeInputsAdapter {
         pallet_reputation::Pallet::<Runtime>::entrenchment_halted()
     }
     fn bound_accounts() -> Vec<[u8; 32]> {
-        // VoteKeys owners = masks with a node bound (10-oct-2026): the same list the node reads via `vote_keys`.
-        pallet_reputation::Pallet::<Runtime>::vote_keys().into_iter().map(|(acc, _hot)| acc.into()).collect()
+        // Masks with a node bound AND some evidence (candidate 9, Sybil floor): the same list the node reads via
+        // `eligible_bound`. A bound mask with no evidence at all never sits.
+        pallet_reputation::Pallet::<Runtime>::eligible_bound().into_iter().map(Into::into).collect()
     }
     fn vote_key_owner(hot: &[u8; 32]) -> Option<[u8; 32]> {
         // L1-04 (candidate 9): O(1) through the reverse index `VoteKeyOwner` (kept in lockstep with `VoteKeys`
@@ -1375,6 +1376,10 @@ impl_runtime_apis! {
 
         fn participation_cursor() -> u64 {
             pallet_participation::LastCreditedHeight::<Runtime>::get()
+        }
+
+        fn eligible_bound() -> Vec<[u8; 32]> {
+            pallet_reputation::Pallet::<Runtime>::eligible_bound().into_iter().map(Into::into).collect()
         }
 
         fn participation_open() -> (u64, Vec<u64>) {
