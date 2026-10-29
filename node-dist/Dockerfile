@@ -7,7 +7,8 @@
 # each release with:  curl the registry manifest and read docker-content-digest for trixie-slim.
 FROM debian:trixie-slim@sha256:020c0d20b9880058cbe785a9db107156c3c75c2ac944a6aa7ab59f2add76a7bd
 
-ARG BIN_URL=https://harlequinproject.org/dist/harlequin-node
+# RW-06 (29-oct-2026): the pins are constants INSIDE the RUN below, not build ARGs: an ARG let one command line swap
+# the URL and the hash together, so a substituted binary "passed" its own check. To re-pin, edit this file.
 # MUST agree with BIN_SHA_x86_64 in install-harlequin-node.sh. It did not, for six weeks: this line
 # still pinned the launch binary (fa79dda9, 18-jul) while the network moved to fb50ba6a and then to
 # c3172c55. A pin that is only a comment away from the installer's is not a pin, it is a second
@@ -15,15 +16,16 @@ ARG BIN_URL=https://harlequinproject.org/dist/harlequin-node
 # Re-pinned 2026-08-27 to the build running on all four nodes since 2026-08-03.
 # Re-pinned 2026-09-28 to launch candidate 5, the build of the rehearsal chain (genesis 0x95cff149).
 # Re-pinned 2026-10-08 to launch candidate 6, the build of rehearsal chain 2 (genesis 0xecdaa7d3).
-ARG BIN_SHA256=df4f2283dca937bd3ca83bc98285490b9f4d893037ad6ed4c385931d8d36a863
 
 # The chain spec is verified here too, not just mounted on trust. `docker build` alone must be enough
 # to prove BOTH halves of what the node runs; asking the operator to check the spec by hand elsewhere
 # is asking them to skip it.
-ARG CHAINSPEC_URL=https://harlequinproject.org/dist/mainnet-raw.json
-ARG CHAINSPEC_SHA256=d346ed19abb8592175d4b9e5f01958868e271bfd76b2a0fe1d956ee1b7806372
 
 RUN set -eux; \
+    BIN_URL=https://harlequinproject.org/dist/harlequin-node; \
+    BIN_SHA256=df4f2283dca937bd3ca83bc98285490b9f4d893037ad6ed4c385931d8d36a863; \
+    CHAINSPEC_URL=https://harlequinproject.org/dist/mainnet-raw.json; \
+    CHAINSPEC_SHA256=d346ed19abb8592175d4b9e5f01958868e271bfd76b2a0fe1d956ee1b7806372; \
     apt-get update; \
     apt-get install -y --no-install-recommends ca-certificates curl; \
     rm -rf /var/lib/apt/lists/*; \

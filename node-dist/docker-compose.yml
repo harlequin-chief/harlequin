@@ -30,6 +30,12 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    # RW-07 (29-oct-2026): bounded, so a node that grows (archive state, peer storms) cannot take its host down.
+    # A follower runs well in 2 GB; raise these on a big host, never remove them.
+    mem_limit: 3g
+    memswap_limit: 3g
+    cpus: 2.0
+    pids_limit: 512
 
 volumes:
   hlq-data:

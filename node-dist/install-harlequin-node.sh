@@ -486,6 +486,11 @@ EnvironmentFile=-/etc/harlequin/vote.env
 Restart=on-failure
 RestartSec=5
 LimitNOFILE=65536
+# RW-07 (29-oct-2026): bounded, so the node can never take its host down with it (the caches above keep it
+# well under this on the 1 GB machines the live validators run on; on a box that small, lower MemoryMax).
+MemoryMax=3G
+CPUQuota=200%
+TasksMax=512
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
@@ -568,16 +573,24 @@ HBT
   #            node running UNVERIFIED and demand a manual re-run — disabling here would be a
   #            self-inflicted DoS on slow boxes.
   ok "verifying weak-subjectivity checkpoint (block $CHECKPOINT_HEIGHT)…"
-  VC_RC=0; "$PREFIX/verify-checkpoint.sh" || VC_RC=$?
+  # RW-10 (29-oct-2026): a slow start is the usual reason for exit 2, so retry with backoff (~3 min) before
+  # concluding; and if it still cannot verify, do NOT say "Node up" — say UNVERIFIED and exit non-zero.
+  VC_RC=2; for w in 5 10 20 30 45 60; do
+    VC_RC=0; "$PREFIX/verify-checkpoint.sh" || VC_RC=$?
+    [ "$VC_RC" -eq 2 ] || break
+    sleep "$w"
+  done
   if [ "$VC_RC" -eq 1 ]; then
     systemctl stop "$SVC" || true
     systemctl disable "$SVC" >/dev/null 2>&1 || true
     die "checkpoint MISMATCH — node stopped and disabled (fail-closed).
     Re-check your network and the pinned values against >=2 independent sources, then re-run this installer."
   elif [ "$VC_RC" -ne 0 ]; then
-    echo "  ⚠ could not reach the node's local RPC — checkpoint NOT verified yet." >&2
-    echo "    The node keeps running, but do NOT trust it until this passes:" >&2
+    echo "  ⚠ could not reach the node's local RPC for ~3 min — checkpoint NOT verified." >&2
+    echo "    The node is running UNVERIFIED. Do NOT trust it until this passes:" >&2
     echo "        $PREFIX/verify-checkpoint.sh" >&2
+    echo "    (logs: journalctl -u ${SVC} -f)" >&2
+    exit 3
   fi
 
   echo "  ────────────────────────────────────────────"
@@ -651,7 +664,11 @@ NODE_PID=\$!
 echo "\$NODE_PID" > node.pid
 # exit 1 = checkpoint MISMATCH → kill the node (fail-closed). exit 2 = local RPC unreachable
 # (transient/slow hardware, e.g. a tablet) → keep the node running, demand a manual re-check.
-VC_RC=0; ./verify-checkpoint.sh || VC_RC=\$?
+VC_RC=2; for w in 5 10 20 30 45 60; do   # RW-10: retry a slow start before concluding
+  VC_RC=0; ./verify-checkpoint.sh || VC_RC=\$?
+  [ "\$VC_RC" -eq 2 ] || break
+  sleep "\$w"
+done
 if [ "\$VC_RC" -eq 1 ]; then
   kill "\$NODE_PID" 2>/dev/null || true
   rm -f node.pid
@@ -659,8 +676,9 @@ if [ "\$VC_RC" -eq 1 ]; then
   echo "    Re-check the pinned values against >=2 independent sources, then run ./run-node.sh again." >&2
   exit 1
 elif [ "\$VC_RC" -ne 0 ]; then
-  echo "  ⚠ could not reach the node's local RPC — checkpoint NOT verified yet." >&2
-  echo "    The node keeps running, but do NOT trust it until this passes:  ./verify-checkpoint.sh" >&2
+  echo "  ⚠ could not reach the node's local RPC for ~3 min — checkpoint NOT verified." >&2
+  echo "    The node (pid \$NODE_PID) is running UNVERIFIED. Do NOT trust it until this passes:  ./verify-checkpoint.sh" >&2
+  exit 3
 fi
 echo "  ✓ node running detached (pid \$NODE_PID). It survives closing this terminal."
 echo "    peek at it:   ./node-status.sh      follow live:  tail -f node.log      stop: ./stop-node.sh"
