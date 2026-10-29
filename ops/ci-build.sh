@@ -83,7 +83,7 @@ case "$MODE" in
     done
     cd "$TREE/node"
     set +e
-    ./build-arm.sh 2>&1 | tee "$OUT/build-arm.log"; r1=${PIPESTATUS[0]}
+    bash ./build-arm.sh 2>&1 | tee "$OUT/build-arm.log"; r1=${PIPESTATUS[0]}   # bash: the public tree carries it 644
     ./build-bindtool.sh 2>&1 | tee "$OUT/build-bindtool.log"; r2=${PIPESTATUS[0]}
     ./build-heartbeat.sh 2>&1 | tee "$OUT/build-heartbeat.log"; r3=${PIPESTATUS[0]}
     set -e
