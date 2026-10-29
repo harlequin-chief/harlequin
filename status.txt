@@ -1,0 +1,6 @@
+mode x86
+source-commit 6bd52d7d2ccfbd5ef1682c58deb37d07279552c6
+source-tree 2497aeeaef8c49487ab15b9d3ca5866023c0d7f3
+rc 0
+sha256 df4f2283dca937bd3ca83bc98285490b9f4d893037ad6ed4c385931d8d36a863  harlequin-node.dist
+sha256 0c00bcb5c9c803dcf3735310d408aff6c5c135b245cf9d0b84d6f5935fa71308  harlequin_runtime.compact.compressed.wasm
