@@ -150,6 +150,7 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
     consensus: Consensus,
     vote_as: Option<String>,
     seal_without_peers: bool,
+    sphinx: crate::sphinx_relay::Options,
 ) -> Result<TaskManager, ServiceError> {
     let sc_service::PartialComponents {
         client,
@@ -208,6 +209,16 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
         None
     };
 
+    // Corro M0: the messenger relay registers its protocol before the network starts (only with `--sphinx-relay`).
+    let sphinx_relay = if sphinx.enabled {
+        let key = crate::sphinx_relay::RelayKey::ephemeral();
+        let (cfg, inbound) = crate::sphinx_relay::protocol_config::<Network>();
+        net_config.add_request_response_protocol(cfg);
+        Some((key, inbound))
+    } else {
+        None
+    };
+
     // #30 (): the two doors a stranger can knock on — the p2p transaction protocol here and the
     // `author_*` RPC built by `spawn_tasks` below — see the pool through `GuardedPool`, which refuses bytes
     // that cannot be an extrinsic before the runtime traps on them. Everything internal (block authoring,
@@ -233,6 +244,9 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
     let gossip_network = network.clone();
     let gossip_sync = sync_service.clone();
     let proof_network = network.clone();
+    // Corro M0: handles the relay needs, taken before `network`/`sync_service` are moved into `spawn_tasks`.
+    let relay_network = network.clone();
+    let relay_sync = sync_service.clone();
     let proof_sync = sync_service.clone();
 
     if config.offchain_worker.enabled {
@@ -305,6 +319,14 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
             .and_then(|s| sp_core::sr25519::Pair::from_string(s, None).ok())
             .map(|p| p.public().0)
     };
+    // Corro M0: NOT essential — if the relay stops, the node keeps following and sealing the chain.
+    if let Some((key, inbound)) = sphinx_relay {
+        task_manager.spawn_handle().spawn(
+            "hlq-sphinx-relay",
+            None,
+            crate::sphinx_relay::run(key, relay_network, relay_sync, inbound, sphinx.probe_secs),
+        );
+    }
     // P-1/#838: keep the `--vote-as` KEYPAIR (not just the public) so the participation inherent can SIGN
     // each block's authorship proof (`author_message`). Cloned into each authoring path's inherent provider;
     // a keyless node signs nothing and the pallet credits it as nobody.
@@ -505,8 +527,14 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
                         .map(|(acc, _hot)| acc)
                         .collect();
                     let had_reputation = !onchain.is_empty();
-                    let onchain: Vec<([u8; 32], i128)> =
+                    let mut onchain: Vec<([u8; 32], i128)> =
                         onchain.into_iter().filter(|(acc, _)| bound.contains(acc)).collect();
+                    if onchain.is_empty() && !bound.is_empty() {
+                        // LIVENESS FLOOR (11-oct-2026), the same rule as `elect_finality_committee`: bound nodes
+                        // exist but none of their owners is reputable → they lead with EQUAL weight. Skipping here
+                        // froze the test chain at #500 for good: no block, so no testimony could ever fix it.
+                        onchain = bound.iter().map(|acc| (*acc, 1i128)).collect();
+                    }
                     if had_reputation && onchain.is_empty() {
                         // Reputation exists but no bound node is visible (or vote_keys failed): skip the slot.
                         // Falling through would take the lone-dev-node path below, where EVERY node authors.

@@ -133,6 +133,10 @@ pub fn run() -> sc_cli::Result<()> {
                 ),
                 (None, None) => None,
             };
+            let sphinx = crate::sphinx_relay::Options {
+                enabled: cli.sphinx_relay,
+                probe_secs: cli.sphinx_probe_secs,
+            };
             runner.run_node_until_exit(|config| async move {
                 match config.network.network_backend {
                     sc_network::config::NetworkBackendType::Libp2p => service::new_full::<
@@ -140,7 +144,7 @@ pub fn run() -> sc_cli::Result<()> {
                             harlequin_runtime::interface::OpaqueBlock,
                             <harlequin_runtime::interface::OpaqueBlock as sp_runtime::traits::Block>::Hash,
                         >,
-                    >(config, cli.consensus, vote_as.clone(), cli.seal_without_peers)
+                    >(config, cli.consensus, vote_as.clone(), cli.seal_without_peers, sphinx)
                     .map_err(sc_cli::Error::Service),
                     sc_network::config::NetworkBackendType::Litep2p =>
                         service::new_full::<sc_network::Litep2pNetworkBackend>(
@@ -148,6 +152,7 @@ pub fn run() -> sc_cli::Result<()> {
                             cli.consensus,
                             vote_as.clone(),
                             cli.seal_without_peers,
+                            sphinx,
                         )
                         .map_err(sc_cli::Error::Service),
                 }

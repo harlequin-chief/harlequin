@@ -240,8 +240,17 @@ pub fn elect_finality_committee(
     use alloc::format;
     let hex = crate::beacon::hex;
     let bound: alloc::collections::BTreeSet<[u8; 32]> = bound.iter().copied().collect();
-    let reputation: alloc::vec::Vec<([u8; 32], i128)> =
+    let mut reputation: alloc::vec::Vec<([u8; 32], i128)> =
         reputation.iter().filter(|(acc, _)| bound.contains(acc)).copied().collect();
+    // LIVENESS FLOOR (11-oct-2026). Bound nodes exist but NONE of their owners is reputable (their genesis
+    // reputation decayed, or verdicts took it): "reputable ∩ bound" is empty and, before this, the committee was
+    // empty FOREVER — no finality, and the author side skipped every slot, so no block could ever carry the
+    // testimony that would make anyone reputable again. The test chain froze at #500 this way (10-oct). Seat the
+    // bound nodes with EQUAL weight instead: still only nodes that are actually running (never «everyone»), and
+    // it only engages when the reputable society has no node at all. `halted` (entrenchment) still wins.
+    if reputation.is_empty() && !bound.is_empty() && !halted {
+        reputation = bound.iter().map(|acc| (*acc, 1i128)).collect();
+    }
     let reputation = &reputation[..];
     if halted || reputation.is_empty() {
         return alloc::collections::BTreeSet::new();
@@ -359,6 +368,28 @@ mod finality_committee_tests {
         let reputation = alloc::vec![(acc(1), 100i128), (acc(2), 100), (acc(3), 100), (acc(4), 100)];
         let got = elect_finality_committee(&reputation, &[], &[], &[0u8; 32], 3, 4, "hlq-finality-committee", false);
         assert!(got.is_empty(), "no bound node → no committee: {got:?}");
+    }
+
+    #[test]
+    fn liveness_floor_seats_the_bound_nodes_when_none_of_them_is_reputable() {
+        // 11-oct-2026 (test chain frozen at #500 for 31 h): reputation held ONLY by masks without a node, founders'
+        // reputation decayed out. Before: empty committee forever. Now the bound nodes sit, equal weight, and only them.
+        let reputation = alloc::vec![(acc(8), 205i128), (acc(9), 221), (acc(7), 178)]; // no node
+        let bound = alloc::vec![acc(1), acc(2), acc(3), acc(4), acc(5), acc(6)]; // nodes, no reputation
+        for epoch in 0..100u32 {
+            let got = elect_finality_committee(&reputation, &bound, &[], &[epoch as u8; 32], epoch, 4, "hlq-finality-committee", false);
+            assert!(!got.is_empty(), "epoch {epoch}: nodes are running, the committee must not starve");
+            assert!(got.iter().all(|m| bound.contains(m)), "epoch {epoch}: only bound nodes may sit: {got:?}");
+        }
+        // control: the entrenchment halt still wins over the floor
+        let got = elect_finality_committee(&reputation, &bound, &[], &[0u8; 32], 1, 4, "hlq-finality-committee", true);
+        assert!(got.is_empty(), "halted must stay empty: {got:?}");
+        // control: with ONE reputable bound node the floor does not engage — reputation decides as before
+        let mut rep2 = reputation.clone();
+        rep2.push((acc(1), 50));
+        let got = elect_finality_committee(&rep2, &bound, &[], &[0u8; 32], 1, 4, "hlq-finality-committee", false);
+        assert_eq!(got.len(), 1, "one reputable bound node → it alone sits: {got:?}");
+        assert!(got.contains(&acc(1)));
     }
 
     #[test]

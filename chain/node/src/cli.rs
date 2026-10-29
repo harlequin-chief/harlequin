@@ -84,6 +84,15 @@ pub struct Cli {
     #[clap(long)]
     pub seal_without_peers: bool,
 
+    /// Corro M0: carry onion packets for others on `/hlq/sphinx/1` (messenger relay). Off by default until the
+    /// test chain has passed it; no new port, no exit to the internet (see `sphinx_relay.rs`).
+    #[clap(long)]
+    pub sphinx_relay: bool,
+
+    /// Test chain only: every N seconds send a probe to ourselves through 3 random relays (needs `--sphinx-relay`).
+    #[clap(long, requires = "sphinx_relay", value_parser = clap::value_parser!(u64).range(1..))]
+    pub sphinx_probe_secs: Option<u64>,
+
     #[clap(flatten)]
     pub run: RunCmd,
 }

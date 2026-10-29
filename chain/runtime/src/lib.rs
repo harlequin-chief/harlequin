@@ -43,7 +43,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     // 3 = the open door (26-Jul-2026). An upgrade that doesn't bump this number is NOT an upgrade:
     // nodes can't tell it apart from the previous one and the startup coherence guard has nothing to
     // compare against. It's bumped HERE, in the candidate, never on the live chain.
-    spec_version: 5, // 10-oct-2026: votes v2 in participation, empty suit trusts nobody, committee/leaders need a bound node
+    spec_version: 6, // 11-oct-2026: liveness floor (bound nodes sit when none is reputable) + messenger relay in the node. 10-oct-2026 (spec 5): votes v2 in participation, empty suit trusts nobody, committee/leaders need a bound node
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
