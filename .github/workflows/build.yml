@@ -24,9 +24,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: [check, x86, test, rogue]
-        # the rogue (lab-only) build runs only on ci/lab* branches
-        exclude: ${{ fromJSON(startsWith(github.ref_name, 'ci/lab') && '[]' || '[{"mode":"rogue"}]') }}
+        mode: [check, x86, test, rogue, arm]
+        # the rogue (lab-only) and the aarch64 + tools builds run only on ci/lab* branches
+        exclude: ${{ fromJSON(startsWith(github.ref_name, 'ci/lab') && '[]' || '[{"mode":"rogue"},{"mode":"arm"}]') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 340
     permissions:
@@ -76,6 +76,7 @@ jobs:
           done
           if [ -f harlequin-node.dist ]; then zstd -q -19 --rm harlequin-node.dist; fi
           if [ -f harlequin-node-LAB-rogue-author ]; then zstd -q -19 --rm harlequin-node-LAB-rogue-author; fi
+          if [ -f harlequin-node-arm64.dist ]; then zstd -q -19 --rm harlequin-node-arm64.dist; fi
           {
             echo "mode $MODE"
             echo "source-commit $src_commit"

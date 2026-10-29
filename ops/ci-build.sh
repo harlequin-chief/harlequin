@@ -75,6 +75,25 @@ case "$MODE" in
       | tee "$OUT/paths.txt"
     cat "$OUT/SHA256SUMS"
     ;;
+  arm)
+    # the aarch64 node (cross-built, same reproducibility rules) and the two small /dist tools for both arches
+    apt-get install -y -qq --no-install-recommends gcc-aarch64-linux-gnu g++-aarch64-linux-gnu binutils-aarch64-linux-gnu >/dev/null
+    for tc in $(sed -n 's/^channel *= *"\(.*\)"/\1/p' "$TREE"/*/rust-toolchain.toml | sort -u); do
+      rustup -q target add --toolchain "$tc" aarch64-unknown-linux-gnu
+    done
+    cd "$TREE/node"
+    set +e
+    ./build-arm.sh 2>&1 | tee "$OUT/build-arm.log"; r1=${PIPESTATUS[0]}
+    ./build-bindtool.sh 2>&1 | tee "$OUT/build-bindtool.log"; r2=${PIPESTATUS[0]}
+    ./build-heartbeat.sh 2>&1 | tee "$OUT/build-heartbeat.log"; r3=${PIPESTATUS[0]}
+    set -e
+    echo "arm=$r1 bindtool=$r2 heartbeat=$r3" | tee "$OUT/arm-rc.txt"
+    cp target/aarch64-unknown-linux-gnu/release/harlequin-node.dist "$OUT/harlequin-node-arm64.dist" 2>/dev/null || true
+    cp target/dist/* "$OUT/" 2>/dev/null || true
+    ( cd "$OUT" && sha256sum harlequin-node-arm64.dist bind-tool-* heartbeat-* 2>/dev/null > SHA256SUMS )
+    cat "$OUT/SHA256SUMS"
+    [ "$r1$r2$r3" = 000 ]
+    ;;
   rogue)
     # LAB ONLY: the node with `rogue-author` (seals every slot) to prove that peers refuse out-of-turn blocks.
     # Not a release artifact: it is named so, and the reproducibility rules do not apply to it.
