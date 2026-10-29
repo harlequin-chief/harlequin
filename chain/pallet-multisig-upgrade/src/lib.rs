@@ -480,8 +480,17 @@ pub mod pallet {
         /// Apply the approved upgrade: anyone may execute once (i) 3-of-5 approved, (ii) the objection
         /// window elapsed, (iii) the blob hashes to the announced hash, (iv) the key is alive. The
         /// dispatch itself re-checks spec_name/version-bump on the blob (frame_system's own guards).
+        ///
+        /// Weight (MSU-ALTA-1, candidate 9): in proportion to the blob — hashing and installing a runtime costs by
+        /// its size, and a fixed 1 000 000 declared almost nothing for it. 1 ms base + 100 ns per byte (≈ 0.26 s
+        /// for today's 2.6 MB runtime, a generous bound for blake2 plus the version check) and its bytes as proof
+        /// size. NOT a whole block: that would exceed the per-extrinsic limit and make every upgrade impossible
+        /// (why `set_code` used to need `sudo_unchecked_weight`). Fees are length-led anyway (the blob pays its bytes).
         #[pallet::call_index(3)]
-        #[pallet::weight(Weight::from_parts(1_000_000, 0))]
+        #[pallet::weight(Weight::from_parts(
+            1_000_000_000u64.saturating_add(100_000u64.saturating_mul(code.len() as u64)),
+            code.len() as u64,
+        ))]
         pub fn apply_upgrade(origin: OriginFor<T>, code: Vec<u8>) -> DispatchResult {
             ensure_signed(origin)?;
             Self::ensure_alive()?;
