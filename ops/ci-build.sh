@@ -93,7 +93,13 @@ case "$MODE" in
     for d in "$TREE"/pallet-*/ "$TREE"/runtime/; do
       [ -f "$d/Cargo.toml" ] || continue
       echo "=== $(basename "$d")" | tee -a "$OUT/test.log"
-      ( cd "$d" && cargo test 2>&1 ) | tee -a "$OUT/test.log"
+      # the runtime builds its own wasm: with a target dir outside its tree the wasm builder links sp_io twice
+      # (E0152), so it keeps its own; the pallets share one
+      if [ "$(basename "$d")" = runtime ]; then
+        ( cd "$d" && env -u CARGO_TARGET_DIR cargo test 2>&1 ) | tee -a "$OUT/test.log"
+      else
+        ( cd "$d" && cargo test 2>&1 ) | tee -a "$OUT/test.log"
+      fi
       [ "${PIPESTATUS[0]}" = 0 ] || { rc=1; echo "FAILED: $(basename "$d")" | tee -a "$OUT/test.log"; }
     done
     # the node's own unit tests (authorship seal, finality proofs, participation record). Its target dir stays
