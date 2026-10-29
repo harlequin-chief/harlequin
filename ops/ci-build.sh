@@ -32,7 +32,8 @@ for t in cargo rustc rustdoc; do ln -sf "$(command -v rustup)" "$CARGO_HOME/bin/
 NODE_TC=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' "$TREE/node/rust-toolchain.toml")
 # every channel some workspace pins (node and runtime pin their own), each with the wasm target
 for tc in $(sed -n 's/^channel *= *"\(.*\)"/\1/p' "$TREE"/*/rust-toolchain.toml | sort -u); do
-  rustup -q toolchain install --profile minimal "$tc" --target wasm32v1-none
+  # rust-src: a polkavm test fixture in the dependency tree builds core/alloc from source (-Z build-std)
+  rustup -q toolchain install --profile minimal "$tc" --target wasm32v1-none --component rust-src
 done
 rustup default "$NODE_TC" >/dev/null   # for the workspaces that pin nothing (the lean cores)
 { echo "debian: $(cat /etc/debian_version)"; rustc +"$NODE_TC" -V; cargo +"$NODE_TC" -V
