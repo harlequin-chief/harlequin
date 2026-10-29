@@ -1,6 +1,8 @@
 //! Harlequin node — the service that runs the chain.
 #![warn(missing_docs)]
 
+// L6-01 (candidate 9): the slot-leader rule shared by author and import verifier, and the authorship seal.
+mod authorship;
 mod chain_spec;
 mod cli;
 mod command;

@@ -305,6 +305,12 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
     // Drive the Woven-Trust finality gadget: the committee runs the Snowball vote over the candidate
     // blocks and finalises by quorum (replacing the trivial finality of the authoring loop). Two
     // essential tasks: the worker (votes + finalises) and the gossip-engine driver.
+    // L6-01: the import verifier refuses blocks claiming a slot ahead of this node's clock; it needs the
+    // network's slot length (followers run the mainnet default).
+    match &consensus {
+        Consensus::WovenTrust(t) | Consensus::WovenTrustVoteOnly(t) => crate::authorship::set_slot_ms(*t),
+        _ => {},
+    }
     let finality_block_time = match &consensus {
         Consensus::WovenTrust(t) | Consensus::WovenTrustVoteOnly(t) => Some(*t),
         _ => None,
@@ -475,18 +481,15 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
             let api_client = client.clone();
             // Step 2 — sortition off REAL on-chain reputation. Each slot the node reads the chain's
             // consensus reputation (`HarlequinConsensusApi`) and runs the reputation-weighted sortition;
-            // it authors only when the sortition elects a committee for the slot. On a fresh chain with
-            // no reputation yet it falls back to a lone dev identity so the devnet still produces blocks.
-            // The per-author identity check (session keys) and the Snowball finality gadget are next.
+            // it authors only when it is the slot's single leader. On a fresh chain with no reputation and
+            // no bound node it falls back to a lone dev identity so a `--dev` chain still produces blocks.
+            // Every block carries its slot claim and the leader's seal (`authorship.rs`, L6-01).
+            let pending_claim: crate::authorship::PendingClaim = Default::default();
+            let slot_claims = crate::authorship::SlotClaims {
+                pending: pending_claim.clone(),
+                pair: my_vote_pair.clone(),
+            };
             task_manager.spawn_handle().spawn("woven-trust-authoring", None, async move {
-                use std::collections::BTreeMap;
-                let station = String::from("station");
-                // Authoring committee size (sortition τ). Production τ=60 (`PARAMETERS.md` ♠, = 3·k);
-                // small on testnet. Selected by the `mainnet` feature (#30).
-                #[cfg(feature = "mainnet")]
-                let tau: u32 = 60;
-                #[cfg(not(feature = "mainnet"))]
-                let tau: u32 = 3;
                 // This node's vote identity (computed once above), used to elect a single slot leader
                 // so exactly ONE node authors per slot. A node with no vote key never leads (and so
                 // never authors on a live chain) — it only follows.
@@ -499,120 +502,21 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
                     // time, so the single leader (below) is globally agreed and exactly ONE block is
                     // produced per `block_time`. A per-node counter would let offset nodes each march
                     // their own slot stream and author in parallel — defeating single-leader + re-forking.
-                    let slot = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.as_millis() as u64)
-                        .unwrap_or(0)
-                        / block_time.max(1);
+                    let slot = crate::authorship::current_slot(block_time);
                     if slot == last_slot {
                         continue; // this slot already handled (poll/clock jitter) — never author it twice
                     }
                     last_slot = slot;
 
-                    // Read the chain's consensus reputation at the current best block.
+                    // Who leads this slot, from the state at the current best block. ONE rule, shared with the
+                    // import verifier (`authorship::slot_leader`, L6-01): since candidate 9 a block sealed out of
+                    // turn is rejected by every peer, so this is no longer a courtesy among our own binaries.
+                    //   Liveness: the seed rotates every slot, so the leader rotates; a down leader only skips ITS
+                    //   slots. Safety: the leader is a deterministic function of agreed state only.
                     let at = api_client.info().best_hash;
-                    let onchain = api_client
-                        .runtime_api()
-                        .consensus_reputation(at)
-                        .unwrap_or_default();
-                    // 10-oct-2026: only accounts with a node bound (VoteKeys owners) may LEAD a slot — the same
-                    // rule as the finality committee. A reputable mask without a node won slots it could never
-                    // fill: on the test chain three such masks stretched blocks from ~12 s to ~40 s. Authoring is
-                    // not checked on import, so this is a local, author-side rule all upgraded nodes share.
-                    let bound: std::collections::BTreeSet<[u8; 32]> = api_client
-                        .runtime_api()
-                        .vote_keys(at)
-                        .unwrap_or_default()
-                        .into_iter()
-                        .map(|(acc, _hot)| acc)
-                        .collect();
-                    let had_reputation = !onchain.is_empty();
-                    let mut onchain: Vec<([u8; 32], i128)> =
-                        onchain.into_iter().filter(|(acc, _)| bound.contains(acc)).collect();
-                    if onchain.is_empty() && !bound.is_empty() {
-                        // LIVENESS FLOOR (11-oct-2026), the same rule as `elect_finality_committee`: bound nodes
-                        // exist but none of their owners is reputable → they lead with EQUAL weight. Skipping here
-                        // froze the test chain at #500 for good: no block, so no testimony could ever fix it.
-                        onchain = bound.iter().map(|acc| (*acc, 1i128)).collect();
-                    }
-                    if had_reputation && onchain.is_empty() {
-                        // Reputation exists but no bound node is visible (or vote_keys failed): skip the slot.
-                        // Falling through would take the lone-dev-node path below, where EVERY node authors.
-                        continue;
-                    }
-
-                    let mut reputation: BTreeMap<String, i128> = BTreeMap::new();
-                    let mut keys: BTreeMap<String, String> = BTreeMap::new();
-                    let using_chain = !onchain.is_empty();
-                    let seed;
-                    if using_chain {
-                        // §2.1 anti-grinding: once the commit–reveal beacon is populated, draw off it —
-                        // candidate key = its committed secret (not `sk-{id}`), seed = beacon ⊕ slot (the
-                        // slot keeps per-slot rotation; the beacon anchor makes it un-grindable). Before the
-                        // pipeline fills (genesis/bootstrap) fall back to the reputation-only draw (no halt).
-                        let committed = api_client
-                            .runtime_api()
-                            .beacon_committed_keys(at)
-                            .unwrap_or_default();
-                        if committed.is_empty() {
-                            for (acc, rep) in &onchain {
-                                let id = hex32(acc);
-                                keys.insert(id.clone(), format!("sk-{id}"));
-                                reputation.insert(id, *rep);
-                            }
-                            seed = format!("slot{slot}");
-                        } else {
-                            let kmap: BTreeMap<[u8; 32], String> = committed.into_iter().collect();
-                            for (acc, rep) in &onchain {
-                                if let Some(k) = kmap.get(acc) {
-                                    let id = hex32(acc);
-                                    keys.insert(id.clone(), k.clone());
-                                    reputation.insert(id, *rep);
-                                }
-                            }
-                            let beacon =
-                                api_client.runtime_api().beacon_seed(at).unwrap_or_default();
-                            seed = format!("{}-slot{slot}", consensus_core::beacon::hex(&beacon));
-                        }
-                    } else {
-                        // Bootstrap fallback: a lone dev node so a fresh `--dev` chain still seals.
-                        reputation.insert(station.clone(), 1_000_000_000);
-                        keys.insert(station.clone(), String::from("sk-station-dev"));
-                        seed = format!("slot{slot}");
-                    }
-
-                    let committee =
-                        consensus_core::elect_committee_fp(&reputation, &keys, &seed, tau);
-                    // SINGLE LEADER per slot. Of the elected committee, the member minimising
-                    // `H(seed | id)` is the slot leader and the ONLY one that authors. Every node derives
-                    // the same committee + leader from the AGREED seed (beacon ⊕ slot, or `slot{n}` before
-                    // the beacon fills), so exactly one block is produced per slot — no per-slot forks.
-                    //   Liveness: the seed rotates every slot, so the leader rotates; a down leader only
-                    //   skips ITS slots and the chain produces on every slot whose leader is up. No single
-                    //   node owns all slots, so offline nodes cannot freeze production. (Finality then
-                    //   tolerates up to ⌊(1-0.70)·k⌋ faults via the alpha quorum: at k=5, alpha=4 → 1 down
-                    //   still finalises, 2 down pauses finality safely and resumes when a node returns.)
-                    //   Safety: the leader is a deterministic function of agreed state only, identical on
-                    //   every node — no ambiguity over who authors.
-                    let elected = if using_chain {
-                        let leader = committee
-                            .keys()
-                            .min_by_key(|id| sp_core::blake2_256(format!("{seed}|{id}").as_bytes()));
-                        // This node's committee identity: a session key delegates for a founder account
-                        // (genesis voteKeys); fall back to the raw key if there is no delegation.
-                        let my_id = my_pub.map(|pk| {
-                            let rev = api_client.runtime_api().vote_keys(at).unwrap_or_default();
-                            rev.into_iter()
-                                .find(|(_, sess)| *sess == pk)
-                                .map(|(acc, _)| hex32(&acc))
-                                .unwrap_or_else(|| hex32(&pk))
-                        });
-                        match (leader, my_id.as_deref()) {
-                            (Some(l), Some(me)) => l.as_str() == me,
-                            _ => false,
-                        }
-                    } else {
-                        committee.contains_key(&station)
+                    let elected = match crate::authorship::slot_leader(&api_client, at, slot) {
+                        crate::authorship::Leadership::LoneDev => true,
+                        leadership => leadership.is_me(my_pub),
                     };
                     if !elected {
                         continue; // not elected this slot -> do not author
@@ -646,12 +550,17 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
                             skipping_isolated = false;
                         }
                     }
+                    // The claim the digest provider turns into the slot digest + seal. Built on `at`, the very
+                    // parent the election read: if the tip moved meanwhile, the provider refuses (no wrong block).
+                    if let Ok(mut c) = pending_claim.lock() {
+                        *c = Some((at, slot));
+                    }
                     if let Err(e) =
                         sink.try_send(sc_consensus_manual_seal::EngineCommand::SealNewBlock {
                             create_empty: true,
                             // Finality is owned by the Woven-Trust gadget now, not the authoring loop.
                             finalize: false,
-                            parent_hash: None,
+                            parent_hash: Some(at),
                             sender: None,
                         })
                     {
@@ -671,7 +580,7 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
                 pool: transaction_pool,
                 select_chain,
                 commands_stream: Box::pin(commands_stream),
-                consensus_data_provider: None,
+                consensus_data_provider: Some(Box::new(slot_claims)),
                 create_inherent_data_providers: move |parent, ()| {
                     let client = inherent_client.clone();
                     let vote_pair = inherent_vote_pair.clone();

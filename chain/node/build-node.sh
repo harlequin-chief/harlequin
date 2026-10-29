@@ -11,8 +11,10 @@
 #   the founder committee decays to 0 in ~5 epochs → finality halts. PRODUCTION builds MUST pass
 #   `--mainnet`. The default stays testnet (fast validation), but prints a loud warning so a testnet
 #   binary is never shipped to production by accident.
-#     ./build-node.sh            → TESTNET build (dev/validation)  [warns]
+#     ./build-node.sh --testnet  → TESTNET build (dev/validation)  [warns]
 #     ./build-node.sh --mainnet  → MAINNET build (production)
+#   With NO argument it refuses (L6-05, candidate 9): a forgotten flag used to give a testnet binary silently,
+#   which is the 2026-06-30 halt waiting to happen again. The mode is always said out loud.
 set -uo pipefail
 export LIBCLANG_PATH="${LIBCLANG_PATH:-/usr/lib/x86_64-linux-gnu}"
 export LLVM_CONFIG_PATH="${LLVM_CONFIG_PATH:-/usr/bin/llvm-config}"
@@ -20,7 +22,7 @@ export PROTOC="${PROTOC:-/usr/bin/protoc}"
 cd "$(dirname "$0")" || exit 1
 
 FEATURES=()
-MODE="TESTNET"
+MODE=""
 for arg in "$@"; do
   case "$arg" in
     --mainnet) FEATURES=(--features mainnet); MODE="MAINNET";;
@@ -28,6 +30,7 @@ for arg in "$@"; do
     *) echo "build-node.sh: unknown arg '$arg' (use --mainnet | --testnet)" >&2; exit 2;;
   esac
 done
+[ -n "$MODE" ] || { echo "build-node.sh: say which network: --mainnet (production) or --testnet (dev)" >&2; exit 2; }
 
 
 # --- REMAPPED PATHS (2026-09-07) ----------------------------------------------------------------

@@ -13,7 +13,9 @@
 use crate::service::FullClient;
 use harlequin_consensus_api::HarlequinConsensusApi;
 use harlequin_runtime::interface::OpaqueBlock as Block;
-use pallet_participation::{author_message, ParticipationRecord, SignedVote, INHERENT_IDENTIFIER};
+use pallet_participation::{
+    author_message, ParticipationRecord, SignedVote, INHERENT_IDENTIFIER, MAX_VOTES_CHECKED_PER_RECORD,
+};
 use polkadot_sdk::{sc_client_api::BlockBackend, sp_blockchain::HeaderBackend};
 use sp_api::ProvideRuntimeApi;
 use sp_core::{sr25519, Pair};
@@ -90,6 +92,12 @@ pub fn provider_for(
     let to = finalized.min(cursor.saturating_add(MAX_HEIGHTS_PER_RECORD));
     for height in from..=to {
         if let Some(votes) = votes_for_height(client, height) {
+            // Whole heights only, within the pallet's signature cap: since candidate 9 (L7-01) a height is
+            // credited only with its full certificate, so a height cut in half would be carried for nothing.
+            // What does not fit goes in the next block (the on-chain cursor stops at the last credited one).
+            if finality_votes.len() + votes.len() > MAX_VOTES_CHECKED_PER_RECORD as usize {
+                break;
+            }
             finality_votes.extend(votes);
         }
     }

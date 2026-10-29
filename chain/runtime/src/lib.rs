@@ -43,7 +43,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     // 3 = the open door (26-Jul-2026). An upgrade that doesn't bump this number is NOT an upgrade:
     // nodes can't tell it apart from the previous one and the startup coherence guard has nothing to
     // compare against. It's bumped HERE, in the candidate, never on the live chain.
-    spec_version: 6, // 11-oct-2026: liveness floor (bound nodes sit when none is reputable) + messenger relay in the node. 10-oct-2026 (spec 5): votes v2 in participation, empty suit trusts nobody, committee/leaders need a bound node
+    spec_version: 7, // 29-oct-2026 (candidate 9): finality credit needs a certificate on a canonical block (L7-01), O(1) vote-key owner + bounded record reads (L1-04). 11-oct-2026 (spec 6): liveness floor (bound nodes sit when none is reputable) + messenger relay in the node. 10-oct-2026 (spec 5): votes v2 in participation, empty suit trusts nobody, committee/leaders need a bound node
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -690,11 +690,9 @@ impl pallet_participation::CommitteeInputs for CommitteeInputsAdapter {
         pallet_reputation::Pallet::<Runtime>::vote_keys().into_iter().map(|(acc, _hot)| acc.into()).collect()
     }
     fn vote_key_owner(hot: &[u8; 32]) -> Option<[u8; 32]> {
-        // Reverse lookup over the (small: delegating members only) VoteKeys map: account → hot key.
-        pallet_reputation::Pallet::<Runtime>::vote_keys()
-            .into_iter()
-            .find(|(_, session)| session == hot)
-            .map(|(account, _)| account.into())
+        // L1-04 (candidate 9): O(1) through the reverse index `VoteKeyOwner` (kept in lockstep with `VoteKeys`
+        // on every bind/clear, #837) instead of collecting the whole VoteKeys map once per carried vote.
+        pallet_reputation::VoteKeyOwner::<Runtime>::get(*hot).map(Into::into)
     }
 }
 

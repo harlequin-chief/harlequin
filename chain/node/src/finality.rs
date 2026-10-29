@@ -434,6 +434,10 @@ async fn run_worker(
     // and vote-key delegation are decoded from runtime-API bytes; a spec-skewed decode is exactly the
     // 2/4 wedge, so a skewed node must not vote or finalise. Used only to throttle the log.
     let mut spec_skew_ticks: u32 = 0;
+    // An empty committee used to be a MUTE `continue`: on 20-25 oct 2026 the rehearsal chain sat five days
+    // without finality and no log said why (the founders' reputation had decayed to 0). One WARN when an
+    // episode starts, one INFO when it ends — never one per tick.
+    let mut empty_committee_since: Option<u32> = None;
     let expected_spec: u32 = harlequin_runtime::VERSION.spec_version;
 
     let mut timer = futures_timer::Delay::new(std::time::Duration::from_millis(round_ms)).fuse();
@@ -533,6 +537,23 @@ async fn run_worker(
                 // guarantees the tally AND the emitted proof only ever contain in-committee votes.
                 votes.retain(|acc, _| committee.contains(acc));
                 let mut committee_size = committee.len() as u32;
+                match (committee_size, empty_committee_since) {
+                    (0, None) => {
+                        use harlequin_consensus_api::HarlequinConsensusApi;
+                        let reputable = client.runtime_api().consensus_reputation(at).map(|r| r.len()).unwrap_or(0);
+                        let bound = vote_keys_rev.len();
+                        log::warn!(
+                            target: "woven-trust",
+                            "⏳ committee EMPTY at #{height} (reputable accounts {reputable}, bound nodes {bound}) — finality waits until a committee exists (logged once per episode)"
+                        );
+                        empty_committee_since = Some(height);
+                    },
+                    (n, Some(since)) if n > 0 => {
+                        log::info!(target: "woven-trust", "▶ committee back at #{height} ({n} members) after an empty episode from #{since}");
+                        empty_committee_since = None;
+                    },
+                    _ => {},
+                }
                 if committee_size == 0 {
                     // #918 self-heal (direction b): distinguish an ENTRENCHMENT halt
                     // (recoverable by SKIPPING the frozen band) from an ordinary empty committee
@@ -883,13 +904,19 @@ fn resolve_voter(signer: &[u8; 32], rev: &BTreeMap<[u8; 32], [u8; 32]>) -> [u8; 
 const PROOF_HEADER: usize = 8 + 32 + 2;
 /// One signed vote inside the proof: sr25519 public key (account) + signature.
 const PROOF_VOTE: usize = 32 + 64;
+/// Wire bound on the records of a proof (L2-01/L2-02, candidate 9). A proof carries at most one record per
+/// committee member, and the finality committee is far below this; anything larger is not a proof we could
+/// have produced, so it is refused before any signature is checked and never stored or re-gossiped.
+const MAX_PROOF_VOTES: usize = 256;
+/// Largest well-formed proof, and the frame limit of the proof protocol (was 1 MiB).
+const MAX_PROOF_LEN: usize = PROOF_HEADER + MAX_PROOF_VOTES * PROOF_VOTE;
 
 /// Encode the finality proof for a decided `(height, hash)`: every retained committee vote whose hash
 /// matches the decision, as `signer||sig`. The verifier rebuilds `height||hash` and checks each signature.
 fn encode_proof(height: u64, hash: &[u8; 32], votes: &BTreeMap<[u8; 32], Vote>) -> Vec<u8> {
     let selected: Vec<&Vote> =
         votes.values().filter(|v| v.height == height && &v.hash == hash).collect();
-    let count = selected.len().min(u16::MAX as usize);
+    let count = selected.len().min(MAX_PROOF_VOTES);
     let mut b = Vec::with_capacity(PROOF_HEADER + count * PROOF_VOTE);
     b.extend_from_slice(&height.to_le_bytes());
     b.extend_from_slice(hash);
@@ -939,6 +966,11 @@ fn verify_proof(
     if k == 0 {
         return Err("empty committee");
     }
+    // L2-01: one record per member at most. Without this a 1 MiB proof of ~11 000 records made every node
+    // run ~11 000 sr25519 verifications for nothing.
+    if count > committee.len() || count > MAX_PROOF_VOTES {
+        return Err("more proof records than committee members");
+    }
     // ceil(0.70·k), floored at a strict majority — identical to the worker's `alpha`.
     let alpha = (((k * 7) + 9) / 10).max((k / 2) + 1);
 
@@ -958,8 +990,8 @@ fn verify_proof(
         // committee account (identical resolution to the worker's tally — same on every node) and
         // count only valid signatures from distinct elected committee members.
         let account = resolve_voter(&signer, vote_keys_rev);
-        if !committee.contains(&account) {
-            continue;
+        if !committee.contains(&account) || seen.contains(&account) {
+            continue; // not a member, or already counted: no signature check spent on it
         }
         // The signature is verified against the SIGNER (the session pubkey that made it), while
         // membership and the distinct-member count are keyed by the resolved account.
@@ -1153,9 +1185,13 @@ impl JustificationImport<Block> for WovenTrustJustificationImport {
     }
 }
 
-/// Import-queue verifier: like manual-seal's, it does NOT auto-finalise on import and picks the longest
-/// chain. Finality is owned by the gadget and gated by justification verification, never by this verifier.
-struct WovenTrustImportVerifier;
+/// Import-queue verifier: it does NOT auto-finalise on import and picks the longest chain (finality is owned
+/// by the gadget and gated by justification verification). Since candidate 9 (L6-01) it also checks WHO
+/// sealed the block: the slot claim and the seal must match the leader elected from the parent's state
+/// (`authorship::check_header`); until then any binary could seal out of turn and re-organise the tip.
+struct WovenTrustImportVerifier {
+    client: Arc<FullClient>,
+}
 
 #[async_trait::async_trait]
 impl Verifier<Block> for WovenTrustImportVerifier {
@@ -1163,6 +1199,7 @@ impl Verifier<Block> for WovenTrustImportVerifier {
         &self,
         mut block: BlockImportParams<Block>,
     ) -> Result<BlockImportParams<Block>, String> {
+        crate::authorship::check_header(&self.client, &mut block)?;
         block.finalized = false;
         block.fork_choice = Some(ForkChoiceStrategy::LongestChain);
         Ok(block)
@@ -1180,9 +1217,9 @@ pub fn build_import_queue(
     let block_import: BoxBlockImport<Block> =
         Box::new(WovenTrustBlockImport::new(client.clone(), client.clone()));
     let justification_import: BoxJustificationImport<Block> =
-        Box::new(WovenTrustJustificationImport::new(client));
+        Box::new(WovenTrustJustificationImport::new(client.clone()));
     BasicQueue::new(
-        WovenTrustImportVerifier,
+        WovenTrustImportVerifier { client },
         block_import,
         Some(justification_import),
         spawner,
@@ -1210,8 +1247,14 @@ fn proof_topic() -> Hash {
 }
 
 /// Read `(height, hash)` from a proof's header without verifying it (cheap pre-filter).
+/// L2-02: the layout is checked too (length = header + count records, count within the wire bound), so a
+/// malformed blob is discarded at the door instead of being stored and re-gossiped to every peer.
 fn proof_header(proof: &[u8]) -> Option<(u64, [u8; 32])> {
-    if proof.len() < PROOF_HEADER {
+    if proof.len() < PROOF_HEADER || proof.len() > MAX_PROOF_LEN {
+        return None;
+    }
+    let count = u16::from_le_bytes([proof[40], proof[41]]) as usize;
+    if count > MAX_PROOF_VOTES || proof.len() != PROOF_HEADER + count * PROOF_VOTE {
         return None;
     }
     let mut h = [0u8; 8];
@@ -1282,7 +1325,7 @@ pub fn proof_protocol_config<N: NetworkBackend<Block, Hash>>(
     N::notification_config(
         PROOF_PROTOCOL_NAME.into(),
         Vec::new(),
-        1024 * 1024,
+        MAX_PROOF_LEN as u64,
         None,
         sc_network::config::SetConfig {
             in_peers: 25,
@@ -1700,5 +1743,46 @@ mod tests {
             "session keys with no genesis delegation cannot move finality"
         );
     }
-}
 
+    /// L2-01: a proof with more records than committee members is refused before any signature is checked;
+    /// one record per member, exactly at the committee size, still verifies.
+    #[test]
+    fn proof_with_more_records_than_members_is_refused() {
+        let (pairs, committee) = founders(6);
+        let hash = [5u8; 32];
+        let all: Vec<Vote> = pairs.iter().map(|p| vote(p, 3, hash)).collect();
+        let good = encode_proof(3, &hash, &votes_map(all.clone()));
+        assert!(verify_proof(&TG, &hash, 3, &good, &committee, &BTreeMap::new()).is_ok(), "6 of 6 is sound");
+        // seven records (one member repeated): rewrite the count and append the duplicate record
+        let mut bad = good.clone();
+        bad[40..42].copy_from_slice(&7u16.to_le_bytes());
+        bad.extend_from_slice(&all[0].signer);
+        bad.extend_from_slice(&all[0].sig);
+        assert_eq!(
+            verify_proof(&TG, &hash, 3, &bad, &committee, &BTreeMap::new()),
+            Err("more proof records than committee members")
+        );
+    }
+
+    /// L2-02: the gossip pre-filter reads the header only from a well-formed proof: extra or missing bytes,
+    /// an excessive count, or a blob over the frame limit are discarded at the door.
+    #[test]
+    fn proof_header_rejects_malformed_layouts() {
+        let (pairs, _) = founders(3);
+        let hash = [6u8; 32];
+        let proof = encode_proof(9, &hash, &votes_map(pairs.iter().map(|p| vote(p, 9, hash)).collect()));
+        assert_eq!(proof_header(&proof), Some((9, hash)), "a canonical proof passes");
+        let mut extra = proof.clone();
+        extra.push(0);
+        assert_eq!(proof_header(&extra), None, "trailing bytes");
+        assert_eq!(proof_header(&proof[..proof.len() - 1]), None, "truncated record");
+        let mut big = proof.clone();
+        big[40..42].copy_from_slice(&((MAX_PROOF_VOTES + 1) as u16).to_le_bytes());
+        big.resize(PROOF_HEADER + (MAX_PROOF_VOTES + 1) * PROOF_VOTE, 0);
+        assert_eq!(proof_header(&big), None, "count over the wire bound");
+        assert_eq!(proof_header(&vec![0u8; MAX_PROOF_LEN + 1]), None, "over the frame limit");
+        let mut empty = vec![0u8; PROOF_HEADER];
+        empty[0..8].copy_from_slice(&9u64.to_le_bytes());
+        assert_eq!(proof_header(&empty), Some((9, [0u8; 32])), "a header with zero records is well-formed");
+    }
+}

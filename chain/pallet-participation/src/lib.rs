@@ -55,6 +55,11 @@ pub const INHERENT_IDENTIFIER: [u8; 8] = *b"hlqpartp";
 /// magnitude below this.
 pub const MAX_VOTES_CHECKED_PER_RECORD: u32 = 4096;
 
+/// L1-04 (candidate 9): at most this many entries of ONE record are even READ (canonical check, key lookup,
+/// membership). The signature cap above bounds the cryptography; this bounds everything before it. The node's
+/// provider never carries more than `MAX_VOTES_CHECKED_PER_RECORD`, and only whole heights.
+pub const MAX_VOTES_EXAMINED_PER_RECORD: u32 = 2 * MAX_VOTES_CHECKED_PER_RECORD;
+
 /// A committee finality vote, re-verifiable on-chain. Mirrors the node's `finality.rs` `Vote`: an sr25519
 /// signature by `signer` over the canonical payload `height ‖ block_hash`. Carried inside the inherent so
 /// the pallet VERIFIES rather than trusts the author (contract (c), STRONG anti-gaming — this feeds money).
@@ -439,30 +444,45 @@ pub mod pallet {
                 g[..n].copy_from_slice(&b[..n]);
                 g
             };
-            let mut max_h = cursor;
             let mut counted: u32 = 0;
             let mut sig_checks: u32 = 0;
             let mut ignored: u32 = 0;
-            // REPLAY GUARD (audit C3): the cursor only advances AFTER this loop, so within a
-            // SINGLE record the same (height, voter) vote could be listed many times and each occurrence
-            // credited — inflating reputation and P-1 reward with no real work. Credit each (height,
-            // resolved cold voter) at most once per record.
-            let mut seen_votes: alloc::collections::BTreeSet<(u64, [u8; 32])> =
-                alloc::collections::BTreeSet::new();
-            for v in record.finality_votes.iter() {
-                if v.height <= cursor {
-                    continue; // already credited in a previous block
+            // L7-01 (candidate 9): a height is credited — and moves the cursor — only when this record carries a
+            // FINALITY CERTIFICATE for it: ≥alpha distinct committee members' valid votes on the block that IS
+            // this chain's block at that height (`frame_system::block_hash`, an ancestor of this block). Before,
+            // one member's valid signature on any hash at any future height pushed `LastCreditedHeight` there and
+            // every honest vote below it was never credited again. An honest record is built from canonical
+            // justifications, which always certify, so it credits exactly as before.
+            // Valid member votes, grouped by height. A set per height is also the C3 replay guard (audit): the
+            // same (height, voter) listed many times counts once. Inserted only AFTER a valid signature, so a
+            // junk-signed entry cannot poison it and block that member's genuine vote.
+            let mut by_height: alloc::collections::BTreeMap<u64, alloc::collections::BTreeSet<[u8; 32]>> =
+                alloc::collections::BTreeMap::new();
+            for (examined, v) in record.finality_votes.iter().enumerate() {
+                if examined as u32 >= super::MAX_VOTES_EXAMINED_PER_RECORD {
+                    // L1-04: bound the work per record BEFORE any lookup — past this, entries are not read.
+                    ignored = ignored.saturating_add(
+                        (record.finality_votes.len() - examined).min(u32::MAX as usize) as u32,
+                    );
+                    break;
                 }
-                // #851 (audit): resolve committee membership BEFORE the expensive sr25519
-                // verify, so a flood of non-member votes carrying junk signatures cannot burn CPU on
-                // cryptography during block import (author/importer DoS). Membership is a cheap storage
-                // read; the signature check is the costly step and now runs only for real members.
-                // Hot→cold (F2 piece 6): the SIGNER of a vote is a hot session key; committee membership
-                // and service credit belong to the COLD account it delegates for (node's `resolve_voter`).
+                if v.height <= cursor || v.height >= now {
+                    continue; // already credited, or not a past block of this chain
+                }
+                if !Self::is_canonical(v.height, &v.block_hash) {
+                    continue; // a vote on another fork's block (or one too old to check) is not finality here
+                }
+                // #851 (audit): resolve committee membership BEFORE the expensive sr25519 verify, so a flood of
+                // non-member votes carrying junk signatures cannot burn CPU on cryptography during import.
+                // Hot→cold (F2 piece 6): the SIGNER of a vote is a hot session key; committee membership and
+                // service credit belong to the COLD account it delegates for (node's `resolve_voter`).
                 // No delegation → the signer votes as itself (direct/dev path).
                 let cold = T::Committee::vote_key_owner(&v.signer).unwrap_or(v.signer);
                 if !Self::is_member(v.height, &cold) {
                     continue; // not in that height's committee → drop BEFORE verifying the signature
+                }
+                if by_height.get(&v.height).map_or(false, |s| s.contains(&cold)) {
+                    continue; // this member is already counted at this height: no second signature check
                 }
                 if sig_checks >= super::MAX_VOTES_CHECKED_PER_RECORD {
                     ignored = ignored.saturating_add(1); // #851 soft cap: counted, never verified
@@ -473,17 +493,22 @@ pub mod pallet {
                 if !Self::verify_vote(&v.signer, &v.sig, &msg) {
                     continue; // forged / invalid signature
                 }
-                // Dedup runs AFTER a valid signature so a junk-sig entry cannot poison the set and
-                // block a member's genuine vote for the same height (C3 replay guard, order-safe).
-                if !seen_votes.insert((v.height, cold)) {
-                    continue; // replay of the same (height, voter) within this record — credit once
+                by_height.entry(v.height).or_default().insert(cold);
+            }
+            let mut max_h = cursor;
+            for (height, voters) in by_height {
+                let k = Self::committee_len(height);
+                // ceil(0.70·k), floored at a strict majority — the node's `alpha` (finality.rs `verify_proof`).
+                let alpha = (((k * 7) + 9) / 10).max((k / 2) + 1) as usize;
+                if k == 0 || voters.len() < alpha {
+                    continue; // no certificate for this height in this record: nothing credited, cursor stays
                 }
-                let who = Self::account_from_bytes(&cold);
-                FinalityVotesInEpoch::<T>::mutate(epoch, &who, |c| *c = c.saturating_add(1));
-                if v.height > max_h {
-                    max_h = v.height;
+                for cold in voters {
+                    let who = Self::account_from_bytes(&cold);
+                    FinalityVotesInEpoch::<T>::mutate(epoch, &who, |c| *c = c.saturating_add(1));
+                    counted = counted.saturating_add(1);
                 }
-                counted = counted.saturating_add(1);
+                max_h = max_h.max(height);
             }
             if max_h > cursor {
                 LastCreditedHeight::<T>::put(max_h);
@@ -565,6 +590,22 @@ pub mod pallet {
         fn is_member(height: u64, who: &[u8; 32]) -> bool {
             let epoch = height / super::COMMITTEE_EPOCH_LENGTH;
             CommitteeForEpoch::<T>::get(epoch).map_or(false, |c| c.iter().any(|m| m == who))
+        }
+
+        /// Seats in the committee that governs `height` (the `k` of the finality quorum).
+        fn committee_len(height: u64) -> u32 {
+            let epoch = height / super::COMMITTEE_EPOCH_LENGTH;
+            CommitteeForEpoch::<T>::get(epoch).map_or(0, |c| c.len() as u32)
+        }
+
+        /// L7-01: is `hash` this chain's block at `height`? `frame_system` keeps the hashes of the last
+        /// `BlockHashCount` blocks; an unknown (zero) hash is never canonical, so a vote older than that window
+        /// is simply not credited (finality that lags 2 400 blocks has bigger problems than a lost credit).
+        fn is_canonical(height: u64, hash: &[u8; 32]) -> bool {
+            let n: BlockNumberFor<T> = height.saturated_into();
+            let h = frame_system::Pallet::<T>::block_hash(n);
+            let b = h.as_ref();
+            b.len() == 32 && b == hash.as_slice() && b.iter().any(|x| *x != 0)
         }
 
         /// CONSUMER API — the measured service of `who` in `epoch`:
@@ -794,9 +835,15 @@ mod tests {
         });
     }
 
-    /// Build a valid signed committee vote for `height` from `pair`.
+    /// This chain's block hash at `height` (seeded in `frame_system::BlockHash`, as block execution does).
+    fn canon(height: u64) -> [u8; 32] {
+        let h = [0x90u8.wrapping_add(height as u8); 32];
+        frame_system::BlockHash::<Test>::insert(height, frame::deps::sp_core::H256::from(h));
+        h
+    }
+    /// Build a valid signed committee vote for `height` from `pair`, on this chain's block at that height.
     fn vote(pair: &sr25519::Pair, height: u64) -> SignedVote {
-        let block_hash = [9u8; 32];
+        let block_hash = canon(height);
         let sig = pair.sign(&signed_message(&test_genesis(), height, &block_hash)).0;
         SignedVote { signer: pair.public().0, sig, height, block_hash }
     }
@@ -811,32 +858,40 @@ mod tests {
         // Junk author (soft-dropped): these tests target the VOTE path only.
         ParticipationRecord { author_key: [7u8; 32], author_sig: [0u8; 64], finality_votes: votes, at_block: at }
     }
+    /// Seat exactly `keys` in the committee that governs `height`.
+    fn seat_all(height: u64, keys: &[[u8; 32]]) {
+        let bv: BoundedVec<[u8; 32], ConstU32<64>> = keys.to_vec().try_into().unwrap();
+        CommitteeForEpoch::<Test>::insert(height / crate::COMMITTEE_EPOCH_LENGTH, bv);
+    }
+    /// Note a record at block `at` (one per block: clears the per-block guard first, like the block hook).
+    fn note_at(at: u64, votes: alloc::vec::Vec<SignedVote>) {
+        System::set_block_number(at);
+        NotedThisBlock::<Test>::kill();
+        assert_ok!(Participation::note_participation(RuntimeOrigin::none(), record_with_votes(votes, at)));
+    }
 
     /// #851: a record padded with junk-signed votes of a REAL committee key stops being verified at
-    /// `MAX_VOTES_CHECKED_PER_RECORD`. Two senses: a genuine vote INSIDE the cap is credited; the same kind of
-    /// genuine vote PAST the cap is not (proves the loop stopped), and the inherent still succeeds (no halt).
+    /// `MAX_VOTES_CHECKED_PER_RECORD`. Two senses: a genuine certificate INSIDE the cap is credited; the same kind
+    /// of genuine vote PAST the cap is not (proves the loop stopped), and the inherent still succeeds (no halt).
     #[test]
     fn vote_cap_851_stops_verifying_but_block_stays_valid() {
         new_test_ext().execute_with(|| {
-            System::set_block_number(1);
             let member = sr25519::Pair::from_seed(&[12u8; 32]);
-            let other = sr25519::Pair::from_seed(&[13u8; 32]);
-            let cepoch = 1 / crate::COMMITTEE_EPOCH_LENGTH;
-            let bv: BoundedVec<[u8; 32], ConstU32<64>> =
-                alloc::vec![member.public().0, other.public().0].try_into().unwrap();
-            CommitteeForEpoch::<Test>::insert(cepoch, bv);
-            let junk = SignedVote { signer: member.public().0, sig: [0u8; 64], height: 1, block_hash: [9u8; 32] };
+            seat_all(1, &[member.public().0]);
+            seat_all(2, &[member.public().0]);
+            let junk = SignedVote { signer: member.public().0, sig: [0u8; 64], height: 1, block_hash: canon(1) };
             let cap = crate::MAX_VOTES_CHECKED_PER_RECORD as usize;
-            // inside the cap: member's genuine vote first, then junk up to exactly the cap
-            let mut votes = alloc::vec![vote(&member, 1)];
-            votes.extend(core::iter::repeat(junk.clone()).take(cap - 1));
-            // past the cap: `other`'s genuine vote, plus 5 more junk
-            votes.push(vote(&other, 1));
-            votes.extend(core::iter::repeat(junk).take(5));
-            assert_ok!(Participation::note_participation(RuntimeOrigin::none(), record_with_votes(votes, 1)));
-            assert_eq!(FinalityVotesInEpoch::<Test>::get(0, acct_of(&member.public().0)), 1, "vote inside the cap is credited");
-            assert_eq!(FinalityVotesInEpoch::<Test>::get(0, acct_of(&other.public().0)), 0, "vote past the cap is NOT examined");
-            System::assert_has_event(crate::Event::VoteCapReached { ignored: 6 }.into());
+            // inside the cap: junk up to one short of the cap, then the member's genuine vote for height 1
+            let mut votes: alloc::vec::Vec<SignedVote> = core::iter::repeat(junk).take(cap - 1).collect();
+            votes.push(vote(&member, 1));
+            // past the cap: the member's genuine vote for height 2 (never verified) + 4 more junk
+            votes.push(vote(&member, 2));
+            let junk2 = SignedVote { signer: member.public().0, sig: [0u8; 64], height: 2, block_hash: canon(2) };
+            votes.extend(core::iter::repeat(junk2).take(4));
+            note_at(3, votes);
+            assert_eq!(FinalityVotesInEpoch::<Test>::get(0, acct_of(&member.public().0)), 1, "certificate inside the cap is credited");
+            assert_eq!(LastCreditedHeight::<Test>::get(), 1, "the height past the cap is NOT examined");
+            System::assert_has_event(crate::Event::VoteCapReached { ignored: 5 }.into());
         });
     }
 
@@ -845,12 +900,10 @@ mod tests {
         // C3 (audit): the SAME (height, voter) vote listed N times in ONE record must credit
         // exactly once — otherwise a block author inflates a voter's service weight (rep + P-1 reward) free.
         new_test_ext().execute_with(|| {
-            System::set_block_number(1);
             let pair = sr25519::Pair::from_seed(&[4u8; 32]);
             seat(1, pair.public().0);
             let v = vote(&pair, 1);
-            let rec = record_with_votes(alloc::vec![v.clone(), v.clone(), v], 1);
-            assert_ok!(Participation::note_participation(RuntimeOrigin::none(), rec));
+            note_at(2, alloc::vec![v.clone(), v.clone(), v]);
             let who = acct_of(&pair.public().0);
             assert_eq!(FinalityVotesInEpoch::<Test>::get(0, who), 1, "replayed vote must credit ONCE");
             assert_eq!(LastCreditedHeight::<Test>::get(), 1);
@@ -863,23 +916,20 @@ mod tests {
         // the old bare `height ‖ hash`, so every real vote was dropped and no finality service was ever
         // credited. Now: v2 for THIS genesis credits; the old payload and a vote for another chain do not.
         new_test_ext().execute_with(|| {
-            System::set_block_number(1);
             let pair = sr25519::Pair::from_seed(&[12u8; 32]);
             seat(1, pair.public().0);
             let who = acct_of(&pair.public().0);
-            let block_hash = [9u8; 32];
+            let block_hash = canon(1);
             let mut legacy = alloc::vec::Vec::new();
             legacy.extend_from_slice(&1u64.to_le_bytes());
             legacy.extend_from_slice(&block_hash);
             let old = SignedVote { signer: pair.public().0, sig: pair.sign(&legacy).0, height: 1, block_hash };
             let foreign = SignedVote {
                 signer: pair.public().0, sig: pair.sign(&signed_message(&[1u8; 32], 1, &block_hash)).0, height: 1, block_hash };
-            assert_ok!(Participation::note_participation(RuntimeOrigin::none(), record_with_votes(alloc::vec![old, foreign], 1)));
+            note_at(2, alloc::vec![old, foreign]);
             assert_eq!(FinalityVotesInEpoch::<Test>::get(0, who), 0, "old payload / other chain must NOT credit");
             assert_eq!(LastCreditedHeight::<Test>::get(), 0);
-            System::set_block_number(2); // one participation record per block (AlreadyNoted otherwise):
-            NotedThisBlock::<Test>::kill(); // what the block boundary hook clears
-            assert_ok!(Participation::note_participation(RuntimeOrigin::none(), record_with_votes(alloc::vec![vote(&pair, 1)], 2)));
+            note_at(3, alloc::vec![vote(&pair, 1)]);
             assert_eq!(FinalityVotesInEpoch::<Test>::get(0, who), 1, "a v2 vote for this genesis must credit");
             assert_eq!(LastCreditedHeight::<Test>::get(), 1);
         });
@@ -890,15 +940,10 @@ mod tests {
         // Two DIFFERENT members voting the same height are both real work: dedup keys on (height, voter),
         // not on height alone — the guard must not eat a second member's genuine vote.
         new_test_ext().execute_with(|| {
-            System::set_block_number(1);
             let a = sr25519::Pair::from_seed(&[5u8; 32]);
             let b = sr25519::Pair::from_seed(&[6u8; 32]);
-            let cepoch = 1 / crate::COMMITTEE_EPOCH_LENGTH;
-            let bv: BoundedVec<[u8; 32], ConstU32<64>> =
-                alloc::vec![a.public().0, b.public().0].try_into().unwrap();
-            CommitteeForEpoch::<Test>::insert(cepoch, bv);
-            let rec = record_with_votes(alloc::vec![vote(&a, 1), vote(&b, 1)], 1);
-            assert_ok!(Participation::note_participation(RuntimeOrigin::none(), rec));
+            seat_all(1, &[a.public().0, b.public().0]);
+            note_at(2, alloc::vec![vote(&a, 1), vote(&b, 1)]);
             assert_eq!(FinalityVotesInEpoch::<Test>::get(0, acct_of(&a.public().0)), 1);
             assert_eq!(FinalityVotesInEpoch::<Test>::get(0, acct_of(&b.public().0)), 1);
         });
@@ -910,13 +955,11 @@ mod tests {
         // (height, voter) placed FIRST must not consume the dedup slot and block the member's
         // genuine vote that follows in the same record.
         new_test_ext().execute_with(|| {
-            System::set_block_number(1);
             let pair = sr25519::Pair::from_seed(&[8u8; 32]);
             seat(1, pair.public().0);
             let mut forged = vote(&pair, 1);
             forged.sig = [0u8; 64]; // junk signature, same (height, signer)
-            let rec = record_with_votes(alloc::vec![forged, vote(&pair, 1)], 1);
-            assert_ok!(Participation::note_participation(RuntimeOrigin::none(), rec));
+            note_at(2, alloc::vec![forged, vote(&pair, 1)]);
             let who = acct_of(&pair.public().0);
             assert_eq!(
                 FinalityVotesInEpoch::<Test>::get(0, who),
@@ -932,14 +975,60 @@ mod tests {
         // signature is even checked — membership gates the expensive sr25519 verify). Even with a
         // fully VALID signature it must credit nothing.
         new_test_ext().execute_with(|| {
-            System::set_block_number(1);
             let member = sr25519::Pair::from_seed(&[10u8; 32]);
             let outsider = sr25519::Pair::from_seed(&[11u8; 32]);
             seat(1, member.public().0); // committee = {member} only
-            let rec = record_with_votes(alloc::vec![vote(&outsider, 1)], 1);
-            assert_ok!(Participation::note_participation(RuntimeOrigin::none(), rec));
+            note_at(2, alloc::vec![vote(&outsider, 1)]);
             assert_eq!(FinalityVotesInEpoch::<Test>::get(0, acct_of(&outsider.public().0)), 0);
             assert_eq!(LastCreditedHeight::<Test>::get(), 0, "dropped vote must not advance the cursor");
+        });
+    }
+
+    /// L7-01: ONE member's valid signature on a future height (or on a hash that is not this chain's block)
+    /// used to push the cursor there, so every honest vote below it was never credited. Now neither moves it.
+    #[test]
+    fn l7_01_lone_or_off_chain_vote_cannot_move_the_cursor() {
+        new_test_ext().execute_with(|| {
+            let a = sr25519::Pair::from_seed(&[21u8; 32]);
+            let b = sr25519::Pair::from_seed(&[22u8; 32]);
+            let c = sr25519::Pair::from_seed(&[23u8; 32]);
+            let keys = [a.public().0, b.public().0, c.public().0];
+            for h in 1..=9 {
+                seat_all(h, &keys);
+            }
+            // future height (≥ the current block): refused even with a perfect signature
+            let mut future = vote(&a, 5);
+            future.sig = a.sign(&signed_message(&test_genesis(), 5, &future.block_hash)).0;
+            // a real height but another fork's block
+            let fork_hash = [0x77u8; 32];
+            let fork = SignedVote {
+                signer: a.public().0, sig: a.sign(&signed_message(&test_genesis(), 2, &fork_hash)).0, height: 2, block_hash: fork_hash };
+            // a canonical height signed by ONE of three members: no certificate (alpha of 3 is 3)
+            note_at(4, alloc::vec![future, fork, vote(&a, 3)]);
+            assert_eq!(LastCreditedHeight::<Test>::get(), 0, "no certificate, no cursor move");
+            assert_eq!(FinalityVotesInEpoch::<Test>::get(0, acct_of(&a.public().0)), 0);
+            // the honest record that follows (the full certificate for heights 1 and 3) is credited in full
+            note_at(5, alloc::vec![vote(&a, 1), vote(&b, 1), vote(&c, 1), vote(&a, 3), vote(&b, 3), vote(&c, 3)]);
+            assert_eq!(LastCreditedHeight::<Test>::get(), 3);
+            for k in [&a, &b, &c] {
+                assert_eq!(FinalityVotesInEpoch::<Test>::get(0, acct_of(&k.public().0)), 2, "two certified heights each");
+            }
+        });
+    }
+
+    /// L1-04: entries past `MAX_VOTES_EXAMINED_PER_RECORD` are not read at all, and the block stays valid.
+    #[test]
+    fn l1_04_entries_past_the_examined_bound_are_not_read() {
+        new_test_ext().execute_with(|| {
+            let member = sr25519::Pair::from_seed(&[24u8; 32]);
+            seat_all(1, &[member.public().0]);
+            let outsider = SignedVote { signer: [3u8; 32], sig: [0u8; 64], height: 1, block_hash: canon(1) };
+            let bound = crate::MAX_VOTES_EXAMINED_PER_RECORD as usize;
+            let mut votes: alloc::vec::Vec<SignedVote> = core::iter::repeat(outsider).take(bound).collect();
+            votes.push(vote(&member, 1)); // genuine, but past the bound
+            note_at(2, votes);
+            assert_eq!(LastCreditedHeight::<Test>::get(), 0, "the entry past the bound was never read");
+            System::assert_has_event(crate::Event::VoteCapReached { ignored: 1 }.into());
         });
     }
 
