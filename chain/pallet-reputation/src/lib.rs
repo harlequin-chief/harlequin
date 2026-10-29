@@ -230,6 +230,21 @@ pub mod pallet {
         ValueQuery,
     >;
 
+    /// Reverse of [`Vouches`] (L1-02, candidate 9): `(target, suit) → voucher → ()`, the sponsors of each
+    /// target in each suit. Kept in lockstep with `Vouches` by `vouch`/`revoke_vouch` (and rebuilt on upgrade),
+    /// so a fraud cascade reads only the sponsors of the account it is at instead of scanning the WHOLE vouch
+    /// graph once per account per level (a cost that grew with society, paid inside a fixed weight).
+    #[pallet::storage]
+    pub type VouchedBy<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        (T::AccountId, Suit),
+        Blake2_128Concat,
+        T::AccountId,
+        (),
+        OptionQuery,
+    >;
+
     /// Last epoch's computed reputation per (account, suit), raw fixed-point i128 (what consensus and
     /// justice READ). Written by the epoch recompute (next increment); read-only between epochs.
     #[pallet::storage]
@@ -616,6 +631,16 @@ pub mod pallet {
                     writes += 1;
                 }
             }
+            // (L1-02) the same, idempotent, for the sponsors index: every edge in `Vouches` has its entry.
+            for (voucher, edges) in Vouches::<T>::iter() {
+                reads += 1;
+                for (target, suit, _) in edges.iter() {
+                    if !VouchedBy::<T>::contains_key((target.clone(), *suit), &voucher) {
+                        VouchedBy::<T>::insert((target.clone(), *suit), &voucher, ());
+                        writes += 1;
+                    }
+                }
+            }
             T::DbWeight::get().reads_writes(reads, writes)
         }
     }
@@ -809,6 +834,7 @@ pub mod pallet {
                     .try_push((target.clone(), suit, weight))
                     .map_err(|_| Error::<T>::TooManyVouches)
             })?;
+            VouchedBy::<T>::insert((target.clone(), suit), &voucher, ());
             // §1.5d probation: stamp when this vouch was FIRST cast, so the cascade can shield a sponsor
             // whose vouch has not yet matured (anti vouch-bomb). Audit (HIGH): an unconditional
             // insert let a sponsor REFRESH the timestamp every `<ProbationWindow` blocks (re-vouch, or
@@ -837,6 +863,7 @@ pub mod pallet {
             Vouches::<T>::mutate(&voucher, |edges| {
                 edges.retain(|(t, s, _)| !(*t == target && *s == suit));
             });
+            VouchedBy::<T>::remove((target.clone(), suit), &voucher);
             Self::deposit_event(Event::VouchRevoked { voucher, target, suit });
             Ok(())
         }
@@ -1048,10 +1075,9 @@ pub mod pallet {
                     if passes_on == 0 {
                         continue;
                     }
-                    for (voucher, edges) in Vouches::<T>::iter() {
-                        if !visited.contains(&voucher)
-                            && edges.iter().any(|(t, s, _)| t == &who && *s == suit)
-                        {
+                    // L1-02: only the sponsors of `who` in `suit`, from the reverse index — not the whole graph.
+                    for voucher in VouchedBy::<T>::iter_key_prefix((who.clone(), suit)) {
+                        if !visited.contains(&voucher) {
                             // §1.5d probation: a vouch younger than the window has not matured → no clawback
                             // to that sponsor yet. Window 0 (default) = off, so behaviour is unchanged.
                             let fresh = !probation.is_zero()
@@ -1393,7 +1419,16 @@ pub mod pallet {
                         *e = e.saturating_add(amount);
                         *e
                     });
-                    let record_id = Self::journal_evidence(&who, Suit::Technical, amount);
+                    // P2-reputation-01 (candidate 9): this runs inside `run_epoch` AFTER the decay and BEFORE
+                    // `Epoch` moves on, so the aggregate takes it at full weight for the epoch that is starting.
+                    // The record must be dated in THAT epoch too: dated now, it read as one epoch old the moment
+                    // the boundary closed (worth ρ·amount while the aggregate held amount).
+                    let record_id = Self::journal_evidence_at(
+                        &who,
+                        Suit::Technical,
+                        amount,
+                        Epoch::<T>::get().saturating_add(1),
+                    );
                     Self::deposit_event(Event::EvidenceRecorded {
                         who,
                         suit: Suit::Technical,
@@ -1411,12 +1446,17 @@ pub mod pallet {
         /// to `Evidence` MUST pass through here — the journal is what makes each admitted piece of
         /// evidence individually disputable before a jury (Art. IX: rectification needs identity).
         fn journal_evidence(who: &T::AccountId, suit: Suit, amount: u128) -> u64 {
+            Self::journal_evidence_at(who, suit, amount, Epoch::<T>::get())
+        }
+
+        /// Journal a record dated in `epoch` (the epoch whose decay it starts from).
+        fn journal_evidence_at(who: &T::AccountId, suit: Suit, amount: u128, epoch: u64) -> u64 {
             let id = NextEvidenceRecordId::<T>::mutate(|n| {
                 let id = *n;
                 *n = n.saturating_add(1);
                 id
             });
-            EvidenceRecords::<T>::insert(id, (who.clone(), suit, amount, Epoch::<T>::get()));
+            EvidenceRecords::<T>::insert(id, (who.clone(), suit, amount, epoch));
             id
         }
 
@@ -1483,9 +1523,29 @@ pub mod pallet {
             if applied > 0 {
                 Self::cascade_slash(culprit, suit, applied, depth);
             }
-            // Strike the falsehoods the verdict named — gone from the journal, unusable in any other case.
-            for id in struck {
-                EvidenceRecords::<T>::remove(id);
+            if applied >= cap {
+                // The whole worth of the named records was rectified: strike them — gone from the journal,
+                // unusable in any other case.
+                for id in struck {
+                    EvidenceRecords::<T>::remove(id);
+                }
+            } else if applied > 0 {
+                // L7-02 (candidate 9): a PARTIAL rectification used to strike every named record anyway, so the
+                // aggregate kept `cap − applied` that no record backed any more (nothing left to rectify it with,
+                // ever). Now each named record shrinks by the same fraction the verdict took; what is left stays
+                // identifiable, keeps decaying from its own epoch and can still be named by another case — and
+                // the total rectified can never exceed what the records were worth.
+                let taken = Permill::from_rational(applied, cap);
+                for id in struck {
+                    if let Some((owner, s, amount, epoch)) = EvidenceRecords::<T>::get(id) {
+                        let left = amount.saturating_sub(taken.mul_ceil(amount));
+                        if left == 0 {
+                            EvidenceRecords::<T>::remove(id);
+                        } else {
+                            EvidenceRecords::<T>::insert(id, (owner, s, left, epoch));
+                        }
+                    }
+                }
             }
             applied
         }
@@ -2152,6 +2212,25 @@ mod tests {
     }
 
     #[test]
+    fn sponsors_index_follows_vouch_and_revoke() {
+        // L1-02: the cascade reads `VouchedBy`; a revoked vouch must leave it, so the ex-sponsor is not hit.
+        new_test_ext().execute_with(|| {
+            make_reputable(1);
+            make_reputable(3);
+            assert_ok!(Reputation::submit_evidence(RuntimeOrigin::root(), 2u64, Suit::Commerce, 100));
+            assert_ok!(Reputation::vouch(RuntimeOrigin::signed(1), 2u64, Suit::Commerce, 1));
+            assert_ok!(Reputation::vouch(RuntimeOrigin::signed(3), 2u64, Suit::Commerce, 1));
+            assert!(crate::VouchedBy::<Test>::contains_key((2u64, Suit::Commerce), 1u64));
+            assert_ok!(Reputation::revoke_vouch(RuntimeOrigin::signed(3), 2u64, Suit::Commerce));
+            assert!(!crate::VouchedBy::<Test>::contains_key((2u64, Suit::Commerce), 3u64));
+            let (s1, s3) = (Evidence::<Test>::get(1u64, Suit::Commerce), Evidence::<Test>::get(3u64, Suit::Commerce));
+            assert_ok!(Reputation::report_fraud(RuntimeOrigin::root(), 2u64, Suit::Commerce, 100, 2));
+            assert!(Evidence::<Test>::get(1u64, Suit::Commerce) < s1, "the standing sponsor answers");
+            assert_eq!(Evidence::<Test>::get(3u64, Suit::Commerce), s3, "the one who revoked does not");
+        });
+    }
+
+    #[test]
     fn vouch_timestamp_never_regresses_so_liability_cannot_be_refreshed() {
         // Audit (HIGH): re-vouching (or revoke+re-vouch) must NOT reset the maturity clock —
         // otherwise a sponsor stays permanently "fresh" and escapes cascade forever. With a window of 50,
@@ -2405,6 +2484,28 @@ mod tests {
     }
 
     #[test]
+    fn partial_rectification_shrinks_the_named_records_instead_of_striking_them() {
+        // L7-02: two records worth 100 each, the verdict takes 50. Before, both records vanished while the
+        // aggregate kept 150 that nothing backed. Now each shrinks by the same fraction (25 %): aggregate and
+        // records agree, and a later case can still rectify what is left — never more than it was worth.
+        new_test_ext().execute_with(|| {
+            assert_ok!(Reputation::submit_evidence(RuntimeOrigin::root(), 2u64, Suit::Commerce, 100));
+            let a = crate::NextEvidenceRecordId::<Test>::get() - 1;
+            assert_ok!(Reputation::submit_evidence(RuntimeOrigin::root(), 2u64, Suit::Commerce, 100));
+            let b = crate::NextEvidenceRecordId::<Test>::get() - 1;
+            let before = Evidence::<Test>::get(2u64, Suit::Commerce);
+            assert_eq!(Reputation::rectify_for_verdict(&2, Suit::Commerce, &[a, b], 50, 2), 50);
+            assert_eq!(Evidence::<Test>::get(2u64, Suit::Commerce), before - 50);
+            let worth = |id| Reputation::evidence_record_current(id).map(|(_, _, w)| w).unwrap_or(0);
+            assert_eq!((worth(a), worth(b)), (75, 75), "each record keeps its share of what was not rectified");
+            assert!(Reputation::owns_evidence(a, &2u64, Suit::Commerce) && Reputation::owns_evidence(b, &2u64, Suit::Commerce));
+            // a second case takes the rest, and no more
+            assert_eq!(Reputation::rectify_for_verdict(&2, Suit::Commerce, &[a, b], 10_000, 2), 150);
+            assert!(!Reputation::owns_evidence(a, &2u64, Suit::Commerce) && !Reputation::owns_evidence(b, &2u64, Suit::Commerce));
+        });
+    }
+
+    #[test]
     fn rectify_without_valid_evidence_touches_nothing() {
         // Gate E6: a verdict that names no (valid) evidence records applies ZERO loss — the standing
         // is untouched; the culprit is only marked (in the justice pallet). Foreign records are inert.
@@ -2458,6 +2559,24 @@ mod tests {
             System::set_block_number(20);
             Reputation::on_initialize(20u64);
             assert_eq!(Evidence::<Test>::get(7u64, Suit::Technical), 2, "decayed, not re-credited");
+        });
+    }
+
+    #[test]
+    fn service_record_is_not_decayed_at_the_boundary_that_credits_it() {
+        // P2-reputation-01: the record and the aggregate agree — 5 right after the crediting boundary (it was
+        // dated one epoch early and read 2), and both decay together at the next one.
+        new_test_ext().execute_with(|| {
+            MockService::set(&vec![(0u64, 7u64, 5u64)]);
+            System::set_block_number(10);
+            Reputation::on_initialize(10u64);
+            let worth = || Reputation::evidence_record_current(0).map(|(_, _, w)| w);
+            assert_eq!(worth(), Some(5), "full worth in the epoch that starts");
+            MockService::set(&vec![]);
+            System::set_block_number(20);
+            Reputation::on_initialize(20u64);
+            assert_eq!(worth(), Some(2), "then it decays with the aggregate (ρ = 0.5, floor)");
+            assert_eq!(Evidence::<Test>::get(7u64, Suit::Technical), 2);
         });
     }
 

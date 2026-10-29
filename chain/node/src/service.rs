@@ -248,6 +248,12 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
     let relay_network = network.clone();
     let relay_sync = sync_service.clone();
     let proof_sync = sync_service.clone();
+    // L6-04: a node behind its own tip keeps asking peers for finality proofs (not only once at start).
+    task_manager.spawn_handle().spawn(
+        "woven-trust-catchup",
+        None,
+        crate::finality::catch_up_loop(client.clone(), sync_service.clone()),
+    );
 
     if config.offchain_worker.enabled {
         let offchain_workers =
@@ -552,9 +558,7 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
                     }
                     // The claim the digest provider turns into the slot digest + seal. Built on `at`, the very
                     // parent the election read: if the tip moved meanwhile, the provider refuses (no wrong block).
-                    if let Ok(mut c) = pending_claim.lock() {
-                        *c = Some((at, slot));
-                    }
+                    crate::authorship::claim(&pending_claim, at, slot);
                     if let Err(e) =
                         sink.try_send(sc_consensus_manual_seal::EngineCommand::SealNewBlock {
                             create_empty: true,

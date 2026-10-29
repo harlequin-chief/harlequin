@@ -296,6 +296,21 @@ pub mod pallet {
                 assert!(fseen.insert(f.clone()), "duplicate account in genesis founder set");
                 assert!(!seen.contains(f), "founder account must not carry a genesis balance");
             }
+            // P2-tokens-01 (candidate 9): the genesis allocation counts against the hard caps, so it must FIT them.
+            // `Minted` used to accumulate with a saturating add and no comparison: a ceremony spec over the cap
+            // would seal a supply the curve says cannot exist. Sum exactly, check both caps, only then write.
+            let total_hlq = self
+                .balances
+                .iter()
+                .try_fold(0u128, |n, (_, hlq, _)| n.checked_add(*hlq))
+                .expect("genesis HLQ total overflows u128");
+            let total_sov = self
+                .balances
+                .iter()
+                .try_fold(0u128, |n, (_, _, sov)| n.checked_add(*sov))
+                .expect("genesis SOV total overflows u128");
+            assert!(total_hlq <= T::HlqCurve::get().cap, "genesis HLQ allocation exceeds the HLQ cap");
+            assert!(total_sov <= T::SovCurve::get().cap, "genesis SOV allocation exceeds the SOV cap");
             let bounded: BoundedVec<T::AccountId, ConstU32<8>> = self
                 .founders
                 .clone()
@@ -1062,6 +1077,27 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "genesis SOV allocation exceeds the SOV cap")]
+    fn genesis_rejects_sov_over_the_cap() {
+        // P2-tokens-01: the allocation counts as minted, so it can never exceed the hard cap (test SOV cap 150).
+        let _ = ext_with_balances(vec![(1, 0, 100), (2, 0, 51)]);
+    }
+
+    #[test]
+    #[should_panic(expected = "genesis HLQ allocation exceeds the HLQ cap")]
+    fn genesis_rejects_hlq_over_the_cap() {
+        let _ = ext_with_balances(vec![(1, 10_001, 0)]);
+    }
+
+    #[test]
+    fn genesis_exactly_at_the_cap_is_accepted() {
+        ext_with_balances(vec![(1, 10_000, 100), (2, 0, 50)]).execute_with(|| {
+            assert_eq!(Minted::<Test>::get(Coin::Hlq), 10_000);
+            assert_eq!(Minted::<Test>::get(Coin::Sov), 150);
+        });
+    }
+
+    #[test]
     fn partial_spend_keeps_the_account_alive() {
         // Draining one coin to zero while the other stays positive must NOT reap or drop the reference.
         ext_with_balances(vec![(1, 100, 7)]).execute_with(|| {
@@ -1311,14 +1347,14 @@ mod tests {
 
     #[test]
     fn genesis_founder_counts_against_the_cap() {
-        ext_with_balances(vec![(1, 500, 200)]).execute_with(|| {
+        ext_with_balances(vec![(1, 500, 120)]).execute_with(|| {
             assert_eq!(Tokens::balance(&1, Coin::Hlq), 500);
-            assert_eq!(Tokens::balance(&1, Coin::Sov), 200);
+            assert_eq!(Tokens::balance(&1, Coin::Sov), 120);
             // declared, not free supply: minted == the allocation, circulating matches
             assert_eq!(Minted::<Test>::get(Coin::Hlq), 500);
-            assert_eq!(Minted::<Test>::get(Coin::Sov), 200);
+            assert_eq!(Minted::<Test>::get(Coin::Sov), 120);
             assert_eq!(Tokens::circulating(Coin::Hlq), 500);
-            assert_eq!(Tokens::circulating(Coin::Sov), 200);
+            assert_eq!(Tokens::circulating(Coin::Sov), 120);
         });
     }
 
@@ -1431,13 +1467,13 @@ mod tests {
     #[test]
     fn balance_of_reads_each_coin_independently() {
         // The two coins are separate ledgers: a read of one must never bleed into the other.
-        ext_with_balances(vec![(1, 500, 200)]).execute_with(|| {
+        ext_with_balances(vec![(1, 500, 120)]).execute_with(|| {
             assert_eq!(Tokens::balance(&1, Coin::Hlq), 500);
-            assert_eq!(Tokens::balance(&1, Coin::Sov), 200);
+            assert_eq!(Tokens::balance(&1, Coin::Sov), 120);
             // moving HLQ leaves SOV untouched
             assert_ok!(Tokens::transfer(RuntimeOrigin::signed(1), Coin::Hlq, 2, 100));
             assert_eq!(Tokens::balance(&1, Coin::Hlq), 400);
-            assert_eq!(Tokens::balance(&1, Coin::Sov), 200);
+            assert_eq!(Tokens::balance(&1, Coin::Sov), 120);
             assert_eq!(Tokens::balance(&2, Coin::Hlq), 100);
             assert_eq!(Tokens::balance(&2, Coin::Sov), 0);
         });

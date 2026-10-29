@@ -75,6 +75,10 @@ const HOPS: usize = 3;
 const REPLAY_CAP: usize = 65_536;
 /// How often the relay re-reads who it is connected to and greets the newcomers.
 const REFRESH: Duration = Duration::from_secs(20);
+/// L2-03 (candidate 9): packets forwarded and not yet answered. Each waits up to the protocol timeout (10 s);
+/// a neighbour feeding packets whose next hop never answers used to grow the queue without limit. Past this,
+/// new packets are dropped (an onion relay may drop: the sender's retry is the end-to-end answer).
+const MAX_SENDS_IN_FLIGHT: usize = 256;
 
 const TARGET: &str = "hlq-sphinx";
 
@@ -174,6 +178,10 @@ struct Relay {
     /// Requests to launch; the task loop moves them to its own `FuturesUnordered` (a field here would keep `relay`
     /// borrowed inside `select!`).
     outbox: Vec<BoxFuture<'static, Done>>,
+    /// Forwarded packets not answered yet (queued in `outbox` or in flight): bounded by `MAX_SENDS_IN_FLIGHT`.
+    sends_in_flight: usize,
+    /// Packets dropped because the bound was reached, since the last time it was logged.
+    dropped_full: u64,
 }
 
 impl Relay {
@@ -189,6 +197,14 @@ impl Relay {
     }
 
     fn send_packet(&mut self, peer: PeerId, packet: Vec<u8>) {
+        if self.sends_in_flight >= MAX_SENDS_IN_FLIGHT {
+            if self.dropped_full == 0 {
+                warn!(target: TARGET, "relay full ({MAX_SENDS_IN_FLIGHT} packets waiting for their next hop): dropping");
+            }
+            self.dropped_full += 1;
+            return;
+        }
+        self.sends_in_flight += 1;
         let mut payload = Vec::with_capacity(packet.len() + 1);
         payload.push(REQ_PACKET);
         payload.extend_from_slice(&packet);
@@ -225,10 +241,16 @@ impl Relay {
                     info!(target: TARGET, "relay: neighbour known, {} with the relay", self.peers.len());
                 }
             },
-            Done::Sent(ok) =>
+            Done::Sent(ok) => {
+                self.sends_in_flight = self.sends_in_flight.saturating_sub(1);
+                if self.dropped_full > 0 && self.sends_in_flight < MAX_SENDS_IN_FLIGHT / 2 {
+                    info!(target: TARGET, "relay has room again ({} packets dropped while full)", self.dropped_full);
+                    self.dropped_full = 0;
+                }
                 if !ok {
                     info!(target: TARGET, "packet out: the next hop did not take it");
-                },
+                }
+            },
             Done::Peers(list) => self.on_peers(list),
         }
     }
@@ -359,6 +381,8 @@ pub async fn run(
         asking: HashSet::new(),
         replay: ReplayCache::new(),
         outbox: Vec::new(),
+        sends_in_flight: 0,
+        dropped_full: 0,
     };
     let mut inflight: FuturesUnordered<BoxFuture<'static, Done>> = FuturesUnordered::new();
     info!(

@@ -257,8 +257,25 @@ impl<H: HeaderT<Hash = H256>> HashWithPost for H {
     }
 }
 
-/// The claim the authoring loop hands to the digest provider: "seal on THIS parent for THIS slot".
-pub type PendingClaim = Arc<Mutex<Option<(H256, u64)>>>;
+/// The claims the authoring loop hands to the digest provider: "seal on THIS parent for THIS slot". A map by
+/// parent, not one slot: manual-seal works its commands one after another, so a second claim made while the
+/// first block is still being built must not overwrite it (that block would be refused and lost).
+pub type PendingClaim = Arc<Mutex<BTreeMap<H256, u64>>>;
+
+/// Claims kept at most (older ones are of parents long gone).
+const MAX_PENDING_CLAIMS: usize = 16;
+
+/// Record a claim (called by the authoring loop right before it asks for a block).
+pub fn claim(pending: &PendingClaim, parent: H256, slot: u64) {
+    if let Ok(mut m) = pending.lock() {
+        m.insert(parent, slot);
+        while m.len() > MAX_PENDING_CLAIMS {
+            // drop the claim of the lowest slot: the oldest one
+            let Some(oldest) = m.iter().min_by_key(|(_, s)| **s).map(|(h, _)| *h) else { break };
+            m.remove(&oldest);
+        }
+    }
+}
 
 /// Manual-seal digest provider of the Woven-Trust author: writes the slot claim and seals the header.
 pub struct SlotClaims {
@@ -274,13 +291,17 @@ impl sc_consensus_manual_seal::consensus::ConsensusDataProvider<Block> for SlotC
         parent: &<Block as BlockT>::Header,
         _inherents: &sp_inherents::InherentData,
     ) -> Result<Digest, sc_consensus_manual_seal::Error> {
-        let claim = *self.pending.lock().map_err(|_| err("slot claim lock poisoned"))?;
-        match claim {
-            Some((hash, slot)) if hash == parent.hash() => {
+        let slot = self
+            .pending
+            .lock()
+            .map_err(|_| err("slot claim lock poisoned"))?
+            .remove(&parent.hash());
+        match slot {
+            Some(slot) => {
                 Ok(Digest { logs: vec![DigestItem::PreRuntime(ENGINE_ID, slot.to_le_bytes().to_vec())] })
             },
-            // The author elected itself on another parent (the tip moved): no block rather than a wrong one.
-            _ => Err(err("no slot claim for this parent")),
+            // No claim for this parent: no block rather than a wrong one.
+            None => Err(err("no slot claim for this parent")),
         }
     }
 
@@ -349,6 +370,21 @@ mod tests {
         // changing anything signed (here the slot) breaks the seal
         let pre2 = header_with_slot(Some(8)).hash();
         assert!(!sr25519::Pair::verify(&sig, &seal_message(&pre2), &leader.public()));
+    }
+
+    #[test]
+    fn claims_are_kept_per_parent_and_bounded() {
+        let p: PendingClaim = Default::default();
+        claim(&p, H256::repeat_byte(1), 10);
+        claim(&p, H256::repeat_byte(2), 11); // a second claim does not overwrite the first
+        assert_eq!(p.lock().unwrap().get(&H256::repeat_byte(1)), Some(&10));
+        for i in 0..40u8 {
+            claim(&p, H256::repeat_byte(100 + i), 100 + i as u64);
+        }
+        let m = p.lock().unwrap();
+        assert_eq!(m.len(), MAX_PENDING_CLAIMS);
+        assert!(m.get(&H256::repeat_byte(139)).is_some(), "the newest survives");
+        assert!(m.get(&H256::repeat_byte(1)).is_none(), "the oldest goes first");
     }
 
     #[test]

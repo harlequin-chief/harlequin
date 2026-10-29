@@ -665,8 +665,11 @@ pub mod pallet {
             // Endurance broken = streak gone: every tracked account that did NOT serve this era is
             // removed (reset to zero). Bounded by accounts holding a live streak — the same
             // per-era O(participants) bucket as the accumulator itself.
+            // L7-06 (candidate 9): membership through a set — `out.iter().any()` per tracked account made this
+            // O(tracked × servers) inside `on_finalize`, which declares no weight.
+            let served: alloc::collections::BTreeSet<&T::AccountId> = out.iter().map(|(s, _, _)| s).collect();
             let broken: alloc::vec::Vec<T::AccountId> = ConsecutiveEras::<T>::iter()
-                .filter(|(who, _)| !out.iter().any(|(s, _, _)| s == who))
+                .filter(|(who, _)| !served.contains(who))
                 .map(|(who, _)| who)
                 .collect();
             for who in broken {

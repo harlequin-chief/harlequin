@@ -1146,9 +1146,15 @@ sealed into genesis at the freeze, after the adversarial audit (Art. XII, Perman
             // Dev-only HLQ float so fee-paying extrinsics are exercisable (fees are charged in HLQ via
             // HlqTxPayment — SPEC-RELAUNCH §2). The real genesis has NO such float: citizens bootstrap
             // through the feeless lane and earn HLQ by service.
+            // Candidate 9 (P2-tokens-01): the float counts as minted and genesis now refuses an allocation over the
+            // HLQ cap. The testnet cap is small (1,000,000 raw, so the cap bites quickly) and 10^12 each did not
+            // fit — it used to seal Minted > cap, i.e. a dev chain born with emission already dead. The float takes
+            // at most HALF the cap, so emission stays observable on dev chains.
+            let per_founder: u128 =
+                1_000_000_000_000u128.min(HlqCurve::get().cap / (2 * founders.len().max(1) as u128));
             let hlq = founders
                 .iter()
-                .map(|f| alloc::format!("[\"{f}\",1000000000000,0]"))
+                .map(|f| alloc::format!("[\"{f}\",{per_founder},0]"))
                 .collect::<Vec<_>>()
                 .join(",");
             // Multisig-upgrade bridge (§3): the first FIVE dev accounts hold the seats (the pallet's

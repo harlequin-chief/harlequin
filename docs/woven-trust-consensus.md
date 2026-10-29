@@ -148,6 +148,15 @@ verifiable randomness (VRF), with probability set by the conservative aggregate 
 is compelled: no function takes root (Art. VI). The false multitude, with reputation zero, never
 enters. And the randomness is verifiable: no one can "grind for luck" until their turn comes.
 
+**Who seals each block (the slot leader, checked by everyone).** Time is cut into slots. For each slot,
+one leader is drawn from the elected committee by a function of the agreed state alone (the beacon and
+the slot number), so every honest node names the same leader. The leader writes the slot into the block
+and seals it with its bound session key. Every node that receives the block recomputes the leader from
+the state of the block's parent and refuses the block if the seal is not that leader's, if the slot does
+not come after the parent's, or if it claims a slot from the future. Until candidate 9 this rule was only
+honoured by the authors themselves; a modified binary could have sealed out of turn and reordered the
+unfinalised tip (never finality itself). Now it is enforced at import, the way Aura enforces its own rule.
+
 **Finality (voting by trust-weighted sampling).** To run on a phone and across the wide mesh, finality
 is reached by repeated sampling, in the manner of Avalanche. The own contribution: the sample is **not
 uniform**, but weighted by reputation and by **independence from those already sampled**, so that a

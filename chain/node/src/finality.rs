@@ -69,10 +69,10 @@ const FINALITY_BETA: u32 = 4;
 /// finality from lagging block production unboundedly. Must be ≥ the blocks produced during one
 /// finalisation (~`beta`). Production = 15 blocks (≈180s at 12s/block, D1 12s re-derivation; lag bounded
 /// to ~`STEP`+`beta`, time-to-finality a few minutes).
-// Production STEP=15: with single-leader authoring (1 block / 6s ≈ 10/min) a finalisation takes
-// ~beta·round ≈ 72s, during which ~12 blocks are produced — so STEP must exceed 12 to keep finality
-// AHEAD of production (15 → ~12.5/min finalised > ~10/min produced). The gap then stabilises ~STEP
-// behind the tip instead of growing without bound (validated: STEP=10 lagged ~10/min vs 8.3/min).
+// Production STEP=15 at the 12 s slot (5 blocks/min; the "1 block / 6 s ≈ 10/min" written here before
+// was the pre-D1 cadence): a finalisation takes ~beta rounds, and STEP must exceed the blocks produced
+// meanwhile so finality stays AHEAD of production; the gap then stabilises ~STEP behind the tip instead of
+// growing without bound (validated at the old cadence: STEP=10 lagged). Canonical table: docs/parameters.md.
 #[cfg(feature = "mainnet")]
 const FINALITY_STEP: u32 = 15;
 #[cfg(not(feature = "mainnet"))]
@@ -1082,6 +1082,72 @@ where
     }
 }
 
+/// How many finality targets to request at once. Eight steps cover a reasonable gap without turning a request
+/// into a flood against peers.
+const MAX_CATCHUP_TARGETS: u32 = 8;
+/// How often a node that is behind asks again (L6-04).
+const CATCHUP_EVERY: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// The next finality targets above the last finalised block, in steps of `FINALITY_STEP` (the heights where
+/// the committee votes), at most `MAX_CATCHUP_TARGETS`, and only blocks this node already has.
+fn catch_up_targets(client: &FullClient) -> Vec<(Hash, NumberFor<Block>)> {
+    let info = client.info();
+    let (finalized, best) = (info.finalized_number, info.best_number);
+    let mut wanted = Vec::new();
+    if best <= finalized {
+        return wanted; // up to date: no proof is missing
+    }
+    let mut height = finalized.saturating_add(FINALITY_STEP);
+    while height <= best && (wanted.len() as u32) < MAX_CATCHUP_TARGETS {
+        // Requesting the proof of a block it doesn't know makes no sense and muddies the diagnosis of whoever
+        // receives it.
+        if let Ok(Some(hash)) = client.block_hash(height) {
+            wanted.push((hash, height));
+        }
+        height = height.saturating_add(FINALITY_STEP);
+    }
+    wanted
+}
+
+/// L6-04 (candidate 9): finality catch-up used to be asked ONCE, at start; a node still behind after those
+/// eight targets waited for whatever proof gossip happened to bring. While the node is more than two steps
+/// behind its own tip and finality did not move since the last look, it asks for the next targets again.
+/// The sync engine de-duplicates requests already in flight, so asking twice costs nothing.
+pub async fn catch_up_loop<L: polkadot_sdk::sc_consensus::JustificationSyncLink<Block>>(
+    client: Arc<FullClient>,
+    link: Arc<L>,
+) {
+    let mut last_finalized = client.info().finalized_number;
+    let mut asked_episode = false;
+    loop {
+        futures_timer::Delay::new(CATCHUP_EVERY).await;
+        let info = client.info();
+        let behind = info.best_number.saturating_sub(info.finalized_number);
+        let moved = info.finalized_number > last_finalized;
+        last_finalized = info.finalized_number;
+        if behind <= 2 * FINALITY_STEP || moved {
+            if asked_episode && behind <= 2 * FINALITY_STEP {
+                log::info!(target: "woven-trust", "finality catch-up: caught up (finalized #{}, tip #{})", info.finalized_number, info.best_number);
+                asked_episode = false;
+            }
+            continue; // near the tip (the gadget and proof gossip cover it) or still progressing
+        }
+        let wanted = catch_up_targets(&client);
+        if !asked_episode {
+            log::info!(
+                target: "woven-trust",
+                "finality catch-up: still {behind} blocks behind with no progress — asking again for {} proofs every {} s",
+                wanted.len(),
+                CATCHUP_EVERY.as_secs()
+            );
+            asked_episode = true;
+        }
+        for (hash, number) in wanted {
+            link.request_justification(&hash, number);
+        }
+    }
+}
+
 /// Justification import: when the network delivers a finality justification for a block (sync / catch-up),
 /// VERIFY its signed-vote proof and only then finalise. This is how a freshly-syncing node accepts
 /// finality from peers WITHOUT trusting them — the proof stands on its own.
@@ -1112,32 +1178,10 @@ impl JustificationImport<Block> for WovenTrustJustificationImport {
     /// of `FINALITY_STEP` — the heights where the committee votes, not every block — capped at
     /// `MAX_CATCHUP_TARGETS` so as not to flood peers nor request what doesn't exist yet.
     ///
-    /// WHAT THIS **DOES NOT** FIX, and must be read before assuming it closes the matter: it asks ONCE,
-    /// at startup. The document is explicit that a node that remains behind has to KEEP
-    /// asking, and that requires wiring it to the gadget's heartbeat. That other half is not here.
+    /// This asks ONCE, at startup. The other half (L6-04, candidate 9) is [`catch_up_loop`]: a node that is
+    /// still behind keeps asking for the next targets every `CATCHUP_EVERY` through the sync link.
     async fn on_start(&mut self) -> Vec<(Hash, NumberFor<Block>)> {
-        /// How many targets to request at once. Eight steps cover a reasonable gap without turning
-        /// startup into a flood of requests against peers.
-        const MAX_CATCHUP_TARGETS: u32 = 8;
-
-        let info = self.client.info();
-        let finalized = info.finalized_number;
-        let best = info.best_number;
-        if best <= finalized {
-            return Vec::new(); // up to date: no proof is missing
-        }
-
-        let mut wanted = Vec::new();
-        let mut height = finalized.saturating_add(FINALITY_STEP);
-        while height <= best && (wanted.len() as u32) < MAX_CATCHUP_TARGETS {
-            // Only request what this node already has on its own chain: requesting the proof of a
-            // block it doesn't know makes no sense and muddies the diagnosis of whoever receives it.
-            if let Ok(Some(hash)) = self.client.block_hash(height) {
-                wanted.push((hash, height));
-            }
-            height = height.saturating_add(FINALITY_STEP);
-        }
-
+        let wanted = catch_up_targets(&self.client);
         if !wanted.is_empty() {
             log::info!(
                 target: "woven-trust",
@@ -1145,8 +1189,8 @@ impl JustificationImport<Block> for WovenTrustJustificationImport {
                 wanted.len(),
                 wanted.first().map(|(_, n)| *n).unwrap_or_default(),
                 wanted.last().map(|(_, n)| *n).unwrap_or_default(),
-                finalized,
-                best,
+                self.client.info().finalized_number,
+                self.client.info().best_number,
             );
         }
         wanted

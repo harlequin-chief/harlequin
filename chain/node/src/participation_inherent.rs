@@ -69,8 +69,10 @@ impl InherentDataProvider for ParticipationInherentProvider {
 ///   exactly right for a keyless dev author.
 /// - votes: for each height in `(on-chain cursor .. finalized]` (capped), the votes decoded from the
 ///   canonical `WTC1` justification stored with that block. Heights without a stored justification
-///   (e.g. finalized via a peer's proof that carried another height's batch) are skipped — the cursor
-///   logic on-chain only advances past what was actually credited.
+///   (e.g. finalized transitively, or via one peer proof that jumped several targets) are skipped, and the
+///   on-chain cursor then moves PAST them to the highest certified height: their votes are not credited
+///   later by anyone. Known and accepted (they may have no certificate anywhere, so the cursor cannot wait
+///   for them); a per-height credited map would remove the loss — open item, not done.
 pub fn provider_for(
     client: &Arc<FullClient>,
     parent_hash: Hash,

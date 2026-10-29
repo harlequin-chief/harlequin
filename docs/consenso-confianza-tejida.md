@@ -145,6 +145,15 @@ verificable (VRF), con probabilidad según el agregado conservador de la reputac
 obligada: ninguna función arraiga (Art. VI). La falsa multitud, con reputación cero, no entra jamás. Y
 el azar es verificable: nadie puede «probar suertes» hasta que le toca.
 
+**Quién sella cada bloque (el líder del turno, comprobado por todos).** El tiempo se corta en turnos. Para
+cada turno se sortea un líder dentro del comité elegido, con una función solo del estado acordado (el faro
+y el número de turno), de modo que todo nodo honrado nombra al mismo. El líder escribe el turno en el
+bloque y lo sella con su clave de sesión atada. Cada nodo que recibe el bloque recalcula el líder con el
+estado del bloque padre y lo rechaza si el sello no es de ese líder, si el turno no es posterior al del
+padre o si reclama un turno del futuro. Hasta el candidato 9 esta regla solo la cumplían los propios
+autores; un binario modificado podía sellar fuera de turno y reordenar la punta sin finalizar (nunca la
+finalidad). Ahora se exige al importar, como hace Aura con la suya.
+
 **La finalidad (voto por muestreo ponderado por confianza).** Para correr en el teléfono y en la malla
 amplia, la finalidad se alcanza por muestreo repetido, al modo de Avalanche. La aportación propia: la
 muestra **no es uniforme**, sino ponderada por reputación y por **independencia respecto a lo ya
