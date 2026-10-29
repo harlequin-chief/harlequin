@@ -1,0 +1,103 @@
+# Build, test and fingerprint the Harlequin node on every push.
+#
+# Three jobs in parallel, each in a clean debian:trixie container with the tree at the canonical path
+# /hlq-build/harlequin (see ops/ci-build.sh — the same script anyone can run locally):
+#   check → compile feedback · x86 → reproducible mainnet artifact (.dist) · test → every workspace's tests
+# The report job writes the outcome to the branch ci-out/<branch> (one commit, replaced each run):
+# status.txt with the source commit and tree, the artifact and its sha, and the log tails. The sha in
+# there is the one anyone can reproduce with ops/ci-build.sh x86.
+name: build
+
+on:
+  push:
+    branches: [main, "ci/**"]
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  node:
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [check, x86, test]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 340
+    steps:
+      - name: Free disk space (the Substrate target dir needs ~40 GB)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache /usr/local/share/boost \
+            /usr/share/swift /usr/local/.ghcup /usr/lib/jvm /opt/microsoft /opt/google /usr/local/share/chromium
+          sudo docker image prune -af >/dev/null
+          df -h /
+      - uses: actions/checkout@v4
+      - name: Place the tree at the canonical path
+        run: |
+          sudo mkdir -p /hlq-build/out
+          sudo cp -a chain /hlq-build/harlequin
+          sudo cp -a ops /hlq-build/ops
+          git rev-parse HEAD | sudo tee /hlq-build/out/source-commit.txt
+          git rev-parse 'HEAD^{tree}' | sudo tee /hlq-build/out/source-tree.txt
+      - name: Run ops/ci-build.sh ${{ matrix.mode }} in Debian 13
+        env:
+          # Debian 13 (trixie) pinned by digest: a moving tag would make an old fingerprint unreproducible.
+          IMAGE: debian:trixie@sha256:2dc419c6d7fe3dad0a2f9fd469c34cc90b0f9ba642d8fde837fe3d7d34a0e7f1
+        run: |
+          set +e
+          sudo docker run --rm -v /hlq-build:/hlq-build "$IMAGE" bash /hlq-build/ops/ci-build.sh ${{ matrix.mode }}
+          rc=$?
+          echo "${{ matrix.mode }} rc=$rc" | sudo tee /hlq-build/out/result-${{ matrix.mode }}.txt
+          df -h /
+          exit $rc
+      - name: Keep the outputs
+        if: always()
+        run: |
+          cd /hlq-build/out
+          sudo sh -c 'for f in *.log; do [ -f "$f" ] && tail -n 400 "$f" > "$f.tail" && rm "$f"; done; true'
+          [ -f harlequin-node.dist ] && sudo zstd -q -19 --rm harlequin-node.dist || true
+          ls -la
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: out-${{ matrix.mode }}
+          path: /hlq-build/out/
+          retention-days: 7
+
+  report:
+    needs: node
+    if: always()
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+      - name: Write the outcome to ci-out/${{ github.ref_name }}
+        env:
+          SRC_BRANCH: ${{ github.ref_name }}
+        run: |
+          mkdir pub && cd pub
+          for d in ../out/out-*; do m=${d##*/out-}; mkdir -p "$m"; cp -a "$d"/. "$m"/; done
+          {
+            echo "source-commit $(cat */source-commit.txt | sort -u | head -1)"
+            echo "source-tree $(cat */source-tree.txt | sort -u | head -1)"
+            cat */result-*.txt 2>/dev/null
+            [ -f x86/SHA256SUMS ] && sed 's/^/sha256 /' x86/SHA256SUMS
+          } > status.txt
+          for m in check x86 test; do grep -q "^$m rc=" status.txt || echo "$m rc=missing" >> status.txt; done
+          cat status.txt
+          git init -q -b out
+          git config user.name Chief
+          git config user.email 254584045+harlequin-chief@users.noreply.github.com
+          git add -A
+          GIT_AUTHOR_DATE="$(date -u +%Y-%m-%dT%H:%M:%S+0000)" GIT_COMMITTER_DATE="$(date -u +%Y-%m-%dT%H:%M:%S+0000)" \
+            git commit -q -m "CI outcome for $(sed -n 's/^source-commit //p' status.txt)"
+          git push -q -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" \
+            "out:refs/heads/ci-out/${SRC_BRANCH}"
+          # the run is red when any job was: the outcome branch is the record, not a reason to look green
+          if grep -Eq ' rc=([1-9]|missing)' status.txt; then echo "::error::a build job failed (see status.txt)"; exit 1; fi
