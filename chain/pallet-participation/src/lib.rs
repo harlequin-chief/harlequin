@@ -60,6 +60,11 @@ pub const MAX_VOTES_CHECKED_PER_RECORD: u32 = 4096;
 /// provider never carries more than `MAX_VOTES_CHECKED_PER_RECORD`, and only whole heights.
 pub const MAX_VOTES_EXAMINED_PER_RECORD: u32 = 2 * MAX_VOTES_CHECKED_PER_RECORD;
 
+/// #1914: credited heights remembered above the floor. Finality targets come every few blocks and the floor
+/// trails the tip by `BlockHashCount` (2 400): 160 targets at the mainnet step of 15, 300 at the testnet step
+/// of 8 — this bound has room for both.
+pub const MAX_RECENTLY_CREDITED: u32 = 512;
+
 /// A committee finality vote, re-verifiable on-chain. Mirrors the node's `finality.rs` `Vote`: an sr25519
 /// signature by `signer` over the canonical payload `height ‖ block_hash`. Carried inside the inherent so
 /// the pallet VERIFIES rather than trusts the author (contract (c), STRONG anti-gaming — this feeds money).
@@ -275,12 +280,23 @@ pub mod pallet {
     #[pallet::storage]
     pub type BlockAuthor<T: Config> = StorageValue<_, T::AccountId, OptionQuery>;
 
-    /// Highest finalized height whose committee votes have already been credited. `note_participation` only
-    /// credits votes for heights ABOVE this and then advances it — so each finalized height is credited
-    /// EXACTLY ONCE, in order, no matter which proposer reports it or whether two records overlap. Idempotent
-    /// + deterministic + double-count-proof via on-chain state (not a fragile per-node local cursor).
+    /// Highest finalized height whose committee votes have been credited (telemetry and tooling; since
+    /// candidate 9 it no longer gates anything — [`CreditFloor`] + [`RecentlyCredited`] do).
     #[pallet::storage]
     pub type LastCreditedHeight<T> = StorageValue<_, u64, ValueQuery>;
+
+    /// #1914 (candidate 9): every height AT or BELOW this is closed — credited, or too old to check (its hash
+    /// left `frame_system`'s window). It follows `now − BlockHashCount`, never a single record: a record that
+    /// carries only a later certificate can no longer make earlier finalised heights uncreditable (which also
+    /// happened, without malice, every time a node caught finality up with one jump and then authored).
+    #[pallet::storage]
+    pub type CreditFloor<T> = StorageValue<_, u64, ValueQuery>;
+
+    /// Heights above [`CreditFloor`] already credited (sorted). Each finalised height is credited EXACTLY ONCE,
+    /// in any order, by whichever record first carries its certificate.
+    #[pallet::storage]
+    pub type RecentlyCredited<T> =
+        StorageValue<_, BoundedVec<u64, ConstU32<{ super::MAX_RECENTLY_CREDITED }>>, ValueQuery>;
 
     /// Per-ERA service rollup: `(era, account) -> accumulated weight`. Written by the epoch fold in
     /// `on_initialize` (ended epoch's counters summed in, then the per-epoch entries removed — bounded
@@ -434,7 +450,13 @@ pub mod pallet {
             // malicious author cannot inflate anyone's service weight.
             // On-chain cursor: credit ONLY heights strictly above the last credited one, then advance to the
             // max valid height seen. Exactly-once per height, dup-proof, deterministic across proposers.
-            let cursor = LastCreditedHeight::<T>::get();
+            // #1914: the floor follows the hash window; what fell under it is pruned from the credited list.
+            let window: u64 = T::BlockHashCount::get().saturated_into::<u64>();
+            let floor = CreditFloor::<T>::get().max(now.saturating_sub(window));
+            let mut credited = RecentlyCredited::<T>::get();
+            credited.retain(|h| *h > floor);
+            let already: alloc::collections::BTreeSet<u64> = credited.iter().copied().collect();
+            let cursor = floor;
             // This chain's genesis hash, bound into every v2 vote (frame_system never prunes block 0's hash).
             let genesis: [u8; 32] = {
                 let h = frame_system::Pallet::<T>::block_hash(BlockNumberFor::<T>::zero());
@@ -466,8 +488,8 @@ pub mod pallet {
                     );
                     break;
                 }
-                if v.height <= cursor || v.height >= now {
-                    continue; // already credited, or not a past block of this chain
+                if v.height <= cursor || v.height >= now || already.contains(&v.height) {
+                    continue; // closed, already credited, or not a past block of this chain
                 }
                 if !Self::is_canonical(v.height, &v.block_hash) {
                     continue; // a vote on another fork's block (or one too old to check) is not finality here
@@ -495,7 +517,8 @@ pub mod pallet {
                 }
                 by_height.entry(v.height).or_default().insert(cold);
             }
-            let mut max_h = cursor;
+            let mut max_h = LastCreditedHeight::<T>::get();
+            let mut floor = floor;
             for (height, voters) in by_height {
                 let k = Self::committee_len(height);
                 // ceil(0.70·k), floored at a strict majority — the node's `alpha` (finality.rs `verify_proof`).
@@ -509,10 +532,19 @@ pub mod pallet {
                     counted = counted.saturating_add(1);
                 }
                 max_h = max_h.max(height);
+                // keep the list sorted; if it is full the oldest entry is closed by raising the floor to it
+                if credited.is_full() {
+                    floor = floor.max(credited.remove(0));
+                }
+                if height > floor {
+                    let at = credited.partition_point(|h| *h < height);
+                    let _ = credited.try_insert(at, height);
+                }
             }
-            if max_h > cursor {
-                LastCreditedHeight::<T>::put(max_h);
-            }
+            LastCreditedHeight::<T>::put(max_h);
+            CreditFloor::<T>::put(floor);
+            credited.retain(|h| *h > floor);
+            RecentlyCredited::<T>::put(credited);
             if ignored > 0 {
                 Self::deposit_event(Event::VoteCapReached { ignored });
             }
@@ -1016,6 +1048,43 @@ mod tests {
             for k in [&a, &b, &c] {
                 assert_eq!(FinalityVotesInEpoch::<Test>::get(0, acct_of(&k.public().0)), 2, "two certified heights each");
             }
+        });
+    }
+
+    /// #1914: a record that carries only a LATER certificate no longer closes the earlier heights — the
+    /// next record that carries them credits them — and no height is ever credited twice.
+    #[test]
+    fn i1914_skipped_height_is_credited_later_and_never_twice() {
+        new_test_ext().execute_with(|| {
+            let a = sr25519::Pair::from_seed(&[31u8; 32]);
+            for h in 1..=9 {
+                seat_all(h, &[a.public().0]);
+            }
+            let who = acct_of(&a.public().0);
+            note_at(5, alloc::vec![vote(&a, 3)]); // only the later certificate
+            assert_eq!(FinalityVotesInEpoch::<Test>::get(0, who), 1);
+            assert_eq!(LastCreditedHeight::<Test>::get(), 3);
+            note_at(6, alloc::vec![vote(&a, 1), vote(&a, 3)]); // the earlier one arrives; 3 again
+            assert_eq!(FinalityVotesInEpoch::<Test>::get(0, who), 2, "height 1 credited late, height 3 not twice");
+            assert_eq!(crate::RecentlyCredited::<Test>::get().into_inner(), alloc::vec![1, 3]);
+        });
+    }
+
+    /// #1914: the floor follows `now − BlockHashCount`; what falls under it leaves the credited list and is closed.
+    #[test]
+    fn i1914_floor_follows_the_hash_window() {
+        new_test_ext().execute_with(|| {
+            let a = sr25519::Pair::from_seed(&[32u8; 32]);
+            seat_all(1, &[a.public().0]);
+            note_at(2, alloc::vec![vote(&a, 1)]);
+            assert_eq!(crate::RecentlyCredited::<Test>::get().into_inner(), alloc::vec![1]);
+            let window: u64 = <Test as frame_system::Config>::BlockHashCount::get();
+            let later = window + 5;
+            seat_all(later - 1, &[a.public().0]);
+            note_at(later, alloc::vec![vote(&a, 1)]); // height 1 is now under the floor
+            assert!(crate::CreditFloor::<Test>::get() >= later - window);
+            assert!(crate::RecentlyCredited::<Test>::get().is_empty(), "pruned under the floor");
+            assert_eq!(FinalityVotesInEpoch::<Test>::get(0, acct_of(&a.public().0)), 1, "not credited again");
         });
     }
 

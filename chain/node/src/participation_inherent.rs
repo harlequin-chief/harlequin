@@ -25,9 +25,8 @@ use std::sync::Arc;
 
 type Hash = <Block as BlockT>::Hash;
 
-/// Finalized heights carried per record, at most: a long-offline author catches the on-chain cursor up
-/// across a few blocks instead of building one unbounded inherent (the cursor advances monotonically,
-/// so nothing is lost — only spread out).
+/// Finalized heights carried per record, at most: an author with many open heights spreads them over a few
+/// blocks instead of building one unbounded inherent (open heights stay open, so nothing is lost).
 const MAX_HEIGHTS_PER_RECORD: u64 = 64;
 
 /// The per-block provider: holds the record built for the block being authored NOW.
@@ -67,12 +66,11 @@ impl InherentDataProvider for ParticipationInherentProvider {
 ///   credits authorship to `vote_key_owner(pubkey)` only after verifying the signature. A node without a
 ///   vote key (dev/instant seal) signs nothing (zero key + zero sig) → the pallet credits nobody, which is
 ///   exactly right for a keyless dev author.
-/// - votes: for each height in `(on-chain cursor .. finalized]` (capped), the votes decoded from the
-///   canonical `WTC1` justification stored with that block. Heights without a stored justification
-///   (e.g. finalized transitively, or via one peer proof that jumped several targets) are skipped, and the
-///   on-chain cursor then moves PAST them to the highest certified height: their votes are not credited
-///   later by anyone. Known and accepted (they may have no certificate anywhere, so the cursor cannot wait
-///   for them); a per-height credited map would remove the loss — open item, not done.
+/// - votes: the finalised heights still open on-chain (above `CreditFloor`, not yet in `RecentlyCredited`),
+///   newest first, each with the votes decoded from the canonical `WTC1` justification stored with that
+///   block. Heights without a stored justification here (finalised transitively, or through one peer proof
+///   that jumped several targets) are simply not carried by THIS node; since #1914 they stay open, so any
+///   other author that has their justification credits them later (until they leave the hash window).
 pub fn provider_for(
     client: &Arc<FullClient>,
     parent_hash: Hash,
@@ -84,24 +82,30 @@ pub fn provider_for(
         .flatten()
         .map(|n| n as u64 + 1)
         .unwrap_or(0);
-    let cursor = client
+    // #1914: what is still open on-chain — the floor and the heights above it already credited. Carry the
+    // justifications of the other finalised heights, newest first, whole heights only, within the caps.
+    let (floor, credited) = client
         .runtime_api()
-        .participation_cursor(parent_hash)
-        .unwrap_or(0);
+        .participation_open(parent_hash)
+        .unwrap_or_default();
+    let credited: std::collections::BTreeSet<u64> = credited.into_iter().collect();
     let finalized = client.info().finalized_number as u64;
     let mut finality_votes: Vec<SignedVote> = Vec::new();
-    let from = cursor.saturating_add(1);
-    let to = finalized.min(cursor.saturating_add(MAX_HEIGHTS_PER_RECORD));
-    for height in from..=to {
-        if let Some(votes) = votes_for_height(client, height) {
-            // Whole heights only, within the pallet's signature cap: since candidate 9 (L7-01) a height is
-            // credited only with its full certificate, so a height cut in half would be carried for nothing.
-            // What does not fit goes in the next block (the on-chain cursor stops at the last credited one).
-            if finality_votes.len() + votes.len() > MAX_VOTES_CHECKED_PER_RECORD as usize {
-                break;
+    let mut heights = 0u64;
+    let mut height = finalized;
+    while height > floor && height < at_block && heights < MAX_HEIGHTS_PER_RECORD {
+        if !credited.contains(&height) {
+            if let Some(votes) = votes_for_height(client, height) {
+                // Whole heights only, within the pallet's signature cap: a height is credited only with its full
+                // certificate (L7-01), so half a height would be carried for nothing. The rest goes next block.
+                if finality_votes.len() + votes.len() > MAX_VOTES_CHECKED_PER_RECORD as usize {
+                    break;
+                }
+                finality_votes.extend(votes);
+                heights += 1;
             }
-            finality_votes.extend(votes);
         }
+        height -= 1;
     }
     // P-1: prove authorship by signing `author_message(at_block)` with the vote key. Keyless (dev) → zero
     // key + zero sig, which the pallet treats as an unverifiable author and simply does not credit.

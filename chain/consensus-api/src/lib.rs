@@ -59,5 +59,10 @@ sp_api::decl_runtime_apis! {
         /// know which canonical justifications to carry in the next block's record — heights AT or
         /// below it would be dropped on-chain anyway (exactly-once cursor).
         fn participation_cursor() -> u64;
+
+        /// (#1914, candidate 9) What is still open for finality credit: the floor (every height at or below it
+        /// is closed) and the heights above it already credited. The inherent provider carries the
+        /// justifications of finalised heights above the floor that are NOT in that list.
+        fn participation_open() -> (u64, Vec<u64>);
     }
 }

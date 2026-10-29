@@ -1376,6 +1376,13 @@ impl_runtime_apis! {
         fn participation_cursor() -> u64 {
             pallet_participation::LastCreditedHeight::<Runtime>::get()
         }
+
+        fn participation_open() -> (u64, Vec<u64>) {
+            (
+                pallet_participation::CreditFloor::<Runtime>::get(),
+                pallet_participation::RecentlyCredited::<Runtime>::get().into_inner(),
+            )
+        }
     }
 
     impl harlequin_tokens_api::TokensApi<Block> for Runtime {
