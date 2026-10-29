@@ -5753,6 +5753,7 @@ dependencies = [
 name = "harlequin-node"
 version = "0.1.0"
 dependencies = [
+ "async-channel 1.9.0",
  "async-trait",
  "clap",
  "consensus-core",
@@ -5764,6 +5765,7 @@ dependencies = [
  "log",
  "pallet-participation",
  "polkadot-sdk",
+ "rand 0.8.6",
  "serde_json",
  "sp-api",
  "sp-block-builder",
@@ -5773,6 +5775,8 @@ dependencies = [
  "sp-io",
  "sp-runtime",
  "sp-timestamp",
+ "sphinx-packet",
+ "x25519-dalek",
 ]
 
 [[package]]
@@ -17990,6 +17994,32 @@ dependencies = [
  "smallvec",
  "sp-arithmetic",
  "sp-debug-derive",
+]
+
+[[package]]
+name = "sphinx-packet"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c26f0c20d909fdda1c5d0ece3973127ca421984d55b000215df365e93722fc6e"
+dependencies = [
+ "aes",
+ "arrayref",
+ "blake2 0.8.1",
+ "bs58",
+ "byteorder",
+ "chacha",
+ "ctr",
+ "curve25519-dalek",
+ "digest 0.10.7",
+ "hkdf",
+ "hmac 0.12.1",
+ "lioness",
+ "rand 0.8.6",
+ "rand_distr",
+ "sha2 0.10.9",
+ "subtle 2.6.1",
+ "x25519-dalek",
+ "zeroize",
 ]
 
 [[package]]
