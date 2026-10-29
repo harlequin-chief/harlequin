@@ -1,0 +1,5 @@
+mode rogue
+source-commit 0737012f239cfffdeecb30d4a19efdb5ad92ba5b
+source-tree 085fbfa78b07387516686136c7e3ae72a0e1aeba
+rc 0
+sha256 c64748ba8fb2a1a203448742eebf7d7b8a53e57ffd42ba99ecb6cdc0f7d4bb62  harlequin-node-LAB-rogue-author
