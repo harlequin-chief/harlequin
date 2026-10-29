@@ -32,7 +32,7 @@ for t in cargo rustc rustdoc; do ln -sf "$(command -v rustup)" "$CARGO_HOME/bin/
 NODE_TC=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' "$TREE/node/rust-toolchain.toml")
 # every channel some workspace pins (node and runtime pin their own), each with the wasm target
 for tc in $(sed -n 's/^channel *= *"\(.*\)"/\1/p' "$TREE"/*/rust-toolchain.toml | sort -u); do
-  rustup toolchain install -q --profile minimal "$tc" --target wasm32v1-none
+  rustup -q toolchain install --profile minimal "$tc" --target wasm32v1-none
 done
 rustup default "$NODE_TC" >/dev/null   # for the workspaces that pin nothing (the lean cores)
 { echo "debian: $(cat /etc/debian_version)"; rustc +"$NODE_TC" -V; cargo +"$NODE_TC" -V
@@ -42,6 +42,16 @@ rustup default "$NODE_TC" >/dev/null   # for the workspaces that pin nothing (th
 # Cargo build jobs: the runner has 4 cores and 16 GB; Substrate linking peaks at ~3 GB per job.
 export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-4}"
 export CARGO_TERM_COLOR=never
+
+# The lock the build actually resolved, back to the caller: a lock that is not in git is a binary nobody can
+# reproduce (it happened once). Compared with the committed one at the end of every mode.
+keep_lock() {
+  cp "$TREE/node/Cargo.lock" "$OUT/node-Cargo.lock" 2>/dev/null || return 0
+  if cmp -s "$OUT/node-Cargo.lock" /hlq-build/out/.committed-node-Cargo.lock; then echo "lock unchanged" > "$OUT/lock.txt"
+  else echo "LOCK CHANGED: commit node-Cargo.lock before calling the build reproducible" | tee "$OUT/lock.txt"; fi
+}
+cp "$TREE/node/Cargo.lock" /hlq-build/out/.committed-node-Cargo.lock 2>/dev/null || true
+trap keep_lock EXIT
 
 case "$MODE" in
   check)
@@ -75,6 +85,11 @@ case "$MODE" in
       ( cd "$d" && cargo test 2>&1 ) | tee -a "$OUT/test.log"
       [ "${PIPESTATUS[0]}" = 0 ] || { rc=1; echo "FAILED: $(basename "$d")" | tee -a "$OUT/test.log"; }
     done
+    # the node's own unit tests (authorship seal, finality proofs, participation record). Its target dir stays
+    # inside node/ (the wasm builder needs it there) and the runtime wasm is not needed for these tests.
+    echo "=== node" | tee -a "$OUT/test.log"
+    ( cd "$TREE/node" && env -u CARGO_TARGET_DIR SKIP_WASM_BUILD=1 cargo test 2>&1 ) | tee -a "$OUT/test.log"
+    [ "${PIPESTATUS[0]}" = 0 ] || { rc=1; echo "FAILED: node" | tee -a "$OUT/test.log"; }
     grep -E '^test result:|^FAILED:' "$OUT/test.log" | tee "$OUT/test-summary.txt"
     exit "$rc"
     ;;
